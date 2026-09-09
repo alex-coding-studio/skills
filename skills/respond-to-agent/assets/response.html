@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Response to Agent</title>
+<style>
+ :root{color-scheme:light dark;--bg:light-dark(#fff,#09090b);--paper:var(--bg);--ink:light-dark(#18181b,#fafafa);--muted:light-dark(#71717a,#a1a1aa);--line:light-dark(#e4e4e7,#27272a);--soft:light-dark(#f4f4f5,#18181b);--accent:var(--ink)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.65 system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:800px;margin:auto;padding:56px 28px 120px}
+h1{font-size:28px;font-weight:600;letter-spacing:-.035em;line-height:1.3;margin:12px 0}
+h2{font-size:17px;font-weight:600;letter-spacing:-.015em;margin:0 0 12px}
+p{margin:10px 0}.muted{color:var(--muted)}.eyebrow{font-size:11px;letter-spacing:.13em;color:var(--muted)}
+article,.overall{padding:28px 0;margin:0;border-bottom:1px solid var(--line)}
+pre,.context{white-space:pre-wrap;overflow-wrap:anywhere}.context{color:var(--muted);margin:12px 0 20px;line-height:1.7}
+pre{font:13px/1.65 ui-monospace,monospace}
+textarea{display:block;resize:vertical;width:100%;min-height:100px;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:10px 12px;font:inherit;margin:8px 0 0;box-shadow:0 1px 2px #00000005}
+textarea:focus-visible,button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--muted);outline-offset:3px}
+button{display:inline-flex;align-items:center;justify-content:center;font:500 13px/1.4 system-ui,sans-serif;min-height:36px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink);padding:8px 14px;cursor:pointer}
+button:hover{background:var(--soft)}.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}.primary:hover{opacity:.85;background:var(--ink)}
+.choice{display:flex;align-items:baseline;gap:10px;padding:8px 0}.choice input{accent-color:var(--ink);margin:0;flex-shrink:0}
+.answer-label{display:block;margin-top:22px;font-weight:500}
+.clear-choice{display:flex;width:max-content;margin:8px 0 0;padding:5px 8px;min-height:30px;border-color:transparent;color:var(--muted);font-size:12px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.footer{position:fixed;bottom:0;left:0;right:0;background:var(--paper);border-top:1px solid var(--line);padding:16px 28px}
+.footer>div{max-width:744px;margin:auto;display:flex;justify-content:space-between;gap:16px;align-items:center}#progress{color:var(--muted);font-size:13px}
+dialog{width:min(800px,calc(100% - 32px));max-height:92dvh;padding:24px;border:1px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);box-shadow:0 16px 64px #0003}dialog::backdrop{background:#0008}
+#editor{height:52dvh;font:13px/1.65 ui-monospace,monospace}#editor-label{display:block;color:var(--muted)}#status{min-height:24px;color:var(--muted);font-size:13px}
+details{margin:24px 0 4px;padding-bottom:20px;border-bottom:1px solid var(--line)}summary{cursor:pointer;color:var(--muted);font-size:13px}label{overflow-wrap:anywhere}#session-note{font-size:12px;margin-top:24px}
+@media(max-width:550px){main{padding:32px 20px 140px}article,.overall{padding:24px 0}h1{font-size:24px}.footer{padding:14px 20px}.footer>div{gap:12px}dialog{padding:20px}textarea{font-size:16px}}
+</style>
+<main>
+<div class="eyebrow">RESPONSE TO AGENT</div>
+<h1 id="title"></h1><p id="intro" class="muted"></p>
+<details><summary id="source-label"></summary><pre id="source"></pre></details>
+<div id="items"></div>
+<section class="overall"><label for="overall" id="overall-label"></label><textarea id="overall"></textarea></section>
+<p id="session-note" class="muted"></p>
+</main>
+<footer class="footer"><div><span id="progress" aria-live="polite"></span><button class="primary" id="respond">Response to Agent</button></div></footer>
+<dialog id="export-dialog" aria-labelledby="export-title">
+<h2 id="export-title">Response to Agent</h2><label id="editor-label" for="editor"></label>
+<textarea id="editor" spellcheck="false"></textarea>
+<p id="status" role="status"></p>
+<div class="actions"><button id="copy" class="primary"></button><button id="download"></button><button id="close"></button></div>
+</dialog>
+<script id="packet" type="application/json">__PACKET_JSON__</script>
+<script>
+'use strict';
+const packet=JSON.parse(document.getElementById('packet').textContent);
+const zh=packet.language==='zh';
+const t=zh?{intro:'逐项回应，也可以留空。最后统一生成答复，复制给 Agent 或保存为 Markdown。',source:'查看原回复',overall:'整体意见（可选）',note:'回答仅保留在当前打开的页面中。刷新或关闭前，请复制或下载答复。',answer:'你的回答',extra:'补充或其他回答（可选）',clear:'清除选择',editor:'Markdown 源码，可直接编辑。复制和保存均使用当前内容。',copy:'复制全文',download:'保存为 .md',close:'关闭',copied:'已复制，可贴回 Agent。',failed:'无法自动复制。已选中文本，请按 ⌘C 或 Ctrl+C 复制。',saved:'已请求浏览器下载。',unanswered:'未回答，不表示同意。',question:'问题',context:'背景',selected:'所选项',reply:'回答',global:'整体意见',regenerate:'回答已变化，重新生成会覆盖你在弹层中的手动修改。要重新生成吗？',rule:'以下为用户逐项回应。未回答的事项不表示同意；请保留附加条件。',count:(n,total)=>`已回应 ${n} / ${total} 项`}:{intro:'Reply point by point or leave items unanswered. Generate one reply to copy to your Agent or save as Markdown.',source:'View original response',overall:'Overall feedback (optional)',note:'Answers stay only in this open page. Copy or download your reply before refreshing or closing.',answer:'Your answer',extra:'Additional or alternative answer (optional)',clear:'Clear selection',editor:'Editable Markdown source. Copy and save both use the current text.',copy:'Copy all',download:'Save as .md',close:'Close',copied:'Copied. Paste it back to your Agent.',failed:'Automatic copy failed. Text is selected; press ⌘C or Ctrl+C.',saved:'Browser download requested.',unanswered:'Unanswered; this does not imply agreement.',question:'Question',context:'Context',selected:'Selected choices',reply:'Answer',global:'Overall feedback',regenerate:'Answers changed. Regenerating will replace your manual edits in this dialog. Regenerate?',rule:'These are the user’s item-by-item replies. Unanswered items do not imply agreement; preserve qualifications.',count:(n,total)=>`Answered ${n} / ${total}`};
+const el=id=>document.getElementById(id);
+const set=(id,value)=>{el(id).textContent=value};
+document.documentElement.lang=packet.language;document.title=packet.title;
+set('title',packet.title);set('intro',t.intro);set('source-label',t.source);set('source',packet.source);set('overall-label',t.overall);set('session-note',t.note);set('editor-label',t.editor);set('copy',t.copy);set('download',t.download);set('close',t.close);
+const controls=new Map();
+function node(tag,text){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n}
+packet.items.forEach((item,index)=>{
+ const article=node('article');article.id='item-'+item.id;
+ article.append(node('h2',`${index+1}. ${item.subject}`));
+ const context=node('div',item.context);context.className='context';article.append(context);
+ const question=node('p',item.question);question.id='question-'+item.id;article.append(question);
+ const choices=[];
+ if(item.kind!=='text'){
+  const group=node('div');group.setAttribute('role','group');group.setAttribute('aria-labelledby',question.id);
+  item.options.forEach((option,i)=>{const label=node('label');label.className='choice';const input=node('input');input.type=item.kind==='single'?'radio':'checkbox';input.name='choice-'+item.id;input.value=String(i);label.append(input,node('span',option));group.append(label);choices.push(input)});
+  article.append(group);const clear=node('button',t.clear);clear.type='button';clear.className='clear-choice';clear.onclick=()=>{choices.forEach(c=>c.checked=false);update()};article.append(clear);
+ }
+ const label=node('label',item.kind==='text'?t.answer:t.extra);label.className='answer-label';label.htmlFor='answer-'+item.id;const text=node('textarea');text.id=label.htmlFor;article.append(label,text);controls.set(item.id,{choices,text});el('items').append(article);
+});
+function answers(){return packet.items.map(item=>{const c=controls.get(item.id);return {item,selected:c.choices.filter(x=>x.checked).map(x=>item.options[Number(x.value)]),text:c.text.value.trim()}})}
+function update(){set('progress',t.count(answers().filter(a=>a.selected.length||a.text).length,packet.items.length))}
+el('items').addEventListener('input',update);update();
+const quote=value=>String(value).split('\n').map(line=>'> '+line).join('\n');
+const inline=value=>value.replace(/[\\`*_{}\[\]<>()#!|]/g,'\\$&').replace(/\r?\n/g,' ');
+function markdown(){
+ const lines=[`# ${inline(packet.title)}`,`ID: ${packet.id}`,'',t.rule,'',`## ${t.global}`,quote(el('overall').value.trim()||t.unanswered),''];
+ answers().forEach(({item,selected,text})=>{
+  lines.push(`## ${inline(item.subject)} [${item.id}]`,'',`### ${t.question}`,quote(item.question),'',`### ${t.context}`,quote(item.context),'');
+  lines.push(`### ${t.reply}`);
+  if(selected.length)lines.push(`${t.selected}:`,...selected.map(o=>'- '+inline(o)));
+  if(text)lines.push(quote(text));
+  if(!selected.length&&!text)lines.push(t.unanswered);
+  lines.push('');
+ });return lines.join('\n');
+}
+let baseline=null;
+el('respond').onclick=()=>{const next=markdown();if(baseline===null||el('editor').value===baseline){el('editor').value=next;baseline=next}else if(next!==baseline){if(window.confirm(t.regenerate)){el('editor').value=next;baseline=next}}set('status','');el('export-dialog').showModal()};
+el('close').onclick=()=>el('export-dialog').close();
+el('copy').onclick=async()=>{try{await navigator.clipboard.writeText(el('editor').value);set('status',t.copied)}catch{el('editor').focus();el('editor').select();set('status',t.failed)}};
+el('download').onclick=()=>{const blob=new Blob([el('editor').value],{type:'text/markdown;charset=utf-8'});const url=URL.createObjectURL(blob);const a=node('a');a.href=url;a.download=packet.id+'-response.md';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);set('status',t.saved)};
+window.addEventListener('beforeunload',event=>{if(el('overall').value||answers().some(a=>a.text||a.selected.length)||el('editor').value){event.preventDefault();event.returnValue=''}});
+</script>
+</html>
