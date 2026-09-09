@@ -8,7 +8,7 @@ The Python process queries GitHub every 45 seconds without model calls. New Read
 
 ## Prerequisites and launch
 
-Requires macOS/Linux Python 3 and `gh` read access through `gh_as admin`. The listener reads GitHub under the explicit admin role, never under whichever account happens to be active. A missing `gh_as` is fatal: falling back to bare `gh` would reintroduce exactly the ambiguity the role selection removes. `install.sh` links `gh_as` into `~/.local/bin` and warns when that directory is not on PATH. Windows is not supported by this version's `fcntl` lock. Never switch GitHub accounts or obtain tokens inside this monitor.
+Requires macOS/Linux Python 3 and `gh` read access through `gh_as admin`. The listener reads GitHub under the explicit admin role, never under whichever account happens to be active. A missing `gh_as` is fatal: falling back to bare `gh` would reintroduce exactly the ambiguity the role selection removes. Follow the public README to configure and link `gh_as` into `~/.local/bin`, and ensure that directory is on PATH. Windows is not supported by this version's `fcntl` lock. Never switch GitHub accounts or obtain tokens inside this monitor.
 
 Start it only through the `Monitor` tool with `persistent: true`. Background Bash notifies once on process exit, so every event before that exit is lost. There is no desktop queue, IPC snapshot adapter or idle probe here: a `Monitor` notification arrives in the session's own conversation instead of being inserted into another task's input queue, so there is no busy-queue echo to gate against.
 
