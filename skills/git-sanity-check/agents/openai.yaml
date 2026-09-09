@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Sanity Check"
+  short_description: "Inspect Git branches and worktrees in a chosen scope"
+  default_prompt: "Use $git-sanity-check to inspect branches and worktrees; ask me for the scan scope if it is not established."
