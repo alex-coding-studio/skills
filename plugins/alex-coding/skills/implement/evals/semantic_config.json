@@ -1,0 +1,27 @@
+{
+  "fallback_positive_concepts": [
+    "workflow"
+  ],
+  "positive_concepts": {
+    "workflow": {
+      "weight": 1,
+      "phrases": [
+        "implement",
+        "实现",
+        "修复"
+      ]
+    }
+  },
+  "negative_concepts": {
+    "other_task": {
+      "weight": 1,
+      "exclusive": true,
+      "phrases": [
+        "plan this",
+        "only review",
+        "explain this",
+        "scaffold"
+      ]
+    }
+  }
+}

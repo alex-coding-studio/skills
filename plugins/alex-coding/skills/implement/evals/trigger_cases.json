@@ -1,0 +1,34 @@
+{
+  "should_trigger": [
+    {
+      "family": "should_trigger-0",
+      "text": "Use alex-coding:implement with this merged planning PR and contract."
+    },
+    {
+      "family": "should_trigger-1",
+      "text": "按已确认需求实现这个修复并交付。"
+    },
+    {
+      "family": "should_trigger-2",
+      "text": "Implement this accepted small direct request."
+    }
+  ],
+  "should_not_trigger": [
+    {
+      "family": "should_not_trigger-0",
+      "text": "Plan this new capability before implementation."
+    },
+    {
+      "family": "should_not_trigger-1",
+      "text": "Only review this pull request."
+    },
+    {
+      "family": "should_not_trigger-2",
+      "text": "Explain this code; do not modify it."
+    },
+    {
+      "family": "should_not_trigger-3",
+      "text": "Create the technical project scaffold."
+    }
+  ]
+}

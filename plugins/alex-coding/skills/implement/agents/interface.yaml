@@ -1,0 +1,21 @@
+interface:
+  display_name: "Implement"
+  short_description: "Project-context-driven implement workflow"
+  default_prompt: "Use alex-coding:implement for this repository task."
+compatibility:
+  canonical_format: "agent-skills"
+  adapter_targets: ["openai", "claude", "generic"]
+  activation:
+    mode: "automatic"
+    paths: []
+  execution:
+    context: "inline"
+    shell: "bash"
+  trust:
+    source_tier: "local"
+    remote_inline_execution: "forbid"
+    remote_metadata_policy: "allow-metadata-only"
+  degradation:
+    openai: "metadata-adapter"
+    claude: "neutral-source-plus-plugin"
+    generic: "neutral-source-with-bundled-references"
