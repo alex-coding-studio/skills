@@ -84,4 +84,4 @@ It reads the registered identity and fresh PR state, rejects a non-merged PR or 
 
 ## Validation
 
-Run `python3 -m unittest discover -s tests -p test_claude_pr_monitor.py -v` from the infrastructure repository.
+Run `python3 -m unittest discover -s tests -p test_author_adapters.py -v` from the public skills repository.

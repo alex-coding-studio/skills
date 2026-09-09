@@ -33,7 +33,7 @@ An explicit repository watch remains active with no open PRs, so it can discover
 
 ## Validation
 
-Run `python3 -m unittest discover -s tests -p test_claude_repo_monitor.py` from the infrastructure repository.
+Run `python3 -m unittest discover -s tests -p test_claude_repo_monitor.py` from the public skills repository.
 
 ## Required Agent acknowledgement
 

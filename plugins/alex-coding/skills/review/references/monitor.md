@@ -34,7 +34,7 @@ An explicit repository watch remains active with no open PRs, so it can discover
 
 ## Validation
 
-Run `python3 -m unittest discover -s tests -p test_codex_repo_monitor.py` from the infrastructure repository. Existing local evidence: a detached ten-second test successfully queued a second turn in the same desktop task, and the Praxis pilot triggered reviews on real new PR/head events. This evidence is installation-specific, not a promise that all Codex distributions expose the same connection.
+Run `python3 -m unittest discover -s tests -p test_codex_repo_monitor.py` from the public skills repository. Existing local evidence: a detached ten-second test successfully queued a second turn in the same desktop task, and the Praxis pilot triggered reviews on real new PR/head events. This evidence is installation-specific, not a promise that all Codex distributions expose the same connection.
 
 ## Required Agent acknowledgement
 
