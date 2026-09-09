@@ -14,6 +14,18 @@ Turn a long Agent response into a local, interactive page. Answer individual mat
 
 Answers live only in the open page. Copy or download your reply before closing or refreshing. Clipboard access depends on the browser; the page selects the text for manual copying when needed.
 
+## git-sanity-check
+
+Inspect Git branches, worktrees, and checkout state across a repository or a directory tree you choose. The Agent asks for the scan scope when you have not supplied it; no machine-specific workspace or saved scope is assumed.
+
+> Use git-sanity-check to inspect all repositories under ~/Projects and ~/Work.
+
+> 用 git-sanity-check 检查一下这个目录下的仓库。
+
+It discovers repositories recursively, handles paths with spaces and linked worktrees, and separates cleanup candidates from active, dirty, or uncertain work. GitHub metadata enriches the report when available; other repositories still receive local checks. It does not perform cleanup. By default it may fetch remote-tracking evidence without pruning; request offline/no-write inspection to use cached refs only.
+
+If `respond-to-agent` is also installed, audits with multiple decisions prefer its interactive reply page. Otherwise the audit produces a normal report; neither skill is a required dependency of the other.
+
 ## Install
 
 Clone this repository:
@@ -23,7 +35,7 @@ git clone https://github.com/alex-coding-studio/skills.git
 cd skills
 ```
 
-Copy `skills/respond-to-agent` into your Agent's personal skill directory. For a fresh installation:
+Copy the skill you want (`skills/respond-to-agent` or `skills/git-sanity-check`) into your Agent's personal skill directory. The examples below install `respond-to-agent`; replace the name with `git-sanity-check` for Git audits. For a fresh installation:
 
 Claude Code:
 
