@@ -9,7 +9,7 @@ General GitHub PR-based planning and implementation, guided by the current repos
 - **`alex-coding:plan`** turns accepted requirements into a delivery contract and documentation PR. After the required review and merge, it returns an Implement prompt bound to the actual full merge commit, contract path and acceptance IDs. It does not start a Worker automatically.
 - **`alex-coding:implement`** consumes that merged contract, writes and verifies the code, opens a code PR and handles author feedback through the project's existing review process. A small settled direct request can bypass Plan; an unfinished Plan-owned contract cannot.
 
-Both skills respect existing human acceptance and merge restrictions. They do not create another reviewer pipeline when the project already has a reviewer. They do not bundle a monitor, credential store or cleanup daemon; configured integrations can be used when available, and unavailable automatic follow-up is reported honestly. Reviewer and monitor integrations may be added separately in a future release.
+Both skills respect existing human acceptance and merge restrictions. They do not create another reviewer pipeline when the project already has a reviewer. The plugin also bundles `alex-coding:monitor` for author feedback, `alex-coding:review` for repository review, their notification and cleanup scripts, and the `gh_as` role helper. Unsupported transports are reported honestly; credentials stay in GitHub CLI.
 
 ### Optional ProjectContext.md
 
@@ -141,3 +141,33 @@ The skill includes its instructions, input contract, generator, offline template
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## PR monitoring and GitHub roles
+
+`alex-coding:monitor` runs one independent listener per named task-owned PR, with separate state, batch and acknowledgement. `alex-coding:review` explicitly watches a repository for review work. Both support Codex desktop queue/IPC and Claude persistent Monitor delivery; see each skill's runtime reference for version-bound requirements. No OS service is installed.
+
+### Configure gh_as
+
+Install GitHub CLI and save the accounts through its normal login flow. Create `~/.config/alex-coding/github-roles.json` (or set `GH_AS_CONFIG` to another file). This contains account names and expected API identities, never tokens:
+
+```json
+{
+  "bot": {"account": "saved-author-account", "login": "expected-author-login"},
+  "admin": {"account": "saved-review-account", "login": "expected-review-login"}
+}
+```
+
+From a persistent clone of this repository, link the helper into PATH. Inspect any existing gh_as before replacing it; this command intentionally refuses an existing destination:
+
+```sh
+mkdir -p ~/.local/bin
+ln -s "$PWD/plugins/alex-coding/scripts/gh_as" ~/.local/bin/gh_as
+gh_as bot api user --jq .login
+gh_as admin api user --jq .login
+```
+
+Ensure `~/.local/bin` is on PATH. The helper supports github.com, validates the actual API identity on every call, uses the selected saved credential only in the child process, refuses aliases/extensions and debug-output flags, and never changes the globally active gh account. Different saved-account and API-login names are supported. Missing/malformed role configuration fails before credential access. Plugin installation alone does not create this PATH link or your account mapping.
+
+### Migration from an older plugin
+
+Keep each existing repository/task/PR identity and state directory. Before retiring an old script cache, inspect all live listeners and claimed batches; handle claimed events with their original acknowledgement contract. Stop only the verified old process and resume the same state with the new adapter. Do not reset ledgers or launch both copies. The namespace changes to alex-coding; state schemas and keys remain compatible. Already queued messages cannot be recalled. Update script paths used by launchers, then verify process and startup output.

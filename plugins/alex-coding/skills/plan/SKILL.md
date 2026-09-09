@@ -31,3 +31,5 @@ Make project-specific pitfalls available to the Worker when relevant: explain th
 6. Stop after giving the user a ready-to-use `alex-coding:implement` prompt. Do not start a Worker or create another task without explicit authorization.
 
 If the accepted contract must change after handoff, publish the revision through the same planning process and explicitly replace the handoff. A moving branch must not silently redefine implementation acceptance.
+
+Use the bundled `alex-coding:monitor` for newly opened task-owned PRs by default unless the user opts out or a project explicitly chooses another compatible mechanism. Read its runtime reference and verify actual startup; unavailable transport is a reported limitation, not permission to invent a background wakeup. `alex-coding:review` remains explicitly activated repository-wide reviewer work, not an author substitute.

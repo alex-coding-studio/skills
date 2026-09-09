@@ -1,7 +1,7 @@
 {
   "name": "alex-coding",
-  "version": "0.1.0+codex.20260909225844",
-  "description": "Project-context-driven planning and implementation through GitHub pull requests",
+  "version": "0.2.0+codex.20260909232035",
+  "description": "Project-context-driven planning, implementation and PR review/feedback monitoring",
   "author": {
     "name": "Alex Coding Studio"
   },

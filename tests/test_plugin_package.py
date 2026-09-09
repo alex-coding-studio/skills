@@ -34,7 +34,7 @@ class PluginPackageTests(unittest.TestCase):
 
     def test_public_plugin_has_no_machine_or_platform_plugin_dependencies(self):
         for source in PLUGIN.rglob("*"):
-            if source.is_file():
+            if source.is_file() and "__pycache__" not in source.parts:
                 text = source.read_text()
                 for private in ["/Users/", "/private/tmp/", "ios-dev-agent:"]:
                     self.assertNotIn(private, text, source)

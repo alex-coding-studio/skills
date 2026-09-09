@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review"
+  short_description: "Watch and review current repository PRs"
+  default_prompt: "Use $review to start PR review monitoring for this repository in the current Codex task."

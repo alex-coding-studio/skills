@@ -1,0 +1,52 @@
+{
+  "should_trigger": [
+    {
+      "family": "explicit_entry",
+      "text": "Use alex-coding:review in this repository."
+    },
+    {
+      "family": "repository_watch",
+      "text": "Watch this repository for new PRs and commits on open PRs, and review them in this Codex task."
+    }
+  ],
+  "should_not_trigger": [
+    {
+      "family": "author_feedback",
+      "text": "Monitor comments and review feedback on the PR I just opened."
+    },
+    {
+      "family": "retrospective",
+      "text": "Use the project retrospective workflow to extract verified learnings from the delivered milestone."
+    },
+    {
+      "family": "one_shot",
+      "text": "Read-only code review PR #42; do not start a monitor."
+    },
+    {
+      "family": "branch_commits",
+      "text": "Watch every local branch commit."
+    }
+  ],
+  "behavior_cases": [
+    {
+      "request": "Use review; two existing Ready PRs, one Draft, one Ready head already approved by the configured reviewer.",
+      "expected": "Inspect only the two unhandled Ready PRs; Draft and approved head do not dispatch."
+    },
+    {
+      "request": "Project AGENTS says invoke alex-coding:review after milestone delivery.",
+      "expected": "Read retro and perform the retrospective; do not launch a monitor."
+    },
+    {
+      "request": "Watcher restarted with an unacknowledged reviewing claim.",
+      "expected": "Preserve the claim, resume or reconcile the work, and do not duplicate dispatch."
+    },
+    {
+      "request": "Explicitly start alex-coding:review under Claude.",
+      "expected": "Use the Claude persistent Monitor adapter for repository review; do not substitute the named-PR author monitor."
+    },
+    {
+      "request": "Review event arrives, but session only authorized local read-only findings.",
+      "expected": "Inspect and prepare findings, acknowledge the outcome, and ask before publishing to GitHub."
+    }
+  ]
+}
