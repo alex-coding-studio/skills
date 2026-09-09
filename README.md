@@ -2,6 +2,58 @@
 
 Practical Agent skills from Alex Coding Studio. Each skill includes the instructions and small tools needed to complete a focused workflow.
 
+## alex-coding plugin
+
+General GitHub PR-based planning and implementation, guided by the current repository rather than a fixed technology stack.
+
+- **`alex-coding:plan`** turns accepted requirements into a delivery contract and documentation PR. After the required review and merge, it returns an Implement prompt bound to the actual full merge commit, contract path and acceptance IDs. It does not start a Worker automatically.
+- **`alex-coding:implement`** consumes that merged contract, writes and verifies the code, opens a code PR and handles author feedback through the project's existing review process. A small settled direct request can bypass Plan; an unfinished Plan-owned contract cannot.
+
+Both skills respect existing human acceptance and merge restrictions. They do not create another reviewer pipeline when the project already has a reviewer. They do not bundle a monitor, credential store or cleanup daemon; configured integrations can be used when available, and unavailable automatic follow-up is reported honestly. Reviewer and monitor integrations may be added separately in a future release.
+
+### Optional ProjectContext.md
+
+A root `ProjectContext.md` gives Agents a concise map of project-specific requirements. It is **optional**. If absent, Plan and Implement use existing repository instructions, README and relevant project documents and continue with their general workflow. They ask only about missing facts that actually block the current task, and do not automatically create a context file.
+
+A [plain example](plugins/alex-coding/examples/ProjectContext.md) covers:
+
+1. Project purpose and technology stack.
+2. Code structure and architectural constraints.
+3. Authoritative requirements and contract locations.
+4. Actual lint, test and build commands.
+5. Human acceptance and existing delivery rules.
+6. Exceptions, open questions and the agreed context-update process.
+
+Reference existing documentation, leave unknowns explicitly undecided, and adapt only what the project needs. The example is not an instruction to change existing rules. Domain-specific setup tools can generate a richer version without changing these general skills.
+
+### Install the plugin
+
+After cloning this repository, install the complete plugin so its shared references are included. Do not copy only the Plan or Implement subdirectory.
+
+Codex, from this repository root:
+
+```sh
+codex plugin marketplace add "$PWD"
+codex plugin add alex-coding@alex-coding-studio
+```
+
+Claude Code:
+
+```sh
+claude plugin marketplace add alex-coding-studio/skills
+claude plugin install alex-coding@alex-coding-studio
+```
+
+Start a new Codex task or restart Claude Code after installation to load the entries. This does not remove separately installed skills or replace an existing platform-specific plugin.
+
+Example requests:
+
+> Use alex-coding:plan to plan this repository change and publish its accepted delivery contract.
+
+> Use alex-coding:implement with this merged planning PR, full merge SHA and contract path.
+
+> 用 alex-coding:implement 修复这个已经确认范围的小问题，并按项目规则验证和交付。
+
 ## respond-to-agent
 
 Turn a long Agent response into a local, interactive page. Answer individual matters, add qualifications, and export one contextual Markdown reply to paste back into your conversation.
@@ -81,6 +133,7 @@ See the [input contract](skills/respond-to-agent/references/input.md) for the pa
 
 ```sh
 python3 -m unittest discover -s skills/respond-to-agent/tests -v
+python3 -m unittest discover -s tests -v
 ```
 
 The skill includes its instructions, input contract, generator, offline template, and focused tests. Generated reports and personal answers do not belong in this repository.

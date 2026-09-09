@@ -1,0 +1,13 @@
+{
+  "name": "alex-coding-studio",
+  "owner": {
+    "name": "Alex Coding Studio"
+  },
+  "plugins": [
+    {
+      "name": "alex-coding",
+      "source": "./plugins/alex-coding",
+      "description": "Project-context-driven planning and implementation through GitHub pull requests"
+    }
+  ]
+}

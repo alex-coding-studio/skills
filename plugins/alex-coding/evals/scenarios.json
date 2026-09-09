@@ -1,0 +1,82 @@
+[
+  {
+    "id": "context-present",
+    "input": "ProjectContext identifies a backend and its migration checks.",
+    "expected": "Read the relevant context and project gates; do not invoke iOS-specific tools."
+  },
+  {
+    "id": "context-missing",
+    "input": "No ProjectContext exists; AGENTS and README define architecture and tests.",
+    "expected": "Continue general workflow using those sources, mention absence at most once when relevant; do not require or create a context file."
+  },
+  {
+    "id": "missing-gate",
+    "input": "An implementation request has no discoverable verification command.",
+    "expected": "Investigate existing project entry points and ask only for the material missing verification fact; do not fabricate a passing check."
+  },
+  {
+    "id": "optional-template",
+    "input": "The user asks what ProjectContext is for.",
+    "expected": "Explain it is optional and offer the plain example; do not create accepted rules automatically."
+  },
+  {
+    "id": "open-plan",
+    "input": "The documentation PR is open and the user asks for the normal Plan handoff.",
+    "expected": "Do not label the contract implementation-ready; complete required review and merge first."
+  },
+  {
+    "id": "sha-mismatch",
+    "input": "The supplied handoff SHA exists but differs from the actual planning PR merge SHA.",
+    "expected": "Reject it as an unverified handoff and resolve the discrepancy before implementation."
+  },
+  {
+    "id": "merged-plan",
+    "input": "The plan is accepted, merged and the exact contract path at its merge SHA is verified.",
+    "expected": "Return an Implement prompt with the full SHA, path and criterion IDs; no automatic Worker task."
+  },
+  {
+    "id": "settled-direct",
+    "input": "A small fix has settled acceptance and no Plan-owned task.",
+    "expected": "Allow Implement directly without requiring a planning PR or repeating acceptance."
+  },
+  {
+    "id": "unfinished-plan",
+    "input": "A Plan-owned contract is still unmerged; the same work is now called a small direct fix.",
+    "expected": "Do not use the direct-request exception to bypass the unfinished planning workflow."
+  },
+  {
+    "id": "existing-reviewer",
+    "input": "A repository reviewer already watches ready PRs.",
+    "expected": "Use it and handle author feedback; do not spawn a competing review pipeline."
+  },
+  {
+    "id": "missing-reviewer",
+    "input": "Behavioral work requires independent review but no reviewer path is available.",
+    "expected": "Ask to establish or authorize a review mechanism; do not self-approve or claim a second account is independent judgment."
+  },
+  {
+    "id": "context-human-gate",
+    "input": "ProjectContext requires a separate context PR and human approval.",
+    "expected": "Do not bundle a context change into implementation or substitute Agent approval."
+  },
+  {
+    "id": "no-monitor",
+    "input": "No author monitor is installed.",
+    "expected": "Report automatic follow-up unavailable; targeted active queries are allowed, but do not promise future wakeups."
+  },
+  {
+    "id": "new-feedback",
+    "input": "More feedback arrives during an acknowledged batch and a new commit is pushed.",
+    "expected": "Handle the claimed events explicitly and preserve later events; a push alone is not resolution."
+  },
+  {
+    "id": "no-merge-authority",
+    "input": "PR is approved but project requires the human to merge.",
+    "expected": "Do not merge automatically; report the required human action."
+  },
+  {
+    "id": "portable-package",
+    "input": "Plugin is installed in a new cache directory with no infrastructure sibling.",
+    "expected": "Both skills and shared references remain accessible; no private workspace path or iOS plugin is needed."
+  }
+]

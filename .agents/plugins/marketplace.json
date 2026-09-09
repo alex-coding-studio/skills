@@ -1,0 +1,20 @@
+{
+  "name": "alex-coding-studio",
+  "interface": {
+    "displayName": "Alex Coding Studio"
+  },
+  "plugins": [
+    {
+      "name": "alex-coding",
+      "source": {
+        "source": "local",
+        "path": "./plugins/alex-coding"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

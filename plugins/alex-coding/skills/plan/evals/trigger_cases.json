@@ -1,0 +1,34 @@
+{
+  "should_trigger": [
+    {
+      "family": "should_trigger-0",
+      "text": "Use alex-coding:plan to plan a repository change and its acceptance contract."
+    },
+    {
+      "family": "should_trigger-1",
+      "text": "先规划这次交付的范围和验收标准。"
+    },
+    {
+      "family": "should_trigger-2",
+      "text": "Define a delivery contract before writing implementation code."
+    }
+  ],
+  "should_not_trigger": [
+    {
+      "family": "should_not_trigger-0",
+      "text": "Implement the accepted contract now."
+    },
+    {
+      "family": "should_not_trigger-1",
+      "text": "Read-only review this PR; do not plan new work."
+    },
+    {
+      "family": "should_not_trigger-2",
+      "text": "Bootstrap a new iOS project."
+    },
+    {
+      "family": "should_not_trigger-3",
+      "text": "Translate the README without changing requirements."
+    }
+  ]
+}

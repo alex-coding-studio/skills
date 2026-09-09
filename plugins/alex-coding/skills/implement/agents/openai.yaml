@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement"
+  short_description: "Project-context-driven implement workflow"
+  default_prompt: "Use alex-coding:implement for this repository task."
