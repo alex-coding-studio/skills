@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+import json
+from pathlib import Path
+import os
+import shutil
+import subprocess
+import sys
+
+ROLES = frozenset({'bot', 'admin'})
+
+ALLOWED = frozenset({
+    'api', 'attestation', 'browse', 'discussion', 'gist', 'issue', 'label',
+    'licenses', 'org', 'pr', 'project', 'release', 'repo', 'ruleset',
+    'search', 'secret', 'ssh-key', 'gpg-key', 'status', 'variable',
+})
+
+
+def fail(message):
+    print(f'gh_as: {message}', file=sys.stderr)
+    raise SystemExit(1)
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args == ['--help']:
+        print('Usage: gh_as <bot|admin> <gh command> [arguments...]')
+        print('Uses the saved github.com credential for one command without switching accounts.')
+        print('Configure saved account names and expected API logins in ~/.config/alex-coding/github-roles.json (or GH_AS_CONFIG).')
+        print('Examples: gh_as bot api user --jq .login')
+        print('          gh_as admin pr review 123 --approve')
+        return
+    if len(args) < 2 or args[0] not in ROLES:
+        fail('specify bot or admin followed by a gh command')
+    role, command = args[0], args[1:]
+    if command[0] not in ALLOWED:
+        fail(f'{command[0]!r} is not an allowed gh command; only built-in commands in the allow list run under a role, '
+             'because gh dispatches any other name to a configured alias or extension')
+    for index, value in enumerate(command):
+        if value == '--hostname':
+            if index + 1 >= len(command) or command[index + 1] != 'github.com':
+                fail('only github.com is supported')
+        if value.startswith('--hostname=') and value != '--hostname=github.com':
+            fail('only github.com is supported')
+        if value in ('--verbose', '--show-token'):
+            fail('credential/debug output flags are not supported')
+    executable = shutil.which('gh')
+    if not executable:
+        fail('GitHub CLI was not found on PATH')
+    env = os.environ.copy()
+    for key in ('GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN',
+                'GITHUB_ENTERPRISE_TOKEN', 'GH_DEBUG', 'DEBUG'):
+        env.pop(key, None)
+    env['GH_HOST'] = 'github.com'
+    env['GH_PROMPT_DISABLED'] = '1'
+    config = Path(os.environ.get('GH_AS_CONFIG', str(Path.home() / '.config/alex-coding/github-roles.json'))).expanduser()
+    try:
+        roles = json.loads(config.read_text())
+        selected = roles[role]
+        account, expected = selected['account'], selected['login']
+        if not all(isinstance(value, str) and value.strip() and not any(c.isspace() for c in value) for value in (account, expected)):
+            raise ValueError('invalid role values')
+    except (OSError, ValueError, KeyError, TypeError):
+        fail('configure account and login for the selected role in GH_AS_CONFIG or ~/.config/alex-coding/github-roles.json; no command was executed')
+    try:
+        credential = subprocess.run(
+            [executable, 'auth', 'token', '--hostname', 'github.com', '--user', account],
+            env=env, capture_output=True, text=True, timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        fail(f'could not read the saved credential for {role}')
+    token = credential.stdout.strip()
+    if credential.returncode or not token or len(token.splitlines()) != 1:
+        fail(f'no usable saved credential for {role}; no command was executed')
+    env['GH_TOKEN'] = token
+    try:
+        identity = subprocess.run(
+            [executable, 'api', '--hostname', 'github.com', 'user', '--jq', '.login'],
+            env=env, capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        fail(f'could not verify the {role} API identity; no command was executed')
+    if identity.returncode or identity.stdout.strip().casefold() != expected.casefold():
+        fail(f'credential did not verify as {expected}; no command was executed')
+    os.execve(executable, [executable, *command], env)
+
+
+if __name__ == '__main__':
+    main()

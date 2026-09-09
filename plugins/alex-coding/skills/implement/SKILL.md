@@ -29,3 +29,5 @@ Read [project context](../../references/project-context.md) and [delivery policy
 8. Recheck reviewed head, required approvals, checks, blocking feedback and mergeability. Merge only under existing authorization. A new head invalidates a previous head-bound approval. Use the configured completion/cleanup mechanism after a verified merge and preserve unsafe or unproven local work.
 
 Report the delivered result, exact verification evidence, PR and remaining user-owned acceptance or cleanup limits. Do not infer a milestone transition or retrospective from merge; those are project-specific workflows.
+
+Use the bundled `alex-coding:monitor` for newly opened task-owned PRs by default unless the user opts out or a project explicitly chooses another compatible mechanism. Read its runtime reference and verify actual startup; unavailable transport is a reported limitation, not permission to invent a background wakeup. `alex-coding:review` remains explicitly activated repository-wide reviewer work, not an author substitute.
