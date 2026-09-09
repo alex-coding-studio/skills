@@ -52,7 +52,7 @@ Example requests:
 
 > Use alex-coding:implement with this merged planning PR, full merge SHA and contract path.
 
-> 用 alex-coding:implement 修复这个已经确认范围的小问题，并按项目规则验证和交付。
+> Use alex-coding:implement to fix this small, agreed-scope issue, then verify and deliver it according to the project rules.
 
 ## respond-to-agent
 
@@ -72,7 +72,7 @@ Inspect Git branches, worktrees, and checkout state across a repository or a dir
 
 > Use git-sanity-check to inspect all repositories under ~/Projects and ~/Work.
 
-> 用 git-sanity-check 检查一下这个目录下的仓库。
+> Use git-sanity-check to inspect the repositories under this directory.
 
 It discovers repositories recursively, handles paths with spaces and linked worktrees, and separates cleanup candidates from active, dirty, or uncertain work. GitHub metadata enriches the report when available; other repositories still receive local checks. It does not perform cleanup. By default it may fetch remote-tracking evidence without pruning; request offline/no-write inspection to use cached refs only.
 
@@ -113,7 +113,7 @@ Ask your Agent:
 
 Or:
 
-> 用 respond-to-agent 加工一下你刚才的回答。
+> Use respond-to-agent to make your previous response easier to answer point by point.
 
 The Agent prepares a JSON packet, generates an HTML file, and gives you a link to open locally. Fill in any items you want, click **Response to Agent**, edit the Markdown if needed, and copy or download it. Paste that reply into the original conversation.
 

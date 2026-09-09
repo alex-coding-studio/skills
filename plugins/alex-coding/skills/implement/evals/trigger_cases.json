@@ -6,7 +6,7 @@
     },
     {
       "family": "should_trigger-1",
-      "text": "按已确认需求实现这个修复并交付。"
+      "text": "Implement and deliver this fix using the accepted requirements."
     },
     {
       "family": "should_trigger-2",
