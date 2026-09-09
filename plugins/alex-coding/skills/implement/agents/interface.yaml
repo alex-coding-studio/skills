@@ -15,3 +15,7 @@ compatibility:
     source_tier: "local"
     remote_inline_execution: "forbid"
     remote_metadata_policy: "allow-metadata-only"
+  degradation:
+    openai: "metadata-adapter"
+    claude: "neutral-source-plus-plugin"
+    generic: "neutral-source-with-bundled-references"
