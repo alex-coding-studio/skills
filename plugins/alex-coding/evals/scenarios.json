@@ -78,5 +78,50 @@
     "id": "portable-package",
     "input": "Plugin is installed in a new cache directory with no infrastructure sibling.",
     "expected": "Both skills and shared references remain accessible; no private workspace path or iOS plugin is needed."
+  },
+  {
+    "id": "user-markdown-source",
+    "input": "The user supplies accepted Markdown without Semina.",
+    "expected": "Freeze that readable input and revision/hash, translate to numbered contract with source mapping; no Semina dependency or repeated wording approval."
+  },
+  {
+    "id": "accepted-chat-source",
+    "input": "Requirements are explicitly accepted in chat, with one unanswered question.",
+    "expected": "Capture attributed accepted statements/proposal excerpts faithfully; keep the unanswered question unresolved, not as acceptance."
+  },
+  {
+    "id": "source-fidelity",
+    "input": "The contract omits a refusal condition from the accepted source but is internally consistent.",
+    "expected": "Planning review blocks on changed meaning or omission by comparing source to clauses."
+  },
+  {
+    "id": "hash-without-content",
+    "input": "Only an input hash is supplied and the reviewer cannot access source content.",
+    "expected": "Report the evidence gap; do not approve translation fidelity or publish private content without authorization."
+  },
+  {
+    "id": "agent-contract-format",
+    "input": "User accepted product behavior and does not want another human prose review.",
+    "expected": "Plan writes compact unambiguous clauses and mapping, independently reviews fidelity, and asks only about materially unresolved product meaning."
+  },
+  {
+    "id": "worker-case-ids",
+    "input": "A merged rule MOVE-02 has three unit-testable outcomes.",
+    "expected": "Worker derives numbered cases before implementation, preserves MOVE-02/Txx IDs in test name/display form and mapping, and uses natural Red/Green for missing behavior."
+  },
+  {
+    "id": "existing-green-case",
+    "input": "An existing correct test already proves one accepted case.",
+    "expected": "Reuse and label/map it rather than duplicate it or mutate correct behavior to force Red."
+  },
+  {
+    "id": "ui-deferred",
+    "input": "A contract includes UI acceptance but no UI automation was requested.",
+    "expected": "Prioritize unit-testable cases, report UI evidence as pending/user-owned, and do not add CI UI jobs or claim UI acceptance from unit results."
+  },
+  {
+    "id": "visible-subagent-handoff",
+    "input": "User asks Plan to give the merged contract directly to a subagent.",
+    "expected": "Always output the full verified handoff prompt visibly and pass that same packet; do not replace it with a spawn acknowledgement."
   }
 ]

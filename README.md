@@ -171,3 +171,11 @@ Ensure `~/.local/bin` is on PATH. The helper supports github.com, validates the 
 ### Migration from an older plugin
 
 Keep each existing repository/task/PR identity and state directory. Before retiring an old script cache, inspect all live listeners and claimed batches; handle claimed events with their original acknowledgement contract. Stop only the verified old process and resume the same state with the new adapter. Do not reset ledgers or launch both copies. The namespace changes to alex-coding; state schemas and keys remain compatible. Already queued messages cannot be recalled. Update script paths used by launchers, then verify process and startup output.
+
+## From accepted source to tested code
+
+Plan accepts a user-confirmed Markdown file, document export or explicitly accepted discussion; no particular product-context application is required. It fixes readable source evidence and its revision/hash, translates accepted requirements into numbered Agent-readable clauses, and records the source mapping. The planning reviewer checks fidelity to that source, not just contract prose. Material ambiguities return to the user; equivalent technical wording does not need repeat approval. Private inputs are not automatically published.
+
+Implement derives numbered acceptance cases from the merged clauses before implementation, then prioritizes unit-testable cases through natural Red/Green work. Test names or display names retain case IDs (for example `MOVE-02/T03`) so failures trace back to requirements. Existing adequate tests can be mapped and labeled instead of duplicated. Integration and human/UI evidence remain distinct; UI automation and CI UI jobs are not added by default.
+
+Plan always emits the full handoff prompt, even when the user explicitly asks to pass it to a subagent. Contract IDs, source evidence and mapping travel with the fixed merge SHA and contract path.
