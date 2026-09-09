@@ -10,7 +10,7 @@ PR authors cannot independently approve their own work. A technical ability to p
 
 ## Review ownership
 
-Use the project's configured repository reviewer, service or human review path. An existing review watcher remains the owner; authors publish their PR and handle feedback rather than silently spawning another reviewer pipeline. Planning PRs need review of scope, consistency and testability. Implementation PRs need proportionate review of actual behavior and evidence.
+Use the project's configured repository reviewer, service or human review path. An existing review watcher remains the owner; authors publish their PR and handle feedback rather than silently spawning another reviewer pipeline. Planning PRs need review against the exact accepted source and its clause mapping, checking omissions, added behavior and changed meaning as well as consistency and testability. Implementation PRs need proportionate review of clause-to-case-to-test traceability, meaningful assertions and actual implementation evidence. Neither matching IDs nor a self-consistent contract substitutes for checking the underlying evidence.
 
 If no reviewer path exists for review-required work, ask the user to establish one or explicitly authorize an available independent review mechanism. Do not self-approve, invent a review service or install/start a watcher merely to bypass that decision. An explicit project policy may waive independent review for mechanical low-risk work; the author still verifies scope, checks and merge authority.
 

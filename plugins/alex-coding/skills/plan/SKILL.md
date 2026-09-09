@@ -15,11 +15,11 @@ Own the requested outcome, scope and delivery contract. `alex-coding:implement` 
 
 ## Build the contract
 
-Read [contract.md](references/contract.md). Define observable outcomes, exclusions, source anchors, acceptance criteria and the evidence each criterion requires. Use the existing project documentation location; otherwise propose a simple repository-relative contract path rather than a new documentation system.
+Read [source-fidelity.md](references/source-fidelity.md) and [contract.md](references/contract.md). Freeze the accepted input and preserve a source-to-clause mapping. Define observable outcomes, exclusions, source anchors, acceptance criteria and the evidence each criterion requires. Use the existing project documentation location; otherwise propose a simple repository-relative contract path rather than a new documentation system.
 
 Apply platform-specific guidance from ProjectContext and its relevant references. Preserve explicit project choices. Do not introduce an iOS, web or backend checklist automatically, require EXPERIENCE.md or milestones, prescribe implementation internals without a real constraint, or add features to make the plan look complete.
 
-Make project-specific pitfalls available to the Worker when relevant: explain the symptom, applicability and source. Unrelated pitfalls are not extra requirements. Review the contract for contradictory or untestable acceptance before publication. A planning review assesses the documents, not the correctness of code that has not been written.
+Make project-specific pitfalls available to the Worker when relevant: explain the symptom, applicability and source. Unrelated pitfalls are not extra requirements. Review the contract for contradictory or untestable acceptance before publication. A planning review compares the frozen source against the numbered contract, checking completeness and unchanged meaning. It does not establish the correctness of code that has not been written.
 
 ## Publish and hand off
 

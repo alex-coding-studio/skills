@@ -5,9 +5,9 @@ Use the project's existing document structure. A contract should let another Age
 Include:
 
 1. Outcome and task identity.
-2. Relevant context and authoritative source paths/revisions; label working-tree evidence honestly.
+2. Frozen accepted source identity, readable evidence and revision/hash, plus a compact source-to-clause mapping; follow source-fidelity.md. Label working-tree evidence honestly.
 3. In-scope behavior and explicit exclusions.
-4. Stable criterion IDs with observable acceptance, including negative outcomes only when the accepted requirement needs them.
+4. Stable rule/criterion IDs with unambiguous observable behavior, conditions, exclusions and exceptions. These define correctness; the Worker derives executable acceptance cases without redefining that meaning.
 5. Verification method for each criterion, distinguishing automated checks, integration evidence and human acceptance.
 6. Relevant architecture, compatibility and dependency constraints; do not specify types or algorithms without a real requirement.
 7. Known applicable pitfalls and their sources.
@@ -16,3 +16,5 @@ Include:
 Use representative cases where they establish accepted behavior; avoid speculative Cartesian-product test matrices. Do not add scope to make an assertion easy. Contract prose is not implementation evidence.
 
 The contract itself cannot contain its own future merge SHA. Record source revisions in the document and bind the final document path to the actual merge SHA in the post-merge handoff.
+
+Write for Agent execution rather than a second human-facing product narrative. Numbered clauses and compact mappings are appropriate; compression must not remove necessary context or introduce ambiguity. Preserve existing capability contracts and their IDs when the delivery slice references them instead of duplicating their authority.

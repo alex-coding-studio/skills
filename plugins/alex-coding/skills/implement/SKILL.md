@@ -20,7 +20,7 @@ Read [project context](../../references/project-context.md) and [delivery policy
 ## Implement and verify
 
 1. Resolve current/default branches and worktree state. Use a work branch and isolate concurrent work when needed; never overwrite unrelated changes.
-2. Read [execution.md](references/execution.md). Implement only accepted behavior, using the project's existing code organization and specialist guidance. Consult relevant risk/pitfall references identified by Plan.
+2. Read [execution.md](references/execution.md). Derive the numbered acceptance checklist before writing implementation code, retain the contract clause IDs in executable test names/display names, and prioritize unit-testable cases. Implement only accepted behavior, using the project's existing code organization and specialist guidance. Consult relevant risk/pitfall references identified by Plan.
 3. Use meaningful tests and the project's declared verification entry points. Record evidence against the exact revision. Do not run platform-specific tools or require a device unless project rules and user authorization call for them.
 4. Obtain explicit user acceptance when the task's criteria require human or subjective evaluation. A passing build or screenshot does not supply that acceptance. Follow the project's PR timing rule for UI or other human-gated work.
 5. Open a ready code PR using the configured author identity; include outcome, scope, verification and material limits. Use Draft only when requested or explicitly required by an accepted project workflow.
