@@ -1,6 +1,7 @@
 import fcntl
 import json
 import os
+import re
 import sys
 from pathlib import Path
 import subprocess
@@ -28,24 +29,62 @@ def _worktrees(path):
 REGENERABLE = frozenset({'__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_cache'})
 
 
-def _regenerable(line):
+def _generated_project_files(path, tracked):
+    spec = path / 'project.yml'
+    if 'project.yml' not in tracked or spec.is_symlink():
+        return set()
+    text = spec.read_text()
+    name = re.search(r'^name: ([A-Za-z][A-Za-z0-9_-]*)\s*$', text, re.MULTILINE)
+    if not name:
+        return set()
+    project = name.group(1)
+    schemes = {project}
+    section = re.search(r'^schemes:\s*\n((?:[ \t].*\n|\n)*)', text, re.MULTILINE)
+    if section:
+        schemes.update(re.findall(r'^  ([A-Za-z][A-Za-z0-9 _-]*):\s*$', section.group(1), re.MULTILINE))
+    prefix = project + '.xcodeproj/'
+    return {prefix + 'project.pbxproj', prefix + 'project.xcworkspace/contents.xcworkspacedata',
+            *(prefix + 'xcshareddata/xcschemes/' + name + '.xcscheme' for name in schemes)}
+
+
+def _regenerable(line, path=None, tracked=None, generated=None):
     if line[:2] != '!!':
         return False
-    entry = line[3:].strip()
-    if entry.startswith('"') and entry.endswith('"'):
-        entry = entry[1:-1]
+    entry = line[3:]
     parts = [part for part in entry.split('/') if part]
     if not parts:
         return False
-    return parts[-1].endswith(('.pyc', '.pyo')) or any(part in REGENERABLE for part in parts)
+    if path is not None and not (path / entry).resolve().is_relative_to(path.resolve()):
+        return False
+    if parts[-1].endswith(('.pyc', '.pyo')) or any(part in REGENERABLE for part in parts):
+        return True
+    if entry in (generated or set()):
+        return True
+    if '.build' not in parts or tracked is None:
+        return False
+    index = parts.index('.build')
+    manifest = '/'.join([*parts[:index], 'Package.swift'])
+    if manifest not in tracked or (path / manifest).is_symlink() or index + 1 >= len(parts):
+        return False
+    rest = parts[index + 1:]
+    if len(rest) == 1 and rest[0] in {'.lock', 'build.db', 'workspace-state.json', 'debug.yaml', 'release.yaml', 'plugin-tools.yaml', 'debug', 'release'}:
+        return True
+    if rest[0] in {'artifacts', 'checkouts', 'repositories', 'plugins'}:
+        return True
+    return bool(re.fullmatch(r'(?:arm64|aarch64|x86_64)-(?:apple|unknown)-[a-z0-9-]+', rest[0]) and len(rest) > 1 and rest[1] in {'debug', 'release'})
 
 
-def _dirty(path):
+def _dirty(path, tracked_only=False):
+    path = Path(path)
     entries = _git(path, 'ls-files', '-v', '-z').split('\0')
     if any(entry and (entry[0].islower() or entry[0] == 'S') for entry in entries):
         return ['assume-unchanged or skip-worktree entries']
-    status = _git(path, 'status', '--porcelain', '--untracked-files=all', '--ignored').splitlines()
-    return [line for line in status if line and not _regenerable(line)]
+    tracked = {entry[2:] for entry in entries if entry}
+    status = _git(path, 'status', '--porcelain', '-z', '--untracked-files=all', '--ignored').split('\0')
+    if tracked_only:
+        return [line for line in status if line and line[:2] not in {'!!', '??'}]
+    generated = _generated_project_files(path, tracked)
+    return [line for line in status if line and not _regenerable(line, path, tracked, generated)]
 
 
 def _clean(path):
@@ -158,7 +197,7 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
         return _result('preserved', 'Primary checkout is detached or on an unrelated branch', actions)
     if any(record.get('branch') == f'refs/heads/{default}' and Path(record['worktree']).resolve() != primary for record in current_records):
         return _result('preserved', 'Default branch is occupied elsewhere', actions)
-    if not _clean(primary):
+    if _dirty(primary, tracked_only=True):
         return _result('preserved', 'Primary checkout contains local files, changes, or hidden index flags', actions)
     occupied = _active_cwd(primary)
     if occupied:
@@ -172,7 +211,7 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
     _git(primary, 'merge', '--ff-only', '--no-overwrite-ignore', f'refs/remotes/{remote}/{default}')
     actions.append('Fast-forwarded default branch')
     if (_git(primary, 'rev-parse', 'HEAD') != _git(primary, 'rev-parse', f'refs/remotes/{remote}/{default}')
-            or not _clean(primary)):
+            or _dirty(primary, tracked_only=True)):
         return _result('preserved', 'Default checkout synchronization could not be verified', actions)
     if owned and checkout != primary:
         refreshed = next((record for record in _worktrees(primary) if Path(record['worktree']).resolve() == checkout), None)
