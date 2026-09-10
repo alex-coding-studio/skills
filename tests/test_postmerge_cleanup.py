@@ -100,6 +100,39 @@ class CleanupTests(unittest.TestCase):
         (self.checkout / 'valuable').write_text('keep')
         self.assertEqual(self.clean()['status'], 'preserved')
 
+    def use_primary_checkout(self):
+        self.git(self.repo, 'worktree', 'remove', str(self.checkout))
+        self.git(self.repo, 'switch', 'feature')
+        self.git(self.repo, 'branch', '-f', 'main', 'HEAD~1')
+        self.target['checkout'] = str(self.repo)
+
+    def test_primary_checkout_untracked_material_survives_cleanup(self):
+        self.use_primary_checkout()
+        (self.repo / 'valuable').write_text('keep')
+        result = self.clean()
+        self.assertEqual(result['status'], 'cleaned')
+        self.assertEqual((self.repo / 'valuable').read_text(), 'keep')
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), self.head)
+        self.assertEqual(self.git(self.repo, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main')
+        self.assertNotIn('feature', self.git(self.repo, 'branch', '--format=%(refname:short)').split())
+
+    def test_primary_checkout_ignored_material_survives_cleanup(self):
+        self.use_primary_checkout()
+        (self.repo / '.git/info/exclude').write_text('valuable\n')
+        (self.repo / 'valuable').write_text('keep')
+        result = self.clean()
+        self.assertEqual(result['status'], 'cleaned')
+        self.assertEqual((self.repo / 'valuable').read_text(), 'keep')
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), self.head)
+
+    def test_primary_checkout_tracked_modification_preserved(self):
+        self.use_primary_checkout()
+        self.git(self.repo, 'commit', '--allow-empty', '-m', 'tracked')
+        self.git(self.repo, 'reset', '--soft', 'HEAD~1')
+        (self.repo / 'tracked.txt').write_text('new')
+        self.git(self.repo, 'add', 'tracked.txt')
+        self.assertEqual(self.clean()['status'], 'preserved')
+
     def test_extra_commit_preserved(self):
         self.git(self.checkout, 'commit', '--allow-empty', '-m', 'extra')
         self.assertEqual(self.clean()['status'], 'preserved')
