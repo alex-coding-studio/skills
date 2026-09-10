@@ -6,6 +6,16 @@ Requires Python 3 on macOS/Linux, authorized `gh` read access through `gh_as bot
 
 Before first use on an installation, verify the chosen executable's `queue --help` and evidence that its queue wakes this same desktop task. A successful CLI send alone is insufficient. Do not create another task or launch an app-server as a workaround. Do not send a synthetic live queue message without authorization. Reuse current verified installation evidence; if unavailable, explain the limitation before claiming the listener is active. The runner additionally probes queue capability and IPC before its startup log.
 
+## Queued delivery when desktop snapshots are unavailable
+
+With explicit user authorization, `run --delivery queued` delegates message scheduling to `codex queue` instead of requiring an idle IPC snapshot at startup or delivery. Verify queue acceptance and actual receipt in the same task before claiming end-to-end delivery. A successful CLI response alone is insufficient. Keep the normal default (`--delivery idle`) for installations using the established idle-only policy; do not silently switch after an error.
+
+Queued mode retains the same PR state directory, lock, pending-event ledger and batch acknowledgement. Queue failures leave feedback pending for retry. One accepted batch blocks later batches until acknowledgement. The chosen delivery mode is printed in the startup log.
+
+Queued mode never performs background checkout cleanup, including when desktop state happens to be available. A merged PR is delivered as a terminal batch. The receiving Agent verifies the merge, handles and acknowledges that batch, then invokes the existing `complete` action. That foreground action retains all checkout, branch and process protections. This separates message scheduling from destructive cleanup and does not treat unknown desktop state as idle.
+
+A task-authorized candidate runtime can be tested from its isolated development checkout before release. Keep that checkout available until its listeners stop and their batches are acknowledged; never remove a runner's code during an active watch.
+
 ## One monitor per pull request
 
 Use the installed Skill's absolute script path. Every command identifies both the existing task and the one PR. Run from the state directory or plugin directory, never from a checkout that cleanup may remove; the runner changes its own working directory to its state directory.

@@ -308,3 +308,64 @@ class ContinuousIntegrationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ForegroundCompletionTests(unittest.TestCase):
+    def test_MQ_03_merged_feedback_can_queue_without_background_cleanup(self):
+        runtime = FakeRuntime(clean=False)
+        runtime.foreground_cleanup = True
+        with store(runtime=runtime) as subject:
+            enrol(subject, checkout='/work')
+            with patch.object(core, 'cleanup_target') as cleanup:
+                subject.apply(result(ending(), terminal='merged'))
+                self.assertTrue(subject.deliver())
+            cleanup.assert_not_called()
+            self.assertIsNone(subject.read()['target']['cleanup_result'])
+            self.assertIn('complete', runtime.delivered[0])
+            self.assertIsNotNone(subject.read()['batch'])
+
+    def test_MQ_02_queue_failure_leaves_events_pending_for_retry(self):
+        runtime = FakeRuntime()
+        with store(runtime=runtime) as subject:
+            enrol(subject).apply(result(notice(1)))
+            with patch.object(runtime, 'deliver', side_effect=OSError('queue unavailable')):
+                with self.assertRaises(OSError):
+                    subject.deliver()
+            self.assertIsNone(subject.read()['batch'])
+            self.assertEqual(next(iter(subject.read()['target']['events'].values()))['status'], 'pending')
+            self.assertTrue(subject.deliver())
+            self.assertFalse(subject.deliver())
+            self.assertEqual(len(runtime.delivered), 1)
+
+
+class QueuedCompletionDrainTests(unittest.TestCase):
+    def test_MQ_02_completion_waits_for_all_pending_feedback(self):
+        runtime = FakeRuntime(clean=False)
+        runtime.foreground_cleanup = True
+        with store(runtime=runtime) as subject:
+            enrol(subject, checkout='/work')
+            current = result(*(notice(i) for i in range(core.BATCH_LIMIT + 1)), ending(), terminal='merged')
+            subject.apply(current)
+            subject.deliver()
+            self.assertNotIn('run the protected foreground completion', runtime.delivered[0])
+            subject.acknowledge(subject.read()['batch']['token'])
+            with patch.object(core, 'snapshot', return_value=current), patch.object(core, 'cleanup_target') as cleanup:
+                outcome = subject.complete()
+            self.assertEqual(outcome['status'], 'pending-feedback')
+            cleanup.assert_not_called()
+            self.assertTrue(subject.deliver())
+            self.assertIn('run the protected foreground completion', runtime.delivered[-1])
+
+    def test_MQ_02_new_feedback_found_at_completion_is_retained(self):
+        runtime = FakeRuntime(clean=False)
+        runtime.foreground_cleanup = True
+        with store(runtime=runtime) as subject:
+            enrol(subject, checkout='/work').apply(result(ending(), terminal='merged'))
+            subject.deliver()
+            subject.acknowledge(subject.read()['batch']['token'])
+            with patch.object(core, 'snapshot', return_value=result(ending(), notice(9), terminal='merged')), \
+                 patch.object(core, 'cleanup_target') as cleanup:
+                self.assertEqual(subject.complete()['status'], 'pending-feedback')
+            cleanup.assert_not_called()
+            self.assertFalse(subject.read()['target']['stopped'])
+            self.assertTrue(subject.deliver())

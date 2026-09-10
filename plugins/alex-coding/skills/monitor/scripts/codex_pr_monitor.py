@@ -25,23 +25,25 @@ class Runtime:
     delivery_name = 'queue'
     state_keys = ('thread', 'pr')
 
-    def __init__(self, thread, script, executable=None):
+    def __init__(self, thread, script, executable=None, delivery='idle'):
         self.thread = thread
         self.script = script
         self.executable = executable
+        self.delivery_name = 'queued' if delivery == 'queued' else 'queue'
+        self.foreground_cleanup = delivery == 'queued'
 
     @property
     def identity_arguments(self):
         return ['--thread', self.thread]
 
     def deliver(self, message):
-        if not transport.desktop_is_idle(self.thread):
+        if not self.foreground_cleanup and not transport.desktop_is_idle(self.thread):
             return False
         transport.queue_message(self.executable, self.thread, message)
         return True
 
     def may_clean(self, target):
-        return not target.get('checkout') or transport.desktop_is_idle(self.thread)
+        return not self.foreground_cleanup and (not target.get('checkout') or transport.desktop_is_idle(self.thread))
 
     def report(self, root, failures):
         for line in failures:
@@ -112,6 +114,8 @@ def main():
     run.add_argument('--codex', default='codex')
     run.add_argument('--interval', type=int, default=45)
     run.add_argument('--once', action='store_true')
+    run.add_argument('--delivery', choices=('idle', 'queued'), default='idle',
+                     help='idle checks desktop state; queued delegates scheduling to codex queue and cleanup to the receiving Agent')
     args = parser.parse_args()
     try:
         args.thread = str(uuid.UUID(args.thread))
@@ -123,7 +127,7 @@ def main():
         parser.error(str(error))
     legacy = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'state' / 'author-pr-monitor' / args.thread
     root = args.state_dir or legacy / core.hashed_slug(name)
-    runtime = Runtime(args.thread, __file__)
+    runtime = Runtime(args.thread, __file__, delivery=getattr(args, 'delivery', 'idle'))
     store = core.Store(root, args.thread, name, runtime)
     if args.command == 'migrate':
         migrate_legacy(store, args.from_state)
@@ -152,7 +156,8 @@ def main():
         if store.read()['target'] is None:
             parser.error('register or migrate this PR before starting its runner')
         subprocess.run([runtime.executable, 'queue', '--help'], capture_output=True, text=True, timeout=10, check=True)
-        transport.desktop_is_idle(args.thread)
+        if not runtime.foreground_cleanup:
+            transport.desktop_is_idle(args.thread)
         core.run(store, args.interval, args.once)
 
 

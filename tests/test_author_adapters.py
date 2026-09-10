@@ -88,6 +88,37 @@ class CodexDeliveryTests(unittest.TestCase):
             self.assertEqual((Path(directory) / 'monitor.log').read_text().count('poll failed'), 3)
 
 
+class QueuedDeliveryTests(unittest.TestCase):
+    def test_MQ_01_unavailable_desktop_does_not_block_queued_feedback(self):
+        runtime = codex.Runtime(THREAD, '/s.py', '/codex', delivery='queued')
+        with patch.object(codex.transport, 'desktop_is_idle', side_effect=TimeoutError), \
+             patch.object(codex.transport, 'queue_message') as queue:
+            self.assertTrue(runtime.deliver('feedback'))
+        queue.assert_called_once_with('/codex', THREAD, 'feedback')
+
+    def test_MQ_03_queued_mode_never_runs_background_cleanup(self):
+        runtime = codex.Runtime(THREAD, '/s.py', '/codex', delivery='queued')
+        with patch.object(codex.transport, 'desktop_is_idle', side_effect=TimeoutError):
+            self.assertFalse(runtime.may_clean({'checkout': '/work'}))
+            self.assertFalse(runtime.may_clean({'checkout': None}))
+
+    def test_MQ_01_queued_startup_does_not_require_a_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = codex.Runtime(THREAD, '/s.py')
+            store = codex.core.Store(directory, THREAD, 'owner/repo#1', runtime)
+            with store.locked() as data:
+                data['target'] = dict(repository='owner/repo', number=1)
+            argv = ['s.py', '--thread', THREAD, '--pr', 'owner/repo#1',
+                    '--state-dir', directory, 'run', '--delivery', 'queued', '--once']
+            with patch.object(sys, 'argv', argv), \
+                 patch.object(codex.shutil, 'which', return_value='/codex'), \
+                 patch.object(codex.subprocess, 'run'), \
+                 patch.object(codex.transport, 'desktop_is_idle', side_effect=TimeoutError), \
+                 patch.object(codex.core, 'run') as run:
+                codex.main()
+            self.assertEqual(run.call_args.args[0].runtime.delivery_name, 'queued')
+
+
 class MigrationTests(unittest.TestCase):
     def legacy(self, directory, **overrides):
         state = dict(schema=1, thread=THREAD, targets={'owner/repo#1': dict(
