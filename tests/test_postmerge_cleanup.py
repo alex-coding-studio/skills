@@ -418,54 +418,24 @@ class IOSGeneratedFilesTests(unittest.TestCase):
             self.assertTrue(cleanup._clean(path), cleanup._dirty(path))
 
     def test_unknown_generated_bundle_contents_remain_protected(self):
-        for name in ['Example.xcodeproj/notes.md', 'Example.xcodeproj/xcshareddata/xcschemes/Manual.xcscheme', 'ExampleCore/.build/notes.txt', 'Other/.build/.lock']:
+        for name in ['Example.xcodeproj/notes.md', 'Example.xcodeproj/xcshareddata/xcschemes/Manual.xcscheme']:
             with tempfile.TemporaryDirectory() as directory:
                 path = self.ios_repository(directory)
                 self.add_file(path, name)
                 self.assertFalse(cleanup._clean(path), name)
 
-    def test_external_build_symlink_remains_protected(self):
-        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as outside:
-            path = self.ios_repository(directory)
-            build = path / 'ExampleCore/.build'
-            build.mkdir()
-            (build / 'debug').symlink_to(outside, target_is_directory=True)
-            self.assertFalse(cleanup._clean(path))
-
-
-    def dependency(self, path):
-        dep = path / 'ExampleCore/.build/checkouts/Dependency'
-        dep.mkdir(parents=True)
-        def git(*args):
-            return subprocess.run(['git', '-C', str(dep), *args], capture_output=True, text=True, check=True).stdout.strip()
-        git('init', '-q', '-b', 'main')
-        git('config', 'user.name', 'Test')
-        git('config', 'user.email', 'test@example.com')
-        (dep / 'Source.swift').write_text('original')
-        git('add', '.')
-        git('commit', '-qm', 'published')
-        git('remote', 'add', 'origin', 'https://github.com/example/dependency')
-        head = git('rev-parse', 'HEAD')
-        git('update-ref', 'refs/remotes/origin/main', head)
-        return dep, head
-
-    def test_edited_dependency_checkout_remains_protected(self):
+    def test_ignored_build_directory_is_disposable_without_inspecting_contents(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self.ios_repository(directory)
-            dep, head = self.dependency(path)
-            (dep / 'Source.swift').write_text('user edit')
-            self.assertFalse(cleanup._clean(path))
-            self.assertEqual((dep / 'Source.swift').read_text(), 'user edit')
-
-    def test_clean_published_dependency_is_regenerable(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = self.ios_repository(directory)
-            dep, head = self.dependency(path)
+            for name in ['ExampleCore/.build/notes.txt', 'Other/.build/.lock', 'ExampleCore/.build/checkouts/Dependency/Source.swift']:
+                self.add_file(path, name)
             self.assertTrue(cleanup._clean(path), cleanup._dirty(path))
 
-    def test_unpublished_dependency_commit_remains_protected(self):
+    def test_modified_tracked_build_file_is_still_a_local_change(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self.ios_repository(directory)
-            dep, head = self.dependency(path)
-            subprocess.run(['git', '-C', str(dep), 'commit', '--allow-empty', '-qm', 'local change'], check=True)
+            self.add_file(path, 'ExampleCore/.build/tracked.txt')
+            subprocess.run(['git', '-C', str(path), 'add', '-f', 'ExampleCore/.build/tracked.txt'], check=True)
+            subprocess.run(['git', '-C', str(path), 'commit', '-qm', 'tracked fixture'], check=True)
+            (path / 'ExampleCore/.build/tracked.txt').write_text('modified')
             self.assertFalse(cleanup._clean(path))

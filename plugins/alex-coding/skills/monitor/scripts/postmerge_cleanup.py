@@ -47,63 +47,20 @@ def _generated_project_files(path, tracked):
             *(prefix + 'xcshareddata/xcschemes/' + name + '.xcscheme' for name in schemes)}
 
 
-def _dependency_safe(root, dependency, bare=False):
-    try:
-        if dependency.is_symlink() or not dependency.resolve().is_relative_to(root.resolve()):
-            return False
-        if bare:
-            return _git(dependency, 'rev-parse', '--is-bare-repository') == 'true'
-        if Path(_git(dependency, 'rev-parse', '--show-toplevel')).resolve() != dependency.resolve():
-            return False
-        if not Path(_git(dependency, 'rev-parse', '--absolute-git-dir')).resolve().is_relative_to(root.resolve()):
-            return False
-        if _git(dependency, 'status', '--porcelain', '--untracked-files=all', '--ignored'):
-            return False
-        entries = _git(dependency, 'ls-files', '-v', '-z').split('\0')
-        if any(e and (e[0].islower() or e[0] == 'S') for e in entries):
-            return False
-        return bool(_git(dependency, 'for-each-ref', '--contains', 'HEAD', '--format=%(refname)', 'refs/remotes'))
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return False
-
-
-def _regenerable(line, path=None, tracked=None, generated=None, memo=None):
-    if memo is None:
-        memo = {}
+def _regenerable(line, path=None, tracked=None, generated=None):
     if line[:2] != '!!':
         return False
     entry = line[3:]
     parts = [part for part in entry.split('/') if part]
     if not parts:
         return False
+    if '.build' in parts:
+        return True
     if path is not None and not (path / entry).resolve().is_relative_to(path.resolve()):
         return False
-    if parts[-1].endswith(('.pyc', '.pyo')) or any(part in REGENERABLE for part in parts):
-        return True
-    if entry in (generated or set()):
-        return True
-    if '.build' not in parts or tracked is None:
-        return False
-    index = parts.index('.build')
-    manifest = '/'.join([*parts[:index], 'Package.swift'])
-    if manifest not in tracked or (path / manifest).is_symlink() or index + 1 >= len(parts):
-        return False
-    rest = parts[index + 1:]
-    if len(rest) == 1 and rest[0] in {'.lock', 'build.db', 'workspace-state.json', 'debug.yaml', 'release.yaml', 'plugin-tools.yaml', 'debug', 'release'}:
-        return True
-    if rest[0] in {'checkouts', 'repositories'}:
-        container = path.joinpath(*parts[:index + 2])
-        dependencies = [container / rest[1]] if len(rest) > 1 else list(container.iterdir())
-        for dep in dependencies:
-            key = (str(dep), rest[0])
-            if key not in memo:
-                memo[key] = _dependency_safe(path, dep, rest[0] == 'repositories')
-            if not memo[key]:
-                return False
-        return True
-    if rest[0] in {'artifacts', 'plugins'}:
-        return True
-    return bool(re.fullmatch(r'(?:arm64|aarch64|x86_64)-(?:apple|unknown)-[a-z0-9-]+', rest[0]) and len(rest) > 1 and rest[1] in {'debug', 'release'})
+    return (parts[-1].endswith(('.pyc', '.pyo'))
+            or any(part in REGENERABLE for part in parts)
+            or entry in (generated or set()))
 
 
 def _dirty(path, tracked_only=False):
@@ -116,8 +73,7 @@ def _dirty(path, tracked_only=False):
     if tracked_only:
         return [line for line in status if line and line[:2] not in {'!!', '??'}]
     generated = _generated_project_files(path, tracked)
-    memo = {}
-    return [line for line in status if line and not _regenerable(line, path, tracked, generated, memo)]
+    return [line for line in status if line and not _regenerable(line, path, tracked, generated)]
 
 
 def _clean(path):
