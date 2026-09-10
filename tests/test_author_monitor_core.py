@@ -336,3 +336,36 @@ class ForegroundCompletionTests(unittest.TestCase):
             self.assertTrue(subject.deliver())
             self.assertFalse(subject.deliver())
             self.assertEqual(len(runtime.delivered), 1)
+
+
+class QueuedCompletionDrainTests(unittest.TestCase):
+    def test_MQ_02_completion_waits_for_all_pending_feedback(self):
+        runtime = FakeRuntime(clean=False)
+        runtime.foreground_cleanup = True
+        with store(runtime=runtime) as subject:
+            enrol(subject, checkout='/work')
+            current = result(*(notice(i) for i in range(core.BATCH_LIMIT + 1)), ending(), terminal='merged')
+            subject.apply(current)
+            subject.deliver()
+            self.assertNotIn('run the protected foreground completion', runtime.delivered[0])
+            subject.acknowledge(subject.read()['batch']['token'])
+            with patch.object(core, 'snapshot', return_value=current), patch.object(core, 'cleanup_target') as cleanup:
+                outcome = subject.complete()
+            self.assertEqual(outcome['status'], 'pending-feedback')
+            cleanup.assert_not_called()
+            self.assertTrue(subject.deliver())
+            self.assertIn('run the protected foreground completion', runtime.delivered[-1])
+
+    def test_MQ_02_new_feedback_found_at_completion_is_retained(self):
+        runtime = FakeRuntime(clean=False)
+        runtime.foreground_cleanup = True
+        with store(runtime=runtime) as subject:
+            enrol(subject, checkout='/work').apply(result(ending(), terminal='merged'))
+            subject.deliver()
+            subject.acknowledge(subject.read()['batch']['token'])
+            with patch.object(core, 'snapshot', return_value=result(ending(), notice(9), terminal='merged')), \
+                 patch.object(core, 'cleanup_target') as cleanup:
+                self.assertEqual(subject.complete()['status'], 'pending-feedback')
+            cleanup.assert_not_called()
+            self.assertFalse(subject.read()['target']['stopped'])
+            self.assertTrue(subject.deliver())
