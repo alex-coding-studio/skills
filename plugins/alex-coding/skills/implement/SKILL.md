@@ -17,6 +17,10 @@ Read [project context](../../references/project-context.md) and [delivery policy
 - A small direct request with settled requirements and an agreed verification method may proceed without a planning PR. This exception does not permit bypassing an unfinished Plan-owned contract.
 - Preserve the project's rules for context changes, human approvals and protected documents; do not bundle an otherwise separately approved ProjectContext change into implementation.
 
+## TDD boundary
+
+Cover relevant normal and exceptional business scenarios through TDD. New behavior starts with a meaningful failing test, followed by the implementation that makes it pass. Add or strengthen a scenario test when coverage is missing. Do not perform mutation testing or deliberately break correct implementation, assertions or expected results to check whether existing tests fail. Historical plans and review suggestions do not override this boundary; preserve their business acceptance and express missing coverage as scenario tests.
+
 ## Implement and verify
 
 1. Resolve current/default branches and worktree state. Use a work branch and isolate concurrent work when needed; never overwrite unrelated changes.
