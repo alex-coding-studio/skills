@@ -47,44 +47,22 @@ def _generated_project_files(path, tracked):
             *(prefix + 'xcshareddata/xcschemes/' + name + '.xcscheme' for name in schemes)}
 
 
-def _advertised_shas(url):
-    if not re.fullmatch(r'(?:https://github\.com/|git@github\.com:)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', url):
-        return set()
-    return {line.split()[0] for line in _run(['git', 'ls-remote', url]).splitlines() if line}
-
-
-def _dependency_safe(root, dependency, bare=False, memo=None):
-    if memo is None:
-        memo = {}
+def _dependency_safe(root, dependency, bare=False):
     try:
         if dependency.is_symlink() or not dependency.resolve().is_relative_to(root.resolve()):
             return False
         if bare:
-            if _git(dependency, 'rev-parse', '--is-bare-repository') != 'true':
-                return False
-        else:
-            if Path(_git(dependency, 'rev-parse', '--show-toplevel')).resolve() != dependency.resolve():
-                return False
-            if not Path(_git(dependency, 'rev-parse', '--absolute-git-dir')).resolve().is_relative_to(root.resolve()):
-                return False
-            if _git(dependency, 'status', '--porcelain', '--untracked-files=all', '--ignored'):
-                return False
-            entries = _git(dependency, 'ls-files', '-v', '-z').split('\0')
-            if any(e and (e[0].islower() or e[0] == 'S') for e in entries):
-                return False
-        source = _git(dependency, 'remote', 'get-url', 'origin')
-        local = Path(source)
-        if local.is_absolute():
-            if not local.resolve().is_relative_to(root.resolve()) or _git(local, 'rev-parse', '--is-bare-repository') != 'true':
-                return False
-            source = _git(local, 'remote', 'get-url', 'origin')
-        key = ("remote", source)
-        if key not in memo:
-            memo[key] = _advertised_shas(source)
-        published = memo[key]
-        revisions = {_git(dependency, 'rev-parse', 'HEAD')}
-        revisions.update(_git(dependency, 'for-each-ref', '--format=%(objectname)').splitlines())
-        return bool(published) and revisions.issubset(published)
+            return _git(dependency, 'rev-parse', '--is-bare-repository') == 'true'
+        if Path(_git(dependency, 'rev-parse', '--show-toplevel')).resolve() != dependency.resolve():
+            return False
+        if not Path(_git(dependency, 'rev-parse', '--absolute-git-dir')).resolve().is_relative_to(root.resolve()):
+            return False
+        if _git(dependency, 'status', '--porcelain', '--untracked-files=all', '--ignored'):
+            return False
+        entries = _git(dependency, 'ls-files', '-v', '-z').split('\0')
+        if any(e and (e[0].islower() or e[0] == 'S') for e in entries):
+            return False
+        return bool(_git(dependency, 'for-each-ref', '--contains', 'HEAD', '--format=%(refname)', 'refs/remotes'))
     except (OSError, ValueError, subprocess.SubprocessError):
         return False
 
@@ -119,7 +97,7 @@ def _regenerable(line, path=None, tracked=None, generated=None, memo=None):
         for dep in dependencies:
             key = (str(dep), rest[0])
             if key not in memo:
-                memo[key] = _dependency_safe(path, dep, rest[0] == 'repositories', memo)
+                memo[key] = _dependency_safe(path, dep, rest[0] == 'repositories')
             if not memo[key]:
                 return False
         return True

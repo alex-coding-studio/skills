@@ -445,27 +445,27 @@ class IOSGeneratedFilesTests(unittest.TestCase):
         git('add', '.')
         git('commit', '-qm', 'published')
         git('remote', 'add', 'origin', 'https://github.com/example/dependency')
-        return dep, git('rev-parse', 'HEAD')
+        head = git('rev-parse', 'HEAD')
+        git('update-ref', 'refs/remotes/origin/main', head)
+        return dep, head
 
     def test_edited_dependency_checkout_remains_protected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self.ios_repository(directory)
             dep, head = self.dependency(path)
             (dep / 'Source.swift').write_text('user edit')
-            with patch.object(cleanup, '_advertised_shas', return_value={head}):
-                self.assertFalse(cleanup._clean(path))
+            self.assertFalse(cleanup._clean(path))
             self.assertEqual((dep / 'Source.swift').read_text(), 'user edit')
 
     def test_clean_published_dependency_is_regenerable(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self.ios_repository(directory)
             dep, head = self.dependency(path)
-            with patch.object(cleanup, '_advertised_shas', return_value={head}):
-                self.assertTrue(cleanup._clean(path), cleanup._dirty(path))
+            self.assertTrue(cleanup._clean(path), cleanup._dirty(path))
 
     def test_unpublished_dependency_commit_remains_protected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self.ios_repository(directory)
             dep, head = self.dependency(path)
-            with patch.object(cleanup, '_advertised_shas', return_value={'0' * 40}):
-                self.assertFalse(cleanup._clean(path))
+            subprocess.run(['git', '-C', str(dep), 'commit', '--allow-empty', '-qm', 'local change'], check=True)
+            self.assertFalse(cleanup._clean(path))
