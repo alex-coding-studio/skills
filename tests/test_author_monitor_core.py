@@ -308,3 +308,31 @@ class ContinuousIntegrationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ForegroundCompletionTests(unittest.TestCase):
+    def test_MQ_03_merged_feedback_can_queue_without_background_cleanup(self):
+        runtime = FakeRuntime(clean=False)
+        runtime.foreground_cleanup = True
+        with store(runtime=runtime) as subject:
+            enrol(subject, checkout='/work')
+            with patch.object(core, 'cleanup_target') as cleanup:
+                subject.apply(result(ending(), terminal='merged'))
+                self.assertTrue(subject.deliver())
+            cleanup.assert_not_called()
+            self.assertIsNone(subject.read()['target']['cleanup_result'])
+            self.assertIn('complete', runtime.delivered[0])
+            self.assertIsNotNone(subject.read()['batch'])
+
+    def test_MQ_02_queue_failure_leaves_events_pending_for_retry(self):
+        runtime = FakeRuntime()
+        with store(runtime=runtime) as subject:
+            enrol(subject).apply(result(notice(1)))
+            with patch.object(runtime, 'deliver', side_effect=OSError('queue unavailable')):
+                with self.assertRaises(OSError):
+                    subject.deliver()
+            self.assertIsNone(subject.read()['batch'])
+            self.assertEqual(next(iter(subject.read()['target']['events'].values()))['status'], 'pending')
+            self.assertTrue(subject.deliver())
+            self.assertFalse(subject.deliver())
+            self.assertEqual(len(runtime.delivered), 1)
