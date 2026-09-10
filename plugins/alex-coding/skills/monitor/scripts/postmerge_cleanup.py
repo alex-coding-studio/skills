@@ -55,6 +55,10 @@ def _clean(path):
     return not _dirty(path)
 
 
+def _owned_dirty(checkout, primary):
+    return _dirty(checkout, tracked_only=checkout == primary)
+
+
 def cleanup_target(target, snapshot):
     actions = []
     try:
@@ -133,8 +137,8 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
                 owned = None
             else:
                 return _result('preserved', 'Checkout is detached or on a different branch')
-        if Path(_git(checkout, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve() != common or not _clean(checkout):
-            return _result('preserved', 'Checkout identity changed or contains modified, untracked, or ignored files: ' + '; '.join(_dirty(checkout)[:5]))
+        if Path(_git(checkout, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve() != common or _owned_dirty(checkout, primary):
+            return _result('preserved', 'Checkout identity changed or contains changes cleanup would have to move through: ' + '; '.join(_owned_dirty(checkout, primary)[:5]))
         cwd = Path.cwd().resolve()
         if checkout != primary and (cwd == checkout or checkout in cwd.parents):
             return _result('preserved', 'Cleanup process is running inside the owned worktree')
@@ -144,7 +148,7 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
     ancestry = subprocess.run(['git', '-C', str(primary), 'merge-base', '--is-ancestor', head, f'refs/remotes/{remote}/{default}'], capture_output=True, timeout=60)
     if ancestry.returncode != 0:
         return _result('preserved', 'Final PR head ancestry is not proven; squash or rebase cleanup requires review')
-    if owned and (not _clean(checkout) or _git(checkout, 'rev-parse', 'HEAD') != head):
+    if owned and (_owned_dirty(checkout, primary) or _git(checkout, 'rev-parse', 'HEAD') != head):
         return _result('preserved', 'Checkout changed during verification')
     if owned:
         occupied = _active_cwd(checkout)
