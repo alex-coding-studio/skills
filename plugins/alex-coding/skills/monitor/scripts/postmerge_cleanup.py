@@ -31,20 +31,23 @@ REGENERABLE = frozenset({'__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_c
 def _regenerable(line):
     if line[:2] != '!!':
         return False
-    entry = line[3:].strip()
-    if entry.startswith('"') and entry.endswith('"'):
-        entry = entry[1:-1]
-    parts = [part for part in entry.split('/') if part]
-    if not parts:
-        return False
-    return parts[-1].endswith(('.pyc', '.pyo')) or any(part in REGENERABLE for part in parts)
+    parts = [part for part in line[3:].split('/') if part]
+    generated = {'.build', '.swiftpm', 'build', 'DerivedData', 'ci-artifacts', 'xcuserdata'}
+    return bool(parts) and (
+        parts[-1] == '.DS_Store'
+        or parts[-1].endswith(('.pyc', '.pyo', '.xcuserstate'))
+        or any(part in REGENERABLE or part in generated or part.endswith(('.xcodeproj', '.xcresult')) for part in parts)
+    )
 
 
-def _dirty(path):
+def _dirty(path, tracked_only=False):
+    path = Path(path)
     entries = _git(path, 'ls-files', '-v', '-z').split('\0')
     if any(entry and (entry[0].islower() or entry[0] == 'S') for entry in entries):
         return ['assume-unchanged or skip-worktree entries']
-    status = _git(path, 'status', '--porcelain', '--untracked-files=all', '--ignored').splitlines()
+    status = _git(path, 'status', '--porcelain', '-z', '--untracked-files=all', '--ignored').split('\0')
+    if tracked_only:
+        return [line for line in status if line and line[:2] not in {'!!', '??'}]
     return [line for line in status if line and not _regenerable(line)]
 
 
@@ -158,7 +161,7 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
         return _result('preserved', 'Primary checkout is detached or on an unrelated branch', actions)
     if any(record.get('branch') == f'refs/heads/{default}' and Path(record['worktree']).resolve() != primary for record in current_records):
         return _result('preserved', 'Default branch is occupied elsewhere', actions)
-    if not _clean(primary):
+    if _dirty(primary, tracked_only=True):
         return _result('preserved', 'Primary checkout contains local files, changes, or hidden index flags', actions)
     occupied = _active_cwd(primary)
     if occupied:
@@ -172,7 +175,7 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
     _git(primary, 'merge', '--ff-only', '--no-overwrite-ignore', f'refs/remotes/{remote}/{default}')
     actions.append('Fast-forwarded default branch')
     if (_git(primary, 'rev-parse', 'HEAD') != _git(primary, 'rev-parse', f'refs/remotes/{remote}/{default}')
-            or not _clean(primary)):
+            or _dirty(primary, tracked_only=True)):
         return _result('preserved', 'Default checkout synchronization could not be verified', actions)
     if owned and checkout != primary:
         refreshed = next((record for record in _worktrees(primary) if Path(record['worktree']).resolve() == checkout), None)

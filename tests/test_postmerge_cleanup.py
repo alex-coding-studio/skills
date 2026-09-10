@@ -72,6 +72,24 @@ class CleanupTests(unittest.TestCase):
         self.assertFalse(self.checkout.exists())
         self.assertEqual(self.clean()['status'], 'cleaned')
 
+    def test_linked_cleanup_removes_only_known_ios_generated_outputs(self):
+        (self.checkout / 'project.yml').write_text('name: Example\n')
+        (self.checkout / 'ExampleCore').mkdir()
+        (self.checkout / 'ExampleCore/Package.swift').write_text('manifest')
+        (self.checkout / '.gitignore').write_text('*.xcodeproj/\n.build/\n')
+        self.git(self.checkout, 'add', '-A')
+        self.git(self.checkout, 'commit', '-m', 'ios project')
+        self.head = self.git(self.checkout, 'rev-parse', 'HEAD')
+        self.pr['head']['sha'] = self.head
+        self.git(self.repo, 'merge', '--ff-only', 'feature')
+        self.git(self.repo, 'push', 'origin', 'main')
+        for name in ['Example.xcodeproj/project.pbxproj', 'ExampleCore/.build/.lock']:
+            path = self.checkout / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('generated')
+        self.assertEqual(self.clean()['status'], 'cleaned')
+        self.assertFalse(self.checkout.exists())
+
     def test_untracked_preserved(self):
         (self.checkout / 'valuable').write_text('keep')
         self.assertEqual(self.clean()['status'], 'preserved')
@@ -194,9 +212,26 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), tip)
         self.assertEqual((self.repo / 'new-file').read_text(), 'remote content')
 
-    def test_dirty_primary_preserves_linked_worktree(self):
+    def test_nonconflicting_primary_untracked_material_survives_sync(self):
         (self.repo / 'valuable').write_text('keep')
+        tip = self.advance_remote()
+        self.assertEqual(self.clean()['status'], 'cleaned')
+        self.assertEqual((self.repo / 'valuable').read_text(), 'keep')
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), tip)
+
+    def test_conflicting_primary_untracked_material_blocks_sync(self):
+        (self.repo / 'new-file').write_text('keep')
+        self.advance_remote()
         self.assertEqual(self.clean()['status'], 'preserved')
+        self.assertEqual((self.repo / 'new-file').read_text(), 'keep')
+        self.assertTrue(self.checkout.exists())
+
+    def test_tracked_primary_modification_blocks_sync(self):
+        self.advance_remote()
+        self.git(self.repo, 'pull', '--ff-only', 'origin', 'main')
+        (self.repo / 'new-file').write_text('keep local edit')
+        self.assertEqual(self.clean()['status'], 'preserved')
+        self.assertEqual((self.repo / 'new-file').read_text(), 'keep local edit')
         self.assertTrue(self.checkout.exists())
 
     def test_unrelated_primary_branch_preserves(self):
@@ -354,4 +389,53 @@ class IgnoredFilesTests(unittest.TestCase):
             subprocess.run(['git', '-C', str(path), 'commit', '-aqm', 'narrow ignore'], check=True)
             (path / '__pycache__').mkdir()
             (path / '__pycache__' / 'x.pyc').write_bytes(b'\x00')
+            self.assertFalse(cleanup._clean(path))
+
+
+class IOSGeneratedFilesTests(unittest.TestCase):
+    repository = IgnoredFilesTests.repository
+
+    def ios_repository(self, directory):
+        path = self.repository(directory)
+        (path / 'project.yml').write_text('name: Example\nschemes:\n  Example Demo:\n    build: {}\n')
+        (path / 'ExampleCore').mkdir()
+        (path / 'ExampleCore/Package.swift').write_text('package manifest')
+        (path / '.gitignore').write_text('*.xcodeproj/\n.build/\n*.log\n')
+        subprocess.run(['git', '-C', str(path), 'add', '-A'], check=True)
+        subprocess.run(['git', '-C', str(path), 'commit', '-qm', 'ios inputs'], check=True)
+        return path
+
+    def add_file(self, path, name):
+        file = path / name
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text('generated')
+
+    def test_known_xcodegen_and_swiftpm_outputs_are_regenerable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.ios_repository(directory)
+            for name in ['Example.xcodeproj/project.pbxproj', 'Example.xcodeproj/project.xcworkspace/contents.xcworkspacedata', 'Example.xcodeproj/xcshareddata/xcschemes/Example Demo.xcscheme', 'ExampleCore/.build/.lock', 'ExampleCore/.build/plugin-tools.yaml', 'ExampleCore/.build/arm64-apple-macosx/debug/Example.o']:
+                self.add_file(path, name)
+            self.assertTrue(cleanup._clean(path), cleanup._dirty(path))
+
+    def test_unknown_generated_bundle_contents_remain_protected(self):
+        for name in ['private.log']:
+            with tempfile.TemporaryDirectory() as directory:
+                path = self.ios_repository(directory)
+                self.add_file(path, name)
+                self.assertFalse(cleanup._clean(path), name)
+
+    def test_ignored_build_directory_is_disposable_without_inspecting_contents(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.ios_repository(directory)
+            for name in ['ExampleCore/.build/notes.txt', 'Other/.build/.lock', 'ExampleCore/.build/checkouts/Dependency/Source.swift', 'Example.xcodeproj/xcshareddata/xcschemes/Example Demo.xcscheme']:
+                self.add_file(path, name)
+            self.assertTrue(cleanup._clean(path), cleanup._dirty(path))
+
+    def test_modified_tracked_build_file_is_still_a_local_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.ios_repository(directory)
+            self.add_file(path, 'ExampleCore/.build/tracked.txt')
+            subprocess.run(['git', '-C', str(path), 'add', '-f', 'ExampleCore/.build/tracked.txt'], check=True)
+            subprocess.run(['git', '-C', str(path), 'commit', '-qm', 'tracked fixture'], check=True)
+            (path / 'ExampleCore/.build/tracked.txt').write_text('modified')
             self.assertFalse(cleanup._clean(path))
