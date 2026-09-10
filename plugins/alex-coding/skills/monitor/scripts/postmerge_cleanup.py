@@ -1,7 +1,6 @@
 import fcntl
 import json
 import os
-import re
 import sys
 from pathlib import Path
 import subprocess
@@ -29,38 +28,16 @@ def _worktrees(path):
 REGENERABLE = frozenset({'__pycache__', '.pytest_cache', '.ruff_cache', '.mypy_cache'})
 
 
-def _generated_project_files(path, tracked):
-    spec = path / 'project.yml'
-    if 'project.yml' not in tracked or spec.is_symlink():
-        return set()
-    text = spec.read_text()
-    name = re.search(r'^name: ([A-Za-z][A-Za-z0-9_-]*)\s*$', text, re.MULTILINE)
-    if not name:
-        return set()
-    project = name.group(1)
-    schemes = {project}
-    section = re.search(r'^schemes:\s*\n((?:[ \t].*\n|\n)*)', text, re.MULTILINE)
-    if section:
-        schemes.update(re.findall(r'^  ([A-Za-z][A-Za-z0-9 _-]*):\s*$', section.group(1), re.MULTILINE))
-    prefix = project + '.xcodeproj/'
-    return {prefix + 'project.pbxproj', prefix + 'project.xcworkspace/contents.xcworkspacedata',
-            *(prefix + 'xcshareddata/xcschemes/' + name + '.xcscheme' for name in schemes)}
-
-
-def _regenerable(line, path=None, tracked=None, generated=None):
+def _regenerable(line):
     if line[:2] != '!!':
         return False
-    entry = line[3:]
-    parts = [part for part in entry.split('/') if part]
-    if not parts:
-        return False
-    if '.build' in parts:
-        return True
-    if path is not None and not (path / entry).resolve().is_relative_to(path.resolve()):
-        return False
-    return (parts[-1].endswith(('.pyc', '.pyo'))
-            or any(part in REGENERABLE for part in parts)
-            or entry in (generated or set()))
+    parts = [part for part in line[3:].split('/') if part]
+    generated = {'.build', '.swiftpm', 'build', 'DerivedData', 'ci-artifacts', 'xcuserdata'}
+    return bool(parts) and (
+        parts[-1] == '.DS_Store'
+        or parts[-1].endswith(('.pyc', '.pyo', '.xcuserstate'))
+        or any(part in REGENERABLE or part in generated or part.endswith(('.xcodeproj', '.xcresult')) for part in parts)
+    )
 
 
 def _dirty(path, tracked_only=False):
@@ -68,12 +45,10 @@ def _dirty(path, tracked_only=False):
     entries = _git(path, 'ls-files', '-v', '-z').split('\0')
     if any(entry and (entry[0].islower() or entry[0] == 'S') for entry in entries):
         return ['assume-unchanged or skip-worktree entries']
-    tracked = {entry[2:] for entry in entries if entry}
     status = _git(path, 'status', '--porcelain', '-z', '--untracked-files=all', '--ignored').split('\0')
     if tracked_only:
         return [line for line in status if line and line[:2] not in {'!!', '??'}]
-    generated = _generated_project_files(path, tracked)
-    return [line for line in status if line and not _regenerable(line, path, tracked, generated)]
+    return [line for line in status if line and not _regenerable(line)]
 
 
 def _clean(path):

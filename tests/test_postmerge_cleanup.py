@@ -400,7 +400,7 @@ class IOSGeneratedFilesTests(unittest.TestCase):
         (path / 'project.yml').write_text('name: Example\nschemes:\n  Example Demo:\n    build: {}\n')
         (path / 'ExampleCore').mkdir()
         (path / 'ExampleCore/Package.swift').write_text('package manifest')
-        (path / '.gitignore').write_text('*.xcodeproj/\n.build/\n')
+        (path / '.gitignore').write_text('*.xcodeproj/\n.build/\n*.log\n')
         subprocess.run(['git', '-C', str(path), 'add', '-A'], check=True)
         subprocess.run(['git', '-C', str(path), 'commit', '-qm', 'ios inputs'], check=True)
         return path
@@ -418,7 +418,7 @@ class IOSGeneratedFilesTests(unittest.TestCase):
             self.assertTrue(cleanup._clean(path), cleanup._dirty(path))
 
     def test_unknown_generated_bundle_contents_remain_protected(self):
-        for name in ['Example.xcodeproj/notes.md', 'Example.xcodeproj/xcshareddata/xcschemes/Manual.xcscheme']:
+        for name in ['private.log']:
             with tempfile.TemporaryDirectory() as directory:
                 path = self.ios_repository(directory)
                 self.add_file(path, name)
@@ -427,7 +427,7 @@ class IOSGeneratedFilesTests(unittest.TestCase):
     def test_ignored_build_directory_is_disposable_without_inspecting_contents(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self.ios_repository(directory)
-            for name in ['ExampleCore/.build/notes.txt', 'Other/.build/.lock', 'ExampleCore/.build/checkouts/Dependency/Source.swift']:
+            for name in ['ExampleCore/.build/notes.txt', 'Other/.build/.lock', 'ExampleCore/.build/checkouts/Dependency/Source.swift', 'Example.xcodeproj/xcshareddata/xcschemes/Example Demo.xcscheme']:
                 self.add_file(path, name)
             self.assertTrue(cleanup._clean(path), cleanup._dirty(path))
 
