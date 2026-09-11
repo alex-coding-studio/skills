@@ -57,7 +57,9 @@ class CleanupTests(unittest.TestCase):
             if '/pulls/' in args[-1]:
                 return json.dumps(self.pr)
             if '/branches/' in args[-1]:
-                return json.dumps(self.branch_info)
+                info = dict(self.branch_info)
+                info.setdefault('commit', {'sha': self.pr['head']['sha']})
+                return json.dumps(info)
             return json.dumps(self.repository_info)
         if args[-3:] == ['remote', 'get-url', 'origin']:
             return 'https://github.com/example/repo.git'
@@ -156,6 +158,72 @@ class CleanupTests(unittest.TestCase):
     def test_detached_preserved(self):
         self.git(self.checkout, 'switch', '--detach')
         self.assertEqual(self.clean()['status'], 'preserved')
+
+    def squash_merge(self):
+        base = self.git(self.repo, 'rev-parse', self.head + '^')
+        squashed = self.git(self.repo, 'commit-tree', self.head + '^{tree}', '-p', base, '-m', 'Feature (#1)')
+        if self.git(self.repo, 'branch', '--show-current') == 'main':
+            self.git(self.repo, 'reset', '--hard', base)
+        else:
+            self.git(self.repo, 'branch', '-f', 'main', base)
+        self.git(self.repo, 'push', '--force', 'origin', squashed + ':refs/heads/main')
+        self.pr['merge_commit_sha'] = squashed
+        return squashed
+
+    def test_SQUASH_01_a_squash_merged_branch_is_cleaned_up(self):
+        squashed = self.squash_merge()
+        result = self.clean()
+        self.assertEqual(result['status'], 'cleaned', result['reason'])
+        self.assertFalse(self.checkout.exists())
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), squashed)
+        self.assertNotIn('feature', self.git(self.repo, 'branch', '--format=%(refname:short)').split())
+
+    def test_SQUASH_02_a_merge_commit_outside_the_default_branch_preserves_the_work(self):
+        self.squash_merge()
+        self.pr['merge_commit_sha'] = self.git(self.repo, 'rev-parse', 'refs/heads/feature')
+        self.assertEqual(self.clean()['status'], 'preserved')
+        self.assertTrue(self.checkout.exists())
+        for reported in ('not-a-commit', 'HEAD', 'refs/remotes/origin/main'):
+            self.pr['merge_commit_sha'] = reported
+            self.assertEqual(self.clean()['status'], 'preserved', reported)
+            self.assertTrue(self.checkout.exists(), reported)
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'refs/heads/feature'), self.head)
+
+    def test_SQUASH_03_work_beyond_the_squashed_head_is_still_preserved(self):
+        self.squash_merge()
+        self.git(self.checkout, 'commit', '--allow-empty', '-m', 'written after the merge')
+        self.assertEqual(self.clean()['status'], 'preserved')
+        self.assertTrue(self.checkout.exists())
+
+    def test_SQUASH_04_a_squash_merged_branch_checked_out_in_the_primary_repository_is_cleaned_up(self):
+        self.use_primary_checkout()
+        squashed = self.squash_merge()
+        result = self.clean()
+        self.assertEqual(result['status'], 'cleaned', result['reason'])
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), squashed)
+        self.assertEqual(self.git(self.repo, 'branch', '--show-current'), 'main')
+        self.assertNotIn('feature', self.git(self.repo, 'branch', '--format=%(refname:short)').split())
+
+    def delete_flag(self):
+        with patch.object(cleanup, '_git', wraps=cleanup._git) as git:
+            self.assertEqual(self.clean()['status'], 'cleaned')
+        return next(call.args for call in git.call_args_list if call.args[1] == 'branch')
+
+    def test_SQUASH_05_a_branch_merged_into_the_default_branch_is_deleted_with_gits_own_merge_check(self):
+        self.assertIn('-d', self.delete_flag())
+
+    def test_SQUASH_06_only_the_squash_proof_drops_a_branch_git_still_calls_unmerged(self):
+        self.squash_merge()
+        self.assertIn('-D', self.delete_flag())
+
+    def test_FORCE_01_a_head_branch_pushed_after_the_merge_preserves_the_work(self):
+        self.squash_merge()
+        self.git(self.checkout, 'commit', '--allow-empty', '-m', 'pushed after the merge')
+        self.branch_info['commit'] = {'sha': self.git(self.checkout, 'rev-parse', 'HEAD')}
+        self.git(self.checkout, 'reset', '--hard', self.head)
+        self.assertEqual(self.clean()['status'], 'preserved')
+        self.assertTrue(self.checkout.exists())
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'refs/heads/feature'), self.head)
 
     def test_unproven_ancestry_preserved(self):
         base = self.git(self.repo, 'rev-parse', 'HEAD~1')
