@@ -1,6 +1,7 @@
 import fcntl
 import json
 import os
+import re
 import sys
 from pathlib import Path
 import subprocess
@@ -117,10 +118,26 @@ def _cleanup(target, snapshot, actions):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return _result('preserved', 'Another cleanup holds the repository lock')
-        return _locked(target, metadata, checkout, primary, common, branch, default, remote, head, actions)
+        return _locked(target, metadata, checkout, primary, common, branch, default, remote, head, pr.get('merge_commit_sha'), actions)
 
 
-def _locked(target, metadata, checkout, primary, common, branch, default, remote, head, actions):
+def _on_default(path, remote, default, commit):
+    return subprocess.run(['git', '-C', str(path), 'merge-base', '--is-ancestor', commit, f'refs/remotes/{remote}/{default}'],
+                          capture_output=True, timeout=60).returncode == 0
+
+
+def _reached_default(primary, remote, default, head, merge_commit, actions):
+    if _on_default(primary, remote, default, head):
+        return 'ancestor'
+    if not isinstance(merge_commit, str) or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', merge_commit):
+        return None
+    if not _on_default(primary, remote, default, merge_commit):
+        return None
+    actions.append('Verified the squash or rebase merge commit on the default branch')
+    return 'merge commit'
+
+
+def _locked(target, metadata, checkout, primary, common, branch, default, remote, head, merge_commit, actions):
     records = _worktrees(primary)
     owned = next((record for record in records if Path(record['worktree']).resolve() == checkout), None)
     exists = subprocess.run(['git', '-C', str(primary), 'show-ref', '--verify', '--quiet', f'refs/heads/{branch}'], capture_output=True, timeout=60).returncode == 0
@@ -145,9 +162,9 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
     elif checkout.exists():
         return _result('preserved', 'Checkout path exists but is not registered as a worktree')
     _git(primary, 'fetch', '--no-prune', '--no-tags', '--refmap=', remote, f'refs/heads/{default}:refs/remotes/{remote}/{default}')
-    ancestry = subprocess.run(['git', '-C', str(primary), 'merge-base', '--is-ancestor', head, f'refs/remotes/{remote}/{default}'], capture_output=True, timeout=60)
-    if ancestry.returncode != 0:
-        return _result('preserved', 'Final PR head ancestry is not proven; squash or rebase cleanup requires review')
+    reached = _reached_default(primary, remote, default, head, merge_commit, actions)
+    if not reached:
+        return _result('preserved', 'Final PR head is not on the default branch and no merge commit proves it landed there')
     if owned and (_owned_dirty(checkout, primary) or _git(checkout, 'rev-parse', 'HEAD') != head):
         return _result('preserved', 'Checkout changed during verification')
     if owned:
@@ -195,7 +212,7 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
     if exists:
         if _git(primary, 'rev-parse', f'refs/heads/{branch}') != head:
             return _result('preserved', 'Owned branch changed before deletion', actions)
-        _git(primary, 'branch', '-d', '--', branch)
+        _git(primary, 'branch', '-d' if reached == 'ancestor' else '-D', '--', branch)
         actions.append('Deleted merged local branch')
     return _result('cleaned', 'Owned local PR state cleaned', actions)
 

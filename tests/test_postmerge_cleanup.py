@@ -157,6 +157,38 @@ class CleanupTests(unittest.TestCase):
         self.git(self.checkout, 'switch', '--detach')
         self.assertEqual(self.clean()['status'], 'preserved')
 
+    def squash_merge(self):
+        base = self.git(self.repo, 'rev-parse', 'HEAD~1')
+        squashed = self.git(self.repo, 'commit-tree', self.head + '^{tree}', '-p', base, '-m', 'Feature (#1)')
+        self.git(self.repo, 'reset', '--hard', base)
+        self.git(self.repo, 'push', '--force', 'origin', squashed + ':refs/heads/main')
+        self.pr['merge_commit_sha'] = squashed
+        return squashed
+
+    def test_SQUASH_01_a_squash_merged_branch_is_cleaned_up(self):
+        squashed = self.squash_merge()
+        result = self.clean()
+        self.assertEqual(result['status'], 'cleaned', result['reason'])
+        self.assertFalse(self.checkout.exists())
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), squashed)
+        self.assertNotIn('feature', self.git(self.repo, 'branch', '--format=%(refname:short)').split())
+
+    def test_SQUASH_02_a_merge_commit_outside_the_default_branch_preserves_the_work(self):
+        self.squash_merge()
+        self.pr['merge_commit_sha'] = self.git(self.repo, 'rev-parse', 'refs/heads/feature')
+        self.assertEqual(self.clean()['status'], 'preserved')
+        self.assertTrue(self.checkout.exists())
+        self.pr['merge_commit_sha'] = 'not-a-commit'
+        self.assertEqual(self.clean()['status'], 'preserved')
+        self.assertTrue(self.checkout.exists())
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'refs/heads/feature'), self.head)
+
+    def test_SQUASH_03_work_beyond_the_squashed_head_is_still_preserved(self):
+        self.squash_merge()
+        self.git(self.checkout, 'commit', '--allow-empty', '-m', 'written after the merge')
+        self.assertEqual(self.clean()['status'], 'preserved')
+        self.assertTrue(self.checkout.exists())
+
     def test_unproven_ancestry_preserved(self):
         base = self.git(self.repo, 'rev-parse', 'HEAD~1')
         self.git(self.remote, 'update-ref', 'refs/heads/main', base)
