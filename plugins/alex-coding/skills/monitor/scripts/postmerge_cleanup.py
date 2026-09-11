@@ -88,6 +88,7 @@ def _cleanup(target, snapshot, actions):
     pr = json.loads(_run(['gh', 'api', f'repos/{repository}/pulls/{number}']))
     if not pr.get('merged'):
         return _result('preserved', 'PR is not freshly verified as merged')
+    head = pr['head']['sha']
     repository_info = json.loads(_run(['gh', 'api', f'repos/{repository}']))
     if (repository_info['full_name'].casefold() != repository.casefold()
             or repository_info['default_branch'] != default):
@@ -99,10 +100,11 @@ def _cleanup(target, snapshot, actions):
             return _result('preserved', 'Current branch protection is unknown')
         if _git(primary, 'ls-remote', '--heads', metadata['remote_url'], f'refs/heads/{branch}'):
             return _result('preserved', 'Remote head still exists but protection could not be read')
-        branch_info = {'name': branch, 'protected': False}
+        branch_info = {'name': branch, 'protected': False, 'commit': {'sha': head}}
     if branch_info.get('name') != branch or branch_info.get('protected') is not False:
         return _result('preserved', 'PR head branch is protected or its protection cannot be verified')
-    head = pr['head']['sha']
+    if (branch_info.get('commit') or {}).get('sha') != head:
+        return _result('preserved', 'Remote head branch carries work the merged PR head does not')
     if (pr['head']['ref'] != branch or pr['head']['repo']['full_name'].casefold() != repository.casefold()
             or pr['base']['repo']['full_name'].casefold() != repository.casefold() or snapshot.get('head') != head):
         return _result('preserved', 'PR identity or final head changed')
