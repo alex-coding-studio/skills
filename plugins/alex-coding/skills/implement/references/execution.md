@@ -1,12 +1,12 @@
 # Implementation Evidence
 
-Read the narrow source closure from the accepted contract and relevant current code. Expand only to resolve an actual missing fact, affected caller or contradiction. Return product-meaning changes to Plan rather than writing a test that invents a requirement.
+Read the narrow source closure from the contract bound to this delivery and relevant current code. Expand only to resolve an actual missing fact, affected caller or contradiction within this delivery. Completed contracts from earlier deliveries are optional history and do not supply acceptance criteria. Return changes to the active delivery's product meaning to Plan rather than writing a test that invents a requirement.
 
 ## Derive numbered acceptance cases before code
 
-Use the accepted contract as the authority for product correctness. Derive concrete setup/action/expected-result cases without reinterpreting the source document or independently inventing requirements. Each case keeps the original clause ID and a stable suffix, for example `MOVE-02/T03`. Store the checklist in the project's existing task/acceptance location, or another simple agreed repository location; do not require a new documentation system.
+Use the current delivery's accepted contract as the authority for that delivery's correctness. Derive concrete setup/action/expected-result cases without reinterpreting the source document or independently inventing requirements. Each case keeps the original clause ID and a stable suffix, for example `MOVE-02/T03`. Store the checklist in the project's existing task/acceptance location, or another simple agreed repository location; do not require a new documentation system.
 
-A clause may need multiple cases, and a case may require evidence from more than one layer. Use representative observable failures instead of a combinatorial test matrix. Preserve the contract meaning and exclusions; return actual gaps or contradictions to Plan rather than changing acceptance. For a small accepted direct request, record its acceptance and source in the task/PR and use the same numbering discipline without forcing a separate planning PR.
+A clause may need multiple cases, and a case may require evidence from more than one layer. Use representative observable failures instead of a combinatorial test matrix. Preserve the contract meaning and exclusions; return actual gaps or contradictions to Plan rather than changing acceptance. When the current work has no Delivery Contract, record the user's request, any direct clarifications and their source in the task/PR, and use the same numbering discipline without forcing a separate planning PR.
 
 Prioritize cases that unit tests can prove. Before implementation, mark each case's verification method and identify integration or human/UI evidence that remains outside unit scope. Do not call storage/file-backed integration checks unit evidence. Do not add UI automation or CI UI jobs as part of this workflow unless separately requested. Deferring UI automation does not mark a UI requirement satisfied; report user-owned or unresolved acceptance honestly.
 
