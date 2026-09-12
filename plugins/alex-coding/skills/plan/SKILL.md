@@ -5,7 +5,7 @@ description: Plan a repository change from project context and accepted requirem
 
 # Plan Repository Work
 
-Own the requested outcome, scope and delivery contract when the work needs acceptance frozen before implementation. `alex-coding:implement` owns implementation and its code PR. Small settled logic changes, visual refinements and interaction refinements may route directly to Implement without a contract. This workflow targets GitHub PR-based repositories without assuming a language, framework, directory layout or product-document scheme.
+Own the requested outcome, scope and Delivery Contract when the user asks to plan work or produce one. `alex-coding:implement` owns implementation and its code PR. Work without a Delivery Contract uses the user's current request as its acceptance source and does not route through Plan first. This workflow targets GitHub PR-based repositories without assuming a language, framework, directory layout or product-document scheme.
 
 ## Establish the input
 
@@ -30,6 +30,6 @@ Make project-specific pitfalls available to the Worker when relevant: explain th
 5. Produce [the merged handoff](references/handoff.md) with the repository, merged PR URL, full merge commit SHA, contract path and criterion IDs. Use the same configured post-merge completion mechanism as other project PRs; report preserved cleanup honestly.
 6. Stop after giving the user a ready-to-use `alex-coding:implement` prompt. Do not start a Worker or create another task without explicit authorization.
 
-If the accepted contract must change after handoff but before its implementation delivery finishes, publish the revision through the same planning process and explicitly replace that delivery's handoff. A moving branch must not silently redefine active implementation acceptance. Once implementation review and merge finish, leave that contract unchanged; later planned work gets a new contract and later small settled work uses its own direct acceptance.
+If the accepted contract must change after handoff but before its implementation delivery finishes, publish the revision through the same planning process and explicitly replace that delivery's handoff. A moving branch must not silently redefine active implementation acceptance. Once implementation review and merge finish, leave that contract unchanged. Later work follows its own Delivery Contract when one exists and otherwise follows the user's current request.
 
 Use the bundled `alex-coding:monitor` for newly opened task-owned PRs by default unless the user opts out or a project explicitly chooses another compatible mechanism. Read its runtime reference and verify actual startup; unavailable transport is a reported limitation, not permission to invent a background wakeup. `alex-coding:review` remains explicitly activated repository-wide reviewer work, not an author substitute.

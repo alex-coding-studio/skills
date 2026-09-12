@@ -141,7 +141,7 @@
   },
   {
     "id": "incremental-ui-direct",
-    "input": "The user asks for a small settled visual or interaction adjustment that changes behavior delivered by an older completed contract.",
-    "expected": "Route directly to Implement with the new accepted scope and appropriate human UI acceptance; do not require Plan or update the older contract."
+    "input": "The current work has no Delivery Contract. The user directly requests a visual or interaction adjustment that changes behavior delivered by an older completed contract.",
+    "expected": "Use the user's current request as acceptance and proceed through Implement with appropriate human UI acceptance; do not require Plan or update the older contract."
   }
 ]

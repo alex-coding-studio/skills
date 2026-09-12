@@ -1,6 +1,6 @@
 # Delivery Contract
 
-Use the project's existing document structure. A contract should let another Agent execute one accepted slice without reconstructing the planning conversation. Use it when the scope or acceptance needs to be frozen; do not require one for every small settled logic change, visual refinement or interaction adjustment. It governs only that identified delivery from the accepted planning handoff through implementation and review. After the implementation is accepted and merged, or the delivery is explicitly abandoned, keep the contract unchanged as a historical record; it is not a standing specification for later App behavior.
+Use the project's existing document structure. A contract should let another Agent execute one accepted slice without reconstructing the planning conversation. Create one only when the user asks to plan the work or produce a contract; its absence does not block direct implementation from the user's request. It governs only that identified delivery from the accepted planning handoff through implementation and review. After the implementation is accepted and merged, or the delivery is explicitly abandoned, keep the contract unchanged as a historical record; it is not a standing specification for later App behavior.
 
 Include:
 

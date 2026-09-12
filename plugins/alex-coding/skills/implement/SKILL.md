@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Implement accepted repository work from a merged delivery contract or a small settled direct request, verify it using project rules, and deliver a code PR through review and feedback. Use for accepted feature implementation, bug fixes and continued coding. Exclude new product planning, contract redefinition, project setup, reviewer-only work and unapproved implementation.
+description: Implement accepted repository work from the current delivery contract when one exists or directly from the user's request when it does not, verify it using project rules, and deliver a code PR through review and feedback. Use for accepted feature implementation, bug fixes and continued coding. Exclude requested product planning, contract authoring or redefinition, project setup, reviewer-only work and unapproved implementation.
 ---
 
 # Implement Accepted Repository Work
@@ -14,7 +14,7 @@ Read [project context](../../references/project-context.md) and [delivery policy
 - For a Plan handoff, verify the planning PR is merged, the supplied full SHA is its actual merge result, the contract exists at that revision and the handoff identifies this delivery. Read that frozen contract and its cited sources, not a moving branch copy or every contract in the repository. Do not accept an open planning PR or merely a SHA that happens to exist.
 - Compare relevant current project state with this delivery's accepted contract. Return a material contradiction or product change within the active delivery to `alex-coding:plan`. A mismatch with a contract completed by an earlier delivery is not a contradiction and does not require editing that historical contract.
 - Reuse the user's accepted scope. Do not demand the same confirmation again because a Worker or task changed.
-- A small direct request with settled requirements and an agreed verification method may proceed without a planning PR, including incremental logic changes, visual refinements and interaction refinements. It may intentionally change behavior recorded by a completed contract. This path does not permit silently bypassing or redefining an unfinished Plan-owned delivery for the same work.
+- If the current work has no Delivery Contract, use the user's current request as its acceptance source and proceed without a planning PR. The request may intentionally change behavior recorded by a completed contract; do not upgrade it to Plan or create a contract on that basis. This path does not permit silently bypassing or redefining an unfinished Plan-owned delivery for the same work.
 - Preserve the project's rules for context changes, human approvals and protected documents; do not bundle an otherwise separately approved ProjectContext change into implementation.
 
 ## TDD boundary
