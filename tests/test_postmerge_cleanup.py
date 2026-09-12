@@ -346,10 +346,10 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(self.clean()['status'], 'preserved')
         self.assertTrue(self.checkout.exists())
 
-    def test_linked_cleanup_primary_active_preserves(self):
+    def test_CWD_06_linked_cleanup_ignores_primary_cwd_only(self):
         with patch.object(cleanup, '_process_cwds', return_value=[(42, self.repo)]):
-            self.assertEqual(self.clean()['status'], 'preserved')
-        self.assertTrue(self.checkout.exists())
+            self.assertEqual(self.clean()['status'], 'cleaned')
+        self.assertFalse(self.checkout.exists())
 
     def test_promoted_default_preserved(self):
         self.repository_info['default_branch'] = 'feature'
@@ -395,13 +395,103 @@ class CleanupTests(unittest.TestCase):
         self.target['repository'] = 'EXAMPLE/REPO'
         self.assertEqual(self.clean()['status'], 'cleaned')
 
-    def test_primary_active_cwd_preserved(self):
+    def test_CWD_01_primary_active_cwd_allows_safe_cleanup(self):
         self.git(self.repo, 'worktree', 'remove', str(self.checkout))
         self.git(self.repo, 'switch', 'feature')
         self.target['checkout'] = str(self.repo)
         with patch.object(cleanup, '_process_cwds', return_value=[(42, self.repo)]):
-            self.assertEqual(self.clean()['status'], 'preserved')
+            self.assertEqual(self.clean()['status'], 'cleaned')
+        self.assertEqual(self.git(self.repo, 'branch', '--show-current'), 'main')
+
+    def test_CWD_02_same_tree_squash_does_not_rewrite_files_through_stale_main(self):
+        self.use_primary_checkout()
+        document = self.repo / 'delivered.txt'
+        document.write_text('delivered content')
+        self.git(self.repo, 'add', 'delivered.txt')
+        self.git(self.repo, 'commit', '-m', 'delivered file')
+        self.head = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.pr['head']['sha'] = self.head
+        squashed = self.squash_merge()
+        before = document.stat()
+        result = self.clean()
+        self.assertEqual(result['status'], 'cleaned', result)
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), squashed)
+        self.assertEqual(document.read_text(), 'delivered content')
+        self.assertEqual(document.stat().st_ino, before.st_ino)
+        self.assertEqual(document.stat().st_mtime_ns, before.st_mtime_ns)
+
+    def test_CWD_03_primary_session_does_not_block_new_remote_content(self):
+        self.use_primary_checkout()
+        tip = self.advance_remote()
+        with patch.object(cleanup, '_process_cwds', return_value=[(42, self.repo)]):
+            result = self.clean()
+        self.assertEqual(result['status'], 'cleaned', result)
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), tip)
+        self.assertEqual((self.repo / 'new-file').read_text(), 'remote content')
+
+    def test_CWD_04_busy_linked_worktree_is_preserved_after_primary_sync(self):
+        tip = self.advance_remote()
+        with patch.object(cleanup, '_process_cwds', return_value=[(42, self.checkout)]):
+            result = self.clean()
+        self.assertEqual(result['status'], 'preserved', result)
+        self.assertIn('working directory', result['reason'])
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), tip)
+        self.assertTrue(self.checkout.exists())
+        self.assertIn('feature', self.git(self.repo, 'branch', '--format=%(refname:short)').split())
+
+    def test_CWD_05_untracked_collision_preserves_branch_and_content(self):
+        self.use_primary_checkout()
+        self.advance_remote()
+        before_main = self.git(self.repo, 'rev-parse', 'main')
+        (self.repo / 'new-file').write_text('local content')
+        with patch.object(cleanup, '_process_cwds', return_value=[(42, self.repo)]):
+            result = self.clean()
+        self.assertEqual(result['status'], 'preserved', result)
         self.assertEqual(self.git(self.repo, 'branch', '--show-current'), 'feature')
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'main'), before_main)
+        self.assertEqual((self.repo / 'new-file').read_text(), 'local content')
+
+    def test_CWD_07_concurrent_default_commit_is_not_overwritten(self):
+        self.use_primary_checkout()
+        old_main = self.git(self.repo, 'rev-parse', 'main')
+        concurrent = self.git(self.repo, 'commit-tree', old_main + '^{tree}', '-p', old_main, '-m', 'concurrent local work')
+        original_git = cleanup._git
+        injected = False
+
+        def move_before_update(path, *args):
+            nonlocal injected
+            if not injected and args[0] in ('update-ref', 'switch'):
+                injected = True
+                self.git(self.repo, 'update-ref', 'refs/heads/main', concurrent, old_main)
+            return original_git(path, *args)
+
+        with patch.object(cleanup, '_git', side_effect=move_before_update):
+            result = self.clean()
+        self.assertTrue(injected)
+        self.assertEqual(result['status'], 'preserved', result)
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'main'), concurrent)
+        self.assertEqual(self.git(self.repo, 'branch', '--show-current'), 'feature')
+        self.assertIn('feature', self.git(self.repo, 'branch', '--format=%(refname:short)').split())
+
+    def test_CWD_08_failed_switch_rollback_preserves_concurrent_default_update(self):
+        self.use_primary_checkout()
+        tip = self.advance_remote()
+        self.git(self.repo, 'fetch', 'origin')
+        concurrent = self.git(self.repo, 'commit-tree', tip + '^{tree}', '-p', tip, '-m', 'concurrent local work')
+        (self.repo / 'new-file').write_text('local content')
+        original_git = cleanup._git
+
+        def move_before_failed_switch(path, *args):
+            if args[0] == 'switch':
+                self.git(self.repo, 'update-ref', 'refs/heads/main', concurrent, tip)
+            return original_git(path, *args)
+
+        with patch.object(cleanup, '_git', side_effect=move_before_failed_switch):
+            result = self.clean()
+        self.assertEqual(result['status'], 'preserved', result)
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'main'), concurrent)
+        self.assertEqual(self.git(self.repo, 'branch', '--show-current'), 'feature')
+        self.assertEqual((self.repo / 'new-file').read_text(), 'local content')
 
     def test_macos_cwd_parser(self):
         with patch.object(cleanup, '_process_cwds', wraps=PROCESS_CWDS), patch.object(cleanup.sys, 'platform', 'darwin'), patch.object(cleanup, '_run', return_value='p42\0\nn/tmp/space dir\0\n'):

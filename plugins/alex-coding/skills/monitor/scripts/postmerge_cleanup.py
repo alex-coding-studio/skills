@@ -169,10 +169,6 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
         return _result('preserved', 'Final PR head is not on the default branch and no merge commit proves it landed there')
     if owned and (_owned_dirty(checkout, primary) or _git(checkout, 'rev-parse', 'HEAD') != head):
         return _result('preserved', 'Checkout changed during verification')
-    if owned:
-        occupied = _active_cwd(checkout)
-        if occupied:
-            return _result('preserved', occupied)
     current_records = _worktrees(primary)
     primary_record = next((record for record in current_records if Path(record['worktree']).resolve() == primary), None)
     if not primary_record or 'locked' in primary_record or 'prunable' in primary_record:
@@ -186,18 +182,24 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
         return _result('preserved', 'Default branch is occupied elsewhere', actions)
     if _dirty(primary, tracked_only=True):
         return _result('preserved', 'Primary checkout contains local files, changes, or hidden index flags', actions)
-    occupied = _active_cwd(primary)
-    if occupied:
-        return _result('preserved', occupied, actions)
-    default_ancestry = subprocess.run(['git', '-C', str(primary), 'merge-base', '--is-ancestor', f'refs/heads/{default}', f'refs/remotes/{remote}/{default}'], capture_output=True, timeout=60)
+    default_ref = f'refs/heads/{default}'
+    previous_default = _git(primary, 'rev-parse', default_ref)
+    remote_default = _git(primary, 'rev-parse', f'refs/remotes/{remote}/{default}')
+    default_ancestry = subprocess.run(['git', '-C', str(primary), 'merge-base', '--is-ancestor', previous_default, remote_default], capture_output=True, timeout=60)
     if default_ancestry.returncode != 0:
         return _result('preserved', 'Local default branch cannot fast-forward safely', actions)
     if primary_record.get('branch') != f'refs/heads/{default}':
-        _git(primary, 'switch', '--no-overwrite-ignore', default)
-        actions.append('Switched primary checkout to default branch')
-    _git(primary, 'merge', '--ff-only', '--no-overwrite-ignore', f'refs/remotes/{remote}/{default}')
-    actions.append('Fast-forwarded default branch')
-    if (_git(primary, 'rev-parse', 'HEAD') != _git(primary, 'rev-parse', f'refs/remotes/{remote}/{default}')
+        _git(primary, 'update-ref', default_ref, remote_default, previous_default)
+        try:
+            _git(primary, 'switch', '--no-overwrite-ignore', default)
+        except (OSError, subprocess.SubprocessError):
+            _git(primary, 'update-ref', default_ref, previous_default, remote_default)
+            raise
+        actions.append('Switched primary checkout directly to the verified remote default')
+    else:
+        _git(primary, 'merge', '--ff-only', '--no-overwrite-ignore', remote_default)
+        actions.append('Fast-forwarded default branch')
+    if (_git(primary, 'rev-parse', 'HEAD') != remote_default
             or _dirty(primary, tracked_only=True)):
         return _result('preserved', 'Default checkout synchronization could not be verified', actions)
     if owned and checkout != primary:

@@ -85,3 +85,6 @@ It reads the registered identity and fresh PR state, rejects a non-merged PR or 
 ## Validation
 
 Run `python3 -m unittest discover -s tests -p test_author_adapters.py -v` from the public skills repository.
+
+
+Primary checkout synchronization does not reject a session or MCP service solely because its cwd is in that directory. The helper still verifies clean tracked state, branch ownership, landed merge evidence, fast-forward safety, and no-overwrite behavior. It switches an owned primary work branch directly to the fetched remote default. Process cwd protection remains before deleting a separate worktree; primary synchronization can complete even when that deletion must be preserved.
