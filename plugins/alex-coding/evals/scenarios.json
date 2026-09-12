@@ -143,5 +143,10 @@
     "id": "incremental-ui-direct",
     "input": "The current work has no Delivery Contract. The user directly requests a visual or interaction adjustment that changes behavior delivered by an older completed contract.",
     "expected": "Use the user's current request as acceptance and proceed through Implement with appropriate human UI acceptance; do not require Plan or update the older contract."
+  },
+  {
+    "id": "direct-request-material-gap",
+    "input": "The current work has no Delivery Contract. The user requests offline sync but leaves a conflict outcome undefined, so implementation and verification cannot determine the expected result.",
+    "expected": "Ask only for the missing conflict outcome as a direct clarification, then use the request and answer as acceptance; do not require Plan or create a Delivery Contract."
   }
 ]
