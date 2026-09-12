@@ -4,9 +4,9 @@ Start from the target repository, respecting runtime-supplied instructions and t
 
 Extract only what the task needs:
 
-- project purpose and authoritative product rules;
+- project purpose, current product rules and project-wide constraints;
 - architecture and dependency boundaries;
-- document and delivery-contract locations;
+- current-document locations, the active delivery's contract when one is bound to the task, and historical delivery-record locations;
 - implementation conventions and applicable specialist capabilities;
 - actual verification commands and evidence requirements;
 - human acceptance, protected-document and context-change rules;

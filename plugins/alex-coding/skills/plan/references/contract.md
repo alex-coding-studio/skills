@@ -1,6 +1,6 @@
 # Delivery Contract
 
-Use the project's existing document structure. A contract should let another Agent execute one accepted slice without reconstructing the planning conversation.
+Use the project's existing document structure. A contract should let another Agent execute one accepted slice without reconstructing the planning conversation. Use it when the scope or acceptance needs to be frozen; do not require one for every small settled logic change, visual refinement or interaction adjustment. It governs only that identified delivery from the accepted planning handoff through implementation and review. After the implementation is accepted and merged, or the delivery is explicitly abandoned, keep the contract unchanged as a historical record; it is not a standing specification for later App behavior.
 
 Include:
 
@@ -19,4 +19,4 @@ Specify relevant normal and exceptional business scenarios and their expected ou
 
 The contract itself cannot contain its own future merge SHA. Record source revisions in the document and bind the final document path to the actual merge SHA in the post-merge handoff.
 
-Write for Agent execution rather than a second human-facing product narrative. Numbered clauses and compact mappings are appropriate; compression must not remove necessary context or introduce ambiguity. Preserve existing capability contracts and their IDs when the delivery slice references them instead of duplicating their authority.
+Write for Agent execution rather than a second human-facing product narrative. Numbered clauses and compact mappings are appropriate; compression must not remove necessary context or introduce ambiguity. Reuse an earlier contract's context or IDs only when the new delivery explicitly depends on them and carry the needed meaning into the new contract. Do not audit later work against completed contracts, revise them to match evolved behavior or add supersession markers merely to keep history synchronized.

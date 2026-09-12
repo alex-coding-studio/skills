@@ -6,8 +6,8 @@ Practical Agent skills from Alex Coding Studio. Each skill includes the instruct
 
 General GitHub PR-based planning and implementation, guided by the current repository rather than a fixed technology stack.
 
-- **`alex-coding:plan`** turns accepted requirements into a delivery contract and documentation PR. After the required review and merge, it returns an Implement prompt bound to the actual full merge commit, contract path and acceptance IDs. It does not start a Worker automatically.
-- **`alex-coding:implement`** consumes that merged contract, writes and verifies the code, opens a code PR and handles author feedback through the project's existing review process. A small settled direct request can bypass Plan; an unfinished Plan-owned contract cannot.
+- **`alex-coding:plan`** turns accepted requirements into a delivery contract and documentation PR. After the required review and merge, it returns an Implement prompt bound to the actual full merge commit, contract path and acceptance IDs. The contract governs that delivery only and becomes an unchanged historical record after implementation review and merge. It does not start a Worker automatically.
+- **`alex-coding:implement`** consumes that merged contract, writes and verifies the code, opens a code PR and handles author feedback through the project's existing review process. Small settled logic changes, visual refinements and interaction refinements can use direct acceptance and bypass Plan, even when they evolve behavior delivered by an older completed contract; an unfinished Plan-owned delivery for the same work cannot be silently bypassed.
 
 Both skills respect existing human acceptance and merge restrictions. They do not create another reviewer pipeline when the project already has a reviewer. The plugin also bundles `alex-coding:monitor` for author feedback, `alex-coding:review` for repository review, their notification and cleanup scripts, and the `gh_as` role helper. Unsupported transports are reported honestly; credentials stay in GitHub CLI.
 
@@ -19,7 +19,7 @@ A [plain example](plugins/alex-coding/examples/ProjectContext.md) covers:
 
 1. Project purpose and technology stack.
 2. Code structure and architectural constraints.
-3. Authoritative requirements and contract locations.
+3. Current authoritative requirements, active-contract locations and historical delivery-record locations.
 4. Actual lint, test and build commands.
 5. Human acceptance and existing delivery rules.
 6. Exceptions, open questions and the agreed context-update process.

@@ -11,10 +11,10 @@ Own implementation, evidence, the code PR and author-side feedback. Use project 
 
 Read [project context](../../references/project-context.md) and [delivery policy](../../references/delivery-policy.md) before work.
 
-- For a Plan handoff, verify the planning PR is merged, the supplied full SHA is its actual merge result, and the contract exists at that revision. Read the frozen contract and cited sources, not a moving branch copy. Do not accept an open planning PR or merely a SHA that happens to exist.
-- Compare relevant current project state with the accepted contract. Later code can change implementation details but cannot silently replace acceptance. Return material contradictions or product changes to `alex-coding:plan`.
+- For a Plan handoff, verify the planning PR is merged, the supplied full SHA is its actual merge result, the contract exists at that revision and the handoff identifies this delivery. Read that frozen contract and its cited sources, not a moving branch copy or every contract in the repository. Do not accept an open planning PR or merely a SHA that happens to exist.
+- Compare relevant current project state with this delivery's accepted contract. Return a material contradiction or product change within the active delivery to `alex-coding:plan`. A mismatch with a contract completed by an earlier delivery is not a contradiction and does not require editing that historical contract.
 - Reuse the user's accepted scope. Do not demand the same confirmation again because a Worker or task changed.
-- A small direct request with settled requirements and an agreed verification method may proceed without a planning PR. This exception does not permit bypassing an unfinished Plan-owned contract.
+- A small direct request with settled requirements and an agreed verification method may proceed without a planning PR, including incremental logic changes, visual refinements and interaction refinements. It may intentionally change behavior recorded by a completed contract. This path does not permit silently bypassing or redefining an unfinished Plan-owned delivery for the same work.
 - Preserve the project's rules for context changes, human approvals and protected documents; do not bundle an otherwise separately approved ProjectContext change into implementation.
 
 ## TDD boundary

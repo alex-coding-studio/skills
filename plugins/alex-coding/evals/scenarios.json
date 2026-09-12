@@ -123,5 +123,25 @@
     "id": "visible-subagent-handoff",
     "input": "User asks Plan to give the merged contract directly to a subagent.",
     "expected": "Always output the full verified handoff prompt visibly and pass that same packet; do not replace it with a spawn acknowledgement."
+  },
+  {
+    "id": "completed-contract-drift",
+    "input": "A small newly accepted change intentionally differs from behavior recorded in a completed delivery contract.",
+    "expected": "Implement the new accepted scope without revising, reconciling or adding supersession markers to the completed contract; keep it as historical evidence."
+  },
+  {
+    "id": "review-old-contract-mismatch",
+    "input": "An implementation PR satisfies its current accepted scope but no longer matches clauses from several earlier completed contracts.",
+    "expected": "Do not report the historical mismatch as a finding by itself; review against the acceptance bound to this PR, current repository rules and unintended behavior outside the accepted change."
+  },
+  {
+    "id": "active-contract-change",
+    "input": "During implementation, the requested outcome materially changes from the contract bound to this still-active delivery.",
+    "expected": "Return that delivery to Plan, publish the accepted revision and replace the active handoff before continuing; do not silently redefine acceptance."
+  },
+  {
+    "id": "incremental-ui-direct",
+    "input": "The user asks for a small settled visual or interaction adjustment that changes behavior delivered by an older completed contract.",
+    "expected": "Route directly to Implement with the new accepted scope and appropriate human UI acceptance; do not require Plan or update the older contract."
   }
 ]

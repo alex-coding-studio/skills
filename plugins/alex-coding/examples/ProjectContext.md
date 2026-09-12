@@ -12,7 +12,7 @@ Where does the important code live? Which architectural or compatibility boundar
 
 ## Authoritative documents
 
-Where are requirements, accepted design decisions and delivery contracts kept? Link to the existing files; a suggested path is not proof that a document exists.
+Where are current requirements and accepted design decisions kept? Where are active and completed Delivery Contracts stored? Link to the existing files and distinguish current product authority from historical delivery records; a suggested path is not proof that a document exists.
 
 ## Verification
 
