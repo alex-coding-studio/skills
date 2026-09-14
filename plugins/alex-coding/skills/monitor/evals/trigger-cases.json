@@ -1,0 +1,12 @@
+{
+  "should_trigger": [
+    "Follow author feedback on my named PR using the original headless session.",
+    "Register each PR for author feedback after creation.",
+    "Handle author feedback on this named PR from the desktop task."
+  ],
+  "should_not_trigger": [
+    "Start repository-wide reviewer discovery for every open PR.",
+    "Write a milestone retrospective.",
+    "Explain how to use the CLI."
+  ]
+}

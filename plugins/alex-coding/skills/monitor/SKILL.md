@@ -1,6 +1,6 @@
 ---
 name: monitor
-description: "Follow feedback on named PRs owned by the current implementation task. Register each PR after creation automatically or on an explicit follow-up request, and run one independent listener per PR: idle-queue delivery in Codex, persistent Monitor stdout delivery in Claude. Exclude repository-wide reviewer discovery and milestone retrospectives."
+description: "Follow feedback on named PRs owned by the current implementation task. Register each PR after creation automatically or on an explicit follow-up request, with one independent listener per PR. Codex supports desktop or owning-session delivery; Claude uses persistent Monitor stdout delivery. Exclude repository-wide reviewer discovery and milestone retrospectives."
 ---
 
 # Monitor Authored Pull Requests
@@ -8,6 +8,10 @@ description: "Follow feedback on named PRs owned by the current implementation t
 Keep the implementation task responsible for its named PRs. Activate this Skill after creating each PR, or when explicitly asked to follow specified PR feedback. Give each PR its own listener, state directory, batch, acknowledgement token and process lock; never discover or subscribe to every PR in a repository. `alex-coding:review` owns repository reviewer monitoring; the project's retrospective workflow owns milestone retrospectives.
 
 Both runtimes use **one monitor per PR**. Codex runs one `codex_pr_monitor.py` process per PR and delivers to the existing desktop task through the shared idle/queue adapter. Claude runs one `claude_pr_monitor.py` process per PR through its persistent `Monitor` tool. The receiving task can be shared; acknowledgement and lifecycle state cannot. A pending batch for one PR must not prevent another PR from delivering or completing. Name the exact PR in each listener's description. Do not use the other runtime's transport or background Bash as a substitute for Claude's notification tool.
+
+For headless Codex tasks, use the host-provided persistent local app-server endpoint with `register --session-remote`; this path delivers to the owning session without desktop IPC. Never invent an endpoint, start a replacement executor, or adopt a live session from another host. Follow the session section in [runtime.md](references/runtime.md), including receipt verification, immutable routing and foreground-only cleanup. Desktop requirements below apply only to desktop-owned tasks. A short-lived stdio host without a persistent endpoint requires host integration, not a silent desktop fallback.
+
+Maintainer evidence: [session-delivery report](reports/session-delivery.md); routing fixtures in `evals/` are deterministic smoke checks, not model-based routing certification.
 
 ## Start and register
 

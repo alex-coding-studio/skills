@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import uuid
+from urllib.parse import urlsplit
 
 _spec = importlib.util.spec_from_file_location('author_monitor_core', Path(__file__).with_name('author_monitor_core.py'))
 core = importlib.util.module_from_spec(_spec)
@@ -25,18 +26,23 @@ class Runtime:
     delivery_name = 'queue'
     state_keys = ('thread', 'pr')
 
-    def __init__(self, thread, script, executable=None, delivery='idle'):
+    def __init__(self, thread, script, executable=None, delivery='idle', remote=None):
         self.thread = thread
         self.script = script
         self.executable = executable
-        self.delivery_name = 'queued' if delivery == 'queued' else 'queue'
-        self.foreground_cleanup = delivery == 'queued'
+        self.delivery_name = delivery if delivery in ('queued', 'session') else 'queue'
+        self.foreground_cleanup = delivery in ('queued', 'session')
+        self.remote = validate_session_remote(remote) if delivery == 'session' else None
 
     @property
     def identity_arguments(self):
         return ['--thread', self.thread]
 
     def deliver(self, message):
+        if self.remote:
+            subprocess.run([self.executable, 'queue', '--remote', self.remote, '--thread', self.thread,
+                            '--message', message], capture_output=True, text=True, timeout=45, check=True)
+            return True
         if not self.foreground_cleanup and not transport.desktop_is_idle(self.thread):
             return False
         transport.queue_message(self.executable, self.thread, message)
@@ -49,6 +55,45 @@ class Runtime:
         for line in failures:
             core.note(root, line)
             print(line, flush=True)
+
+
+def validate_session_remote(remote):
+    if not isinstance(remote, str):
+        raise ValueError('session delivery requires the explicit owning app-server endpoint')
+    value = urlsplit(remote)
+    if value.query or value.fragment or value.username or value.password:
+        raise ValueError('session endpoint must not contain credentials, query or fragment')
+    if value.scheme == 'unix' and not value.netloc and value.path.startswith('/'):
+        if str(Path(value.path)) != value.path or '..' in Path(value.path).parts:
+            raise ValueError('session socket requires a normalized absolute path')
+        return remote
+    if (value.scheme == 'ws' and value.hostname in ('127.0.0.1', '::1')
+            and value.port and not value.path):
+        return remote
+    raise ValueError('session endpoint must be an explicit unix socket or loopback ws address')
+
+
+def bind_session_route(store, owner_root, remote):
+    remote = validate_session_remote(remote)
+    owner_root.mkdir(parents=True, exist_ok=True)
+    with (store.root / 'run.lock').open('a') as runner:
+        fcntl.flock(runner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with (owner_root / 'session-route.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            with store.locked() as data:
+                target = store.require(data)
+                if data['batch'] is not None:
+                    raise ValueError('acknowledge the existing batch before binding session delivery')
+                route = owner_root / 'session-route.json'
+                expected = dict(thread=store.identity, remote=remote)
+                if route.exists() and json.loads(route.read_text()) != expected:
+                    raise ValueError('this session already has a different owner endpoint; refusing reroute')
+                if target.get('session_remote') not in (None, remote):
+                    raise ValueError('registered session endpoint is immutable')
+                temporary = owner_root / ('session-route.' + uuid.uuid4().hex + '.tmp')
+                temporary.write_text(json.dumps(expected))
+                temporary.replace(route)
+                target['session_remote'] = remote
 
 
 def guard_legacy(store, source):
@@ -101,6 +146,7 @@ def main():
     register = commands.add_parser('register')
     register.add_argument('--author')
     register.add_argument('--checkout', type=Path)
+    register.add_argument('--session-remote', help='Explicit owning local app-server endpoint; enables session delivery')
     commands.add_parser('status')
     commands.add_parser('complete')
     commands.add_parser('reopen')
@@ -114,8 +160,8 @@ def main():
     run.add_argument('--codex', default='codex')
     run.add_argument('--interval', type=int, default=45)
     run.add_argument('--once', action='store_true')
-    run.add_argument('--delivery', choices=('idle', 'queued'), default='idle',
-                     help='idle checks desktop state; queued delegates scheduling to codex queue and cleanup to the receiving Agent')
+    run.add_argument('--delivery', choices=('idle', 'queued', 'session'),
+                     help='Defaults to session for a bound endpoint, otherwise idle; queued uses desktop queue without IPC checks')
     args = parser.parse_args()
     try:
         args.thread = str(uuid.UUID(args.thread))
@@ -127,7 +173,7 @@ def main():
         parser.error(str(error))
     legacy = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'state' / 'author-pr-monitor' / args.thread
     root = args.state_dir or legacy / core.hashed_slug(name)
-    runtime = Runtime(args.thread, __file__, delivery=getattr(args, 'delivery', 'idle'))
+    runtime = Runtime(args.thread, __file__)
     store = core.Store(root, args.thread, name, runtime)
     if args.command == 'migrate':
         migrate_legacy(store, args.from_state)
@@ -135,6 +181,8 @@ def main():
     elif args.command == 'register':
         guard_legacy(store, legacy)
         print('registered' if store.register(args.author, args.checkout) else 'already registered')
+        if args.session_remote:
+            bind_session_route(store, legacy, args.session_remote)
     elif args.command == 'complete':
         os.chdir(store.root)
         outcome = store.complete()
@@ -153,9 +201,24 @@ def main():
         runtime.executable = shutil.which(args.codex)
         if not runtime.executable or args.interval < 10:
             parser.error('verified Codex executable and interval >= 10 seconds required')
-        if store.read()['target'] is None:
+        target = store.read()['target']
+        if target is None:
             parser.error('register or migrate this PR before starting its runner')
-        subprocess.run([runtime.executable, 'queue', '--help'], capture_output=True, text=True, timeout=10, check=True)
+        remote = target.get('session_remote')
+        delivery = args.delivery or ('session' if remote else 'idle')
+        if remote and delivery != 'session':
+            parser.error('a bound session must use its owning endpoint, not desktop delivery')
+        if delivery == 'session':
+            if not remote:
+                parser.error('register --session-remote before using session delivery')
+            route = legacy / 'session-route.json'
+            if not route.exists() or json.loads(route.read_text()) != dict(thread=args.thread, remote=remote):
+                parser.error('session owner binding is missing or changed; refusing delivery')
+        runtime = Runtime(args.thread, __file__, runtime.executable, delivery, remote)
+        store.runtime = runtime
+        capability = subprocess.run([runtime.executable, 'queue', '--help'], capture_output=True, text=True, timeout=10, check=True)
+        if delivery == 'session' and '--remote' not in capability.stdout:
+            parser.error('this Codex executable does not support session queue --remote')
         if not runtime.foreground_cleanup:
             transport.desktop_is_idle(args.thread)
         core.run(store, args.interval, args.once)
