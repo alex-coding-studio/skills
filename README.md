@@ -146,6 +146,8 @@ MIT. See [LICENSE](LICENSE).
 
 `alex-coding:monitor` runs one independent listener per named task-owned PR, with separate state, batch and acknowledgement. `alex-coding:review` explicitly watches a repository for review work. Both support Codex desktop queue/IPC and Claude persistent Monitor delivery; see each skill's runtime reference for version-bound requirements. No OS service is installed.
 
+Author Monitor also supports headless Codex tasks through an explicitly bound persistent local app-server endpoint, without desktop IPC. It does not create a replacement execution host; see Monitor's session-delivery runtime instructions.
+
 ### Configure gh_as
 
 Install GitHub CLI and save the accounts through its normal login flow. Create `~/.config/alex-coding/github-roles.json` (or set `GH_AS_CONFIG` to another file). This contains account names and expected API identities, never tokens:

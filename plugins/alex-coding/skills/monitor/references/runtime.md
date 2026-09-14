@@ -2,6 +2,8 @@
 
 ## Compatibility and activation
 
+Select the transport from the actual session owner. The following desktop prerequisites apply to desktop delivery only; headless session delivery has its own requirements below.
+
 Requires Python 3 on macOS/Linux, authorized `gh` read access through `gh_as bot`, and a local Codex desktop supporting `codex queue` and the verified IPC snapshot adapter. The shared adapter is `alex-coding/scripts/codex_desktop_transport.py`; both reviewer and author listeners use it. It validates an owned socket and snapshot version 11, uses an eight-second read deadline and only queues into an explicitly idle existing task. Active, unloaded or unknown task states defer events locally. It is a version-bound adapter, not a public stable API or an OS wake service.
 
 Before first use on an installation, verify the chosen executable's `queue --help` and evidence that its queue wakes this same desktop task. A successful CLI send alone is insufficient. Do not create another task or launch an app-server as a workaround. Do not send a synthetic live queue message without authorization. Reuse current verified installation evidence; if unavailable, explain the limitation before claiming the listener is active. The runner additionally probes queue capability and IPC before its startup log.
@@ -15,6 +17,27 @@ Queued mode retains the same PR state directory, lock, pending-event ledger and 
 Queued mode never performs background checkout cleanup, including when desktop state happens to be available. A merged PR is delivered as a terminal batch. The receiving Agent verifies the merge, handles and acknowledges that batch, then invokes the existing `complete` action. That foreground action retains all checkout, branch and process protections. This separates message scheduling from destructive cleanup and does not treat unknown desktop state as idle.
 
 A task-authorized candidate runtime can be tested from its isolated development checkout before release. Keep that checkout available until its listeners stop and their batches are acknowledged; never remove a runner's code during an active watch.
+
+## Headless session delivery
+
+For an existing task owned by a persistent local Codex app-server, bind its host-provided endpoint at registration:
+
+```sh
+python3 <monitor>/scripts/codex_pr_monitor.py --thread <existing-uuid> --pr 'owner/repo#123' \
+  register --checkout <absolute-task-owned-checkout> --session-remote unix:///absolute/owner.sock
+python3 <monitor>/scripts/codex_pr_monitor.py --thread <existing-uuid> --pr 'owner/repo#123' \
+  run --codex <verified-executable> --interval 45
+```
+
+A bound target defaults to `session` delivery. It calls `codex queue --remote <endpoint> --thread <same-uuid> --message <batch>`, without desktop IPC, a new thread, `exec resume`, or model/effort/permission overrides. The native owning server handles scheduling. Verify that the installed CLI supports `queue --remote` and that the intended server actually consumes a queued message in the same thread, including its busy-to-idle path. Queue acceptance alone does not prove consumption. Current compatibility evidence is in [session-delivery.md](../reports/session-delivery.md).
+
+Only explicit absolute Unix socket URLs and numeric loopback WebSocket URLs are accepted. Do not put tokens in an endpoint. Network-hosted servers and remote authentication are outside this adapter. The route is persisted both with the PR and under the session's normal author-monitor state directory; another PR for the same session cannot bind a different endpoint. A bound target refuses desktop delivery overrides. Registration refuses rebinding while its monitor is running or while a batch is claimed. Session endpoint migration is not automatic: stop all that session's listeners, drain existing claims with their original helpers, and establish an explicit safe host migration before adding any new route. Do not clear state to bypass these checks.
+
+The execution host must own the endpoint for the lifetime of the task, including review waits. It must preserve the session's configuration and arbitrate user input and concurrent PR messages. Monitor does not start a daemon, infer that `notLoaded` means globally idle, or transfer ownership from a live stdio process. If the original host terminates at turn completion and exposes no persistent endpoint, host integration is missing: report that limitation rather than falling back to desktop or launching a second executor. This change alone does not convert a short-lived Board driver into a persistent host.
+
+Owner connection failures retain pending events and are retried through the normal listener loop. A delivery accepted by the server is still unhandled until the Agent acknowledges the exact batch. Later arrivals remain pending. A timeout after uncertain queue acceptance can produce duplicate delivery on retry, as in desktop queue mode; consumers must inspect the batch token before acting and never repeat acknowledged work. Exactly-once delivery is not claimed.
+
+Background cleanup is disabled in session mode. The receiving Agent handles the terminal batch and invokes protected foreground `complete` from outside the owned checkout; no desktop snapshot is required. A missing or stopped endpoint is not task completion and must not cause cleanup. Existing desktop and Claude paths remain unchanged.
 
 ## One monitor per pull request
 
