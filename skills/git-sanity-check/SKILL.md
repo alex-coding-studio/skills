@@ -1,6 +1,6 @@
 ---
 name: git-sanity-check
-description: Inspect branches, worktrees, and checkout state in a user-selected Git repository or directory tree. Use for Git sanity checks, stale-branch or worktree audits, and repository hygiene reports. Ask for the scan scope when absent. Report findings without cleanup; not a code-quality, security, dependency, or general project-health audit.
+description: "Audit Git branches, worktrees and checkout state in a user-selected repository or directory tree. Report repository hygiene without cleanup; exclude code-quality and security reviews."
 ---
 
 # Git Sanity Check

@@ -1,6 +1,6 @@
 ---
 name: respond-to-agent
-description: Turn a long Agent response with multiple independently answerable points into an offline HTML form, then let the user edit, copy, or download a single Markdown reply. Use when the user wants to respond point by point, asks for an interactive survey of a response, or finds a response too dense to answer in chat. Also select it automatically when preparing a response that requires many separate user replies and a single chat answer would be cumbersome.
+description: "Create an offline reply form when the user wants to answer an Agent response point by point, or needs to address several independent decisions. Exclude long explanations that need no reply."
 ---
 
 # Respond to Agent

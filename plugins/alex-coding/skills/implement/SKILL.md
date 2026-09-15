@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Implement accepted repository work from the current delivery contract when one exists or directly from the user's request when it does not, verify it using project rules, and deliver a code PR through review and feedback. Use for accepted feature implementation, bug fixes and continued coding. Exclude requested product planning, contract authoring or redefinition, project setup, reviewer-only work and unapproved implementation.
+description: "Implement and deliver accepted repository changes, using the current Delivery Contract when present or the user request directly. Exclude planning, setup and review-only work."
 ---
 
 # Implement Accepted Repository Work
@@ -19,7 +19,7 @@ Read [project context](../../references/project-context.md) and [delivery policy
 
 ## TDD boundary
 
-Cover relevant normal and exceptional business scenarios through TDD. New behavior starts with a meaningful failing test, followed by the implementation that makes it pass. Add or strengthen a scenario test when coverage is missing. Do not perform mutation testing or deliberately break correct implementation, assertions or expected results to check whether existing tests fail. Historical plans and review suggestions do not override this boundary; preserve their business acceptance and express missing coverage as scenario tests.
+Use TDD for unit-observable new behavior and concrete regressions: start with a meaningful failing scenario, implement the behavior, then return Green. Reuse adequate existing coverage. Documentation, prompt and mechanical changes use their applicable validation; do not manufacture unit tests or Red evidence for them. Never deliberately break correct code or assertions to test the tests. Historical plans and review suggestions do not override this boundary.
 
 ## Implement and verify
 
@@ -32,6 +32,6 @@ Cover relevant normal and exceptional business scenarios through TDD. New behavi
 7. Follow the project's existing reviewer path. Do not create a parallel reviewer or post an approval as though it came from independent review. Delegated implementation or an alternate independent reviewer requires the applicable authorization; neither is inferred from these skill names.
 8. Recheck reviewed head, required approvals, checks, blocking feedback and mergeability. Merge only under existing authorization. A new head invalidates a previous head-bound approval. Use the configured completion/cleanup mechanism after a verified merge and preserve unsafe or unproven local work.
 
-Report the delivered result, exact verification evidence, PR and remaining user-owned acceptance or cleanup limits. Do not infer a milestone transition or retrospective from merge; those are project-specific workflows.
+Continue through the accepted scope, required verification and authorized delivery steps. A first implementation or passing test is not completion when accepted work remains. Pause only at an actual user-owned acceptance/review gate or a blocker that prevents further progress; complete independent authorized work first. Report the result, verification, PR and remaining gate or cleanup limit. Do not infer a milestone transition or retrospective from merge.
 
 Use the bundled `alex-coding:monitor` for newly opened task-owned PRs by default unless the user opts out or a project explicitly chooses another compatible mechanism. Read its runtime reference and verify actual startup; unavailable transport is a reported limitation, not permission to invent a background wakeup. `alex-coding:review` remains explicitly activated repository-wide reviewer work, not an author substitute.
