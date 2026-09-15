@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Plan a repository change from project context and accepted requirements, publish its delivery contract through a documentation PR, and hand the merged revision to Implement. Use for planning, scope and acceptance definition, delivery contracts and pre-implementation contract review. Exclude writing implementation code, technical project setup, one-shot code review and starting workers automatically.
+description: "Plan a repository change and publish its accepted Delivery Contract through a documentation PR. Use for scope, acceptance or contract work; exclude implementation and technical setup."
 ---
 
 # Plan Repository Work

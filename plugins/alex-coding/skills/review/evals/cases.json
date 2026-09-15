@@ -34,7 +34,7 @@
     },
     {
       "request": "Project AGENTS says invoke alex-coding:review after milestone delivery.",
-      "expected": "Read retro and perform the retrospective; do not launch a monitor."
+      "expected": "Preserve the historical instruction without launching a watcher or retired Retro workflow; reflection requires a current user request."
     },
     {
       "request": "Watcher restarted with an unacknowledged reviewing claim.",
@@ -46,7 +46,7 @@
     },
     {
       "request": "Review event arrives, but session only authorized local read-only findings.",
-      "expected": "Inspect and prepare findings, acknowledge the outcome, and ask before publishing to GitHub."
+      "expected": "Inspect and report findings without GitHub publication; acknowledge the read-only inspection without asking to expand the authorized scope."
     }
   ]
 }
