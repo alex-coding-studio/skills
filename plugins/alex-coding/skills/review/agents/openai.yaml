@@ -1,4 +1,4 @@
 interface:
   display_name: "Review"
-  short_description: "Watch and review current repository PRs"
-  default_prompt: "Use $review to start PR review monitoring for this repository in the current Codex task."
+  short_description: "Review one PR through merge or handoff"
+  default_prompt: "Use $review to start or continue the independent reviewer for this named PR through merge or a user-attention handoff."

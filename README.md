@@ -9,7 +9,7 @@ General GitHub PR-based planning and implementation, guided by the current repos
 - **`alex-coding:plan`** turns accepted requirements into a delivery contract and documentation PR. After the required review and merge, it returns an Implement prompt bound to the actual full merge commit, contract path and acceptance IDs. The contract governs that delivery only and becomes an unchanged historical record after implementation review and merge. It does not start a Worker automatically.
 - **`alex-coding:implement`** consumes the current work's merged contract when one exists; otherwise it uses the user's current request as acceptance. It writes and verifies the code, opens a code PR and handles author feedback through the project's existing review process. A completed contract does not force later direct work back through Plan; an unfinished Plan-owned delivery for the same work cannot be silently bypassed.
 
-Both skills respect existing human acceptance and merge restrictions. They do not create another reviewer pipeline when the project already has a reviewer. The plugin also bundles `alex-coding:monitor` for author feedback, `alex-coding:review` for repository review, their notification and cleanup scripts, and the `gh_as` role helper. Unsupported transports are reported honestly; credentials stay in GitHub CLI.
+Both skills respect existing human acceptance and merge restrictions. After opening a PR and registering author feedback monitoring, they automatically start one independent reviewer for that PR unless a reviewer is already assigned or the project requires a human-owned path. The plugin bundles `alex-coding:monitor` for author feedback, `alex-coding:review` for PR-bound independent review, their runtime scripts, and `gh_as`. Unsupported execution and notification capabilities are reported honestly; credentials stay with the existing CLIs.
 
 ### Optional ProjectContext.md
 
@@ -144,7 +144,9 @@ MIT. See [LICENSE](LICENSE).
 
 ## PR monitoring and GitHub roles
 
-`alex-coding:monitor` runs one independent listener per named task-owned PR, with separate state, batch and acknowledgement. `alex-coding:review` explicitly watches a repository for review work. Both support Codex desktop queue/IPC and Claude persistent Monitor delivery; see each skill's runtime reference for version-bound requirements. No OS service is installed.
+`alex-coding:monitor` runs one author listener per named task-owned PR with separate state, batch and acknowledgement. Its existing Codex desktop/session and Claude Monitor transports are unchanged.
+
+`alex-coding:review` uses `review_pr.py` to run one independent Codex or Claude reviewer per PR. It starts after PR creation, resumes the same session for feedback or new heads, and waits without model calls after approval. Merge or closure ends it automatically. A user-attention handoff is published before stopping; a replacement session restores PR progress without resetting cumulative review rounds. See the [review runtime](plugins/alex-coding/skills/review/references/runtime.md) for CLI requirements, startup, recovery and legacy watcher migration. No desktop reviewer thread, recurring model wakeup or OS service is required.
 
 Author Monitor also supports headless Codex tasks through an explicitly bound persistent local app-server endpoint, without desktop IPC. It does not create a replacement execution host; see Monitor's session-delivery runtime instructions.
 

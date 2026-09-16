@@ -1,23 +1,26 @@
 ---
 name: review
-description: "Watch and formally review repository Ready PRs when explicitly invoked or asked to monitor repository reviews. Exclude author feedback follow-up, one-shot reviews and retrospectives."
+description: "Independently review one named GitHub PR and follow it through merge, closure or a user-attention handoff. Start automatically for Implement or Plan when review is required, or resume a named PR. Exclude repository-wide discovery and author feedback handling."
 ---
 
-# Review Repository Pull Requests
+# Review One Pull Request
 
-Watch Ready PRs in the current repository and publish formal reviews against their exact heads. Explicit invocation authorizes publication; a read-only or do-not-publish request overrides it. This does not authorize implementation edits, merges or unrelated GitHub mutations.
+Own independent review of one exact PR. Start after the PR exists; never prelaunch a repository watcher. Implement and Plan invoke this workflow automatically when independent review is required, unless the project already assigns this PR to another reviewer or explicitly requires a human-owned path. Do not ask the user to start a review session as a routine step.
 
-## Start or resume
+## Start or continue
 
-1. Resolve the current repository root and GitHub owner/repository from its remote. Verify the existing task identity and chosen reviewer login; ask only if the repository or reviewer identity is ambiguous.
-2. Read [monitor.md](references/monitor.md) in Codex for the installed queue/IPC preflight, or [claude-monitor.md](references/claude-monitor.md) in Claude for the `Monitor` tool path. Either one carries the state identity, launch and acknowledgement contract. Reuse the existing watcher for this repository/task rather than creating a duplicate. Do not create a new task.
-3. In Codex, start the watcher only after the required desktop wakeup capability is verified. In Claude, start it only through `Monitor` with `persistent: true`; background Bash notifies once on exit and loses every earlier event. Its first poll includes all existing Ready PRs that lack a handled claim or current-head approval from the configured reviewer. Drafts wait until Ready. On restart, retain claims and pending work.
-4. Report the repository and whether monitoring actually started. Missing queue/IPC support in Codex, or an unavailable `Monitor` tool in Claude, means automatic review is inactive; explain the concrete limitation. Do not claim a background shell alone can wake this task.
+1. Resolve the exact GitHub PR, current acceptance, project review-round limit and configured reviewer identity. A missing PR number is not permission to scan and review the repository. Preserve existing UI acceptance, read-only and merge restrictions.
+2. Read [runtime.md](references/runtime.md). Use its PR-bound runner to create an independent Codex or Claude review session, or reuse the existing owner. The runner verifies capabilities and owns waiting; a shell that only polls cannot supply reviewer execution. Report unavailable capabilities or failed startup as inactive.
+3. Verify the exact PR, running process and startup evidence. A session identifier is reported after the first model invocation. Approval retains the same reviewer through CI and subsequent heads. Quiet waiting invokes no model and does not use scheduled model wakeups.
 
-## Review dispatched work
+The independent worker follows [worker.md](references/worker.md), using current project instructions and the contract or settled direct acceptance bound to this PR. The author does not supply a verdict or impersonate independent judgment with another account. Formal reviews and inline findings are published against the exact reviewed head; the runner verifies the writer and repository permission immediately before each write. Review does not authorize implementation changes or merge.
 
-Read [review-batches.md](references/review-batches.md) when a review batch arrives or a manual review is requested under an active watcher. It defines acceptance checks, publication and acknowledgement, including head changes and publication failures. Runtime state transitions stay in the selected runtime reference; do not read the other runtime's instructions.
+## Finish and recover
 
-Review the current delivery's contract or settled direct acceptance with proportionate verification. Preserve the author/reviewer identity boundary and publish before acknowledging. Reuse a completed code review for CI-only events. Keep watching quietly until explicitly stopped; a single completed batch does not end the watcher.
+Normal reviewer execution ends only after verified merge or closure. Keep the existing PR round limit; CI-only checks do not consume a code-review round. Replacing a session does not reset the PR's cumulative rounds. New code, including user-selected non-blocker fixes, requires a current-head review.
 
-Personal reflection is user-led. Retired milestone or Retro references do not activate this watcher or a replacement workflow.
+At the project's escalation boundary, publish the findings and a useful PR handoff before exiting. Preserve established facts, resolved findings, evidence locations, unresolved disagreements and the next action after a user decision. Recover from the latest published checkpoint and subsequent events; read older history or code when changed evidence requires it. Do not require a replacement reviewer to reconstruct the previous conversation.
+
+Publication failure preserves the exact pending result and stops automatic model replay. An explicit continuation after user intervention can create a new independent session while retaining the PR's progress and recording any authorized round extension. Author Monitor retains ownership of author replies, follow-up Issues, merge and protected checkout cleanup.
+
+For an explicit one-shot or read-only request, inspect the named PR directly under those limits; do not start the publishing runner. Existing repository watchers use the [migration procedure](references/runtime.md#legacy-repository-watchers); their state is never silently reset or assigned to a new PR worker.

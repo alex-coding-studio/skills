@@ -1,52 +1,68 @@
 {
   "should_trigger": [
     {
-      "family": "explicit_entry",
-      "text": "Use alex-coding:review in this repository."
+      "family": "named_pr",
+      "text": "Use review for PR #42 and follow it until merge."
     },
     {
-      "family": "repository_watch",
-      "text": "Watch this repository for new PRs and commits on open PRs, and review them in this Codex task."
+      "family": "automatic",
+      "text": "Start the independent reviewer for the PR Implement just opened."
+    },
+    {
+      "family": "resume",
+      "text": "Resume review of PR #42 after this user decision."
+    },
+    {
+      "family": "read_only",
+      "text": "Read-only code review PR #42; do not publish or start monitoring."
     }
   ],
   "should_not_trigger": [
     {
       "family": "author_feedback",
-      "text": "Monitor comments and review feedback on the PR I just opened."
+      "text": "Monitor comments on my authored PR and fix the reported bug."
+    },
+    {
+      "family": "repository_watch",
+      "text": "Watch every repository PR indefinitely."
     },
     {
       "family": "retrospective",
-      "text": "Use the project retrospective workflow to extract verified learnings from the delivered milestone."
+      "text": "Extract retrospective learnings from the delivered milestone."
     },
     {
-      "family": "one_shot",
-      "text": "Read-only code review PR #42; do not start a monitor."
-    },
-    {
-      "family": "branch_commits",
+      "family": "local_branch",
       "text": "Watch every local branch commit."
     }
   ],
   "behavior_cases": [
     {
-      "request": "Use review; two existing Ready PRs, one Draft, one Ready head already approved by the configured reviewer.",
-      "expected": "Inspect only the two unhandled Ready PRs; Draft and approved head do not dispatch."
+      "request": "Implement opened a Ready PR and no reviewer is assigned.",
+      "expected": "Start one independent PR-bound reviewer automatically; no manual reviewer session is required."
     },
     {
-      "request": "Project AGENTS says invoke alex-coding:review after milestone delivery.",
-      "expected": "Preserve the historical instruction without launching a watcher or retired Retro workflow; reflection requires a current user request."
+      "request": "The reviewer approved, CI is pending, and a user then pushes a non-blocker fix.",
+      "expected": "Retain the same PR reviewer, wait without model calls and review the new head."
     },
     {
-      "request": "Watcher restarted with an unacknowledged reviewing claim.",
-      "expected": "Preserve the claim, resume or reconcile the work, and do not duplicate dispatch."
+      "request": "The second code review still has blockers.",
+      "expected": "Publish findings and a handoff before stopping, retaining cumulative rounds on the PR."
     },
     {
-      "request": "Explicitly start alex-coding:review under Claude.",
-      "expected": "Use the Claude persistent Monitor adapter for repository review; do not substitute the named-PR author monitor."
+      "request": "Replace a stopped reviewer after a user decision.",
+      "expected": "Restore PR progress and read latest handoff plus subsequent evidence; explicitly extend the budget without resetting total rounds."
     },
     {
-      "request": "Review event arrives, but session only authorized local read-only findings.",
-      "expected": "Inspect and report findings without GitHub publication; acknowledge the read-only inspection without asking to expand the authorized scope."
+      "request": "GitHub accepted the review but the response was lost.",
+      "expected": "Reconcile the saved token with remote history and finish publication without invoking the model again."
+    },
+    {
+      "request": "The PR merged while the reviewer is waiting.",
+      "expected": "Stop the PR runner without another model call; author Monitor owns cleanup."
+    },
+    {
+      "request": "A legacy repository watcher has an unacknowledged claim.",
+      "expected": "Preserve it and settle with the original acknowledgement before migrating ownership; do not assume zero prior rounds."
     }
   ]
 }
