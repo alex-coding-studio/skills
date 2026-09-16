@@ -1,10 +1,30 @@
 {
   "positive_concepts": {
-    "author_followup": {"weight": 1, "phrases": ["author feedback", "feedback on named PRs", "Register each PR"]}
+    "author_followup": {
+      "weight": 1,
+      "phrases": [
+        "author feedback",
+        "feedback on named PRs",
+        "Register each PR",
+        "PR comments"
+      ]
+    }
   },
   "negative_concepts": {
-    "reviewer": {"weight": 1, "exclusive": true, "phrases": ["repository-wide reviewer discovery"]},
-    "retrospective": {"weight": 1, "exclusive": true, "phrases": ["milestone retrospective"]}
+    "reviewer": {
+      "weight": 1,
+      "exclusive": true,
+      "phrases": [
+        "repository-wide reviewer discovery"
+      ]
+    },
+    "retrospective": {
+      "weight": 1,
+      "exclusive": true,
+      "phrases": [
+        "milestone retrospective"
+      ]
+    }
   },
   "threshold": 0.5
 }

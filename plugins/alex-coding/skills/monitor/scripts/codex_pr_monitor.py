@@ -25,13 +25,16 @@ class Runtime:
     marker = 'From Codex 🤖'
     delivery_name = 'queue'
     state_keys = ('thread', 'pr')
+    requires_ack = False
 
-    def __init__(self, thread, script, executable=None, delivery='idle', remote=None):
+    def __init__(self, thread, script, executable=None, delivery='queued', remote=None):
+        if delivery not in ('queued', 'session'):
+            raise ValueError('Codex author delivery uses the host queue; idle probing is no longer supported')
         self.thread = thread
         self.script = script
         self.executable = executable
-        self.delivery_name = delivery if delivery in ('queued', 'session') else 'queue'
-        self.foreground_cleanup = delivery in ('queued', 'session')
+        self.delivery_name = delivery
+        self.foreground_cleanup = True
         self.remote = validate_session_remote(remote) if delivery == 'session' else None
 
     @property
@@ -43,13 +46,11 @@ class Runtime:
             subprocess.run([self.executable, 'queue', '--remote', self.remote, '--thread', self.thread,
                             '--message', message], capture_output=True, text=True, timeout=45, check=True)
             return True
-        if not self.foreground_cleanup and not transport.desktop_is_idle(self.thread):
-            return False
         transport.queue_message(self.executable, self.thread, message)
         return True
 
     def may_clean(self, target):
-        return not self.foreground_cleanup and (not target.get('checkout') or transport.desktop_is_idle(self.thread))
+        return False
 
     def report(self, root, failures):
         for line in failures:
@@ -160,8 +161,8 @@ def main():
     run.add_argument('--codex', default='codex')
     run.add_argument('--interval', type=int, default=45)
     run.add_argument('--once', action='store_true')
-    run.add_argument('--delivery', choices=('idle', 'queued', 'session'),
-                     help='Defaults to session for a bound endpoint, otherwise idle; queued uses desktop queue without IPC checks')
+    run.add_argument('--delivery', choices=('queued', 'session'),
+                     help='Defaults to the owning session endpoint when bound, otherwise the native queue; no idle probe')
     args = parser.parse_args()
     try:
         args.thread = str(uuid.UUID(args.thread))
@@ -205,7 +206,7 @@ def main():
         if target is None:
             parser.error('register or migrate this PR before starting its runner')
         remote = target.get('session_remote')
-        delivery = args.delivery or ('session' if remote else 'idle')
+        delivery = args.delivery or ('session' if remote else 'queued')
         if remote and delivery != 'session':
             parser.error('a bound session must use its owning endpoint, not desktop delivery')
         if delivery == 'session':
@@ -219,8 +220,6 @@ def main():
         capability = subprocess.run([runtime.executable, 'queue', '--help'], capture_output=True, text=True, timeout=10, check=True)
         if delivery == 'session' and '--remote' not in capability.stdout:
             parser.error('this Codex executable does not support session queue --remote')
-        if not runtime.foreground_cleanup:
-            transport.desktop_is_idle(args.thread)
         core.run(store, args.interval, args.once)
 
 

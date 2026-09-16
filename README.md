@@ -144,7 +144,7 @@ MIT. See [LICENSE](LICENSE).
 
 ## PR monitoring and GitHub roles
 
-`alex-coding:monitor` runs one author listener per named task-owned PR with separate state, batch and acknowledgement. Its existing Codex desktop/session and Claude Monitor transports are unchanged.
+`alex-coding:monitor` runs one author listener per named task-owned PR. Codex submits directly to the existing session's native queue, records acceptance and continues sending later events without inspecting desktop busy/idle state or waiting for Agent acknowledgements. Failed submissions remain pending for retry. Claude's persistent Monitor and acknowledgement behavior are unchanged. Existing old claims remain valid for their original acknowledgement commands.
 
 `alex-coding:review` uses `review_pr.py` to run one independent Codex or Claude reviewer per PR. It starts after PR creation, resumes the same session for feedback or new heads, and waits without model calls after approval. Merge or closure ends it automatically. A user-attention handoff is published before stopping; a replacement session restores PR progress without resetting cumulative review rounds. See the [review runtime](plugins/alex-coding/skills/review/references/runtime.md) for CLI requirements, startup, recovery and legacy watcher migration. No desktop reviewer thread, recurring model wakeup or OS service is required.
 
