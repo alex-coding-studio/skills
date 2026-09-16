@@ -1,11 +1,11 @@
 ---
 name: monitor
-description: "Follow author feedback on named PRs owned by this task. Register each PR after creation or on explicit request. Exclude repository-wide reviewer discovery."
+description: "Follow author feedback on named PRs owned by this task. Register each PR after creation or on explicit request. Exclude independent code review and reviewer startup."
 ---
 
 # Monitor Authored Pull Requests
 
-Keep this task responsible for each named PR it created or was explicitly asked to follow. Register automatically after PR creation under the task's existing authorization. `alex-coding:review` owns repository-wide reviewer discovery.
+Keep this task responsible for each named PR it created or was explicitly asked to follow. Register automatically after PR creation under the task's existing authorization. `alex-coding:review` owns independent review of that PR; Implement or Plan starts it separately after registration. This Monitor never supplies the author's own approval.
 
 ## Select the runtime
 

@@ -1,0 +1,26 @@
+{
+  "fallback_positive_concepts": [
+    "review"
+  ],
+  "positive_concepts": {
+    "review": {
+      "weight": 1,
+      "phrases": [
+        "review",
+        "reviewer"
+      ]
+    }
+  },
+  "negative_concepts": {
+    "other": {
+      "weight": 2,
+      "exclusive": true,
+      "phrases": [
+        "authored PR",
+        "every repository",
+        "retrospective",
+        "local branch"
+      ]
+    }
+  }
+}
