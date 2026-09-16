@@ -4,7 +4,22 @@
 
 `scripts/review_pr.py` creates one independent reviewer for one exact GitHub PR. It is an execution host: it invokes the selected CLI for relevant events and resumes that PR's exact session. It does not depend on a desktop thread, Semina, a notification socket or a Claude Monitor tool. Author Monitor keeps its existing runtime and responsibility.
 
-Requires macOS/Linux Python 3.9+, Git, GitHub CLI with `gh_as admin`, repository read access for Git fetch, and an authenticated Codex or Claude CLI. Windows is unsupported because locks use `fcntl`. Required CLI flags are probed before launch. Unsupported execution is inactive review, not permission to substitute another runtime, account or service. Use the current host's runtime unless the user/project selects another; do not choose a model or reasoning override automatically.
+Requires macOS/Linux Python 3.9+, Git, GitHub CLI with `gh_as admin`, repository read access for Git fetch, and an authenticated Codex or Claude CLI. Windows is unsupported because locks use `fcntl`. Required CLI flags are probed before launch. Unsupported execution is inactive review, not permission to substitute another runtime, account or service. Use the current host's runtime unless the user/project selects another. The runner passes the model and effort explicitly according to the policy below, independently of author settings, and never silently falls back.
+
+## Model and effort policy
+
+Select `--complexity` from the actual review risk and uncertainty, and record the reason in the existing acceptance input. Do not infer complexity from line/file counts or the author's preferred verdict.
+
+| Complexity | Codex | Claude | Use |
+| --- | --- | --- | --- |
+| `deterministic` | `gpt-5.6-luna`, max | `claude-sonnet-5`, max | Diagnosis verified, bounded behavior, known dependencies and meaningful coverage; no material security, persistence, migration, concurrency or interface uncertainty. |
+| `low` | `gpt-5.6-sol`, low | `claude-opus-5`, low | Straightforward review with a small amount of independent interpretation. |
+| `medium` | `gpt-5.6-sol`, medium | `claude-opus-5`, medium | Several interacting behaviors or boundary cases with understood scope. |
+| `high` | `gpt-5.6-sol`, high | `claude-opus-5`, high | Authentication/permissions/session safety, destructive persistence, migrations, concurrency, public interface changes or unclear impact. Also the fallback when unclassified. |
+
+Regular models never exceed high. The deterministic tier's max is an explicitly accepted exception for the smaller models. This selection does not waive independent review or any repository gate. A small authentication diff still selects high. Project-authorized mechanical review exemptions remain separate.
+
+The selected complexity is stored per PR, included in checkpoints and returned by status; every exact-session resume uses it. Repeating `start` cannot silently change an existing choice. A newly discovered risk can require promotion: retain review progress and use the existing explicit continuation procedure rather than resetting rounds or switching an active session behind its owner. A continuation may supply `--complexity high`. Legacy checkpoints without a choice use high. An unavailable model stops with retained evidence; it never triggers an automatic cheaper substitute.
 
 Codex uses `codex exec` and `codex exec resume <exact-session>` with JSON output, a result schema and a read-only sandbox. Claude uses print mode, structured output and exact-session resume; built-in tools are restricted to Read, Glob and Grep, MCP servers are disabled and hooks are disabled for that invocation. The generated PR state directory is an explicit additional read root so the worker can read its acceptance, patch and snapshot outside the checkout. Workers inspect source/test assertions and reuse exact-revision execution evidence. They do not run write-requiring gates or make GitHub changes. The runner owns Git fetch, local state and authorized publication. These boundaries do not claim arbitrary third-party extensions provide an OS sandbox.
 
@@ -41,6 +56,8 @@ Only the named PR is queried. Events are a new head/base, new or edited feedback
 The result is persisted before publication. Before every write, verify the current Ready head/base, actual admin login and repository push permission. Formal reviews and inline findings carry the runtime marker. A head change during review supersedes publication and leaves the new head pending; completed review attempts still count against the PR budget.
 
 Approval and waiting-ci retain the same reviewer. A new head/base assessment and reassessment of unresolved code findings consume a code-review round. CI and routine feedback on a passing review reuse that review without consuming another code round. Pending reruns do not erase handled terminal-check events or trigger another assessment; newly observed terminal results remain actionable. Blockers at the limit, or new review work beyond it, produce needs-user-attention. Only explicit human continuation extends the budget; restarting or switching runtime cannot reset it.
+
+A successful CI-only transition on an unchanged head/base with a published passing code review is recorded without another model call or duplicate review. New feedback, failed CI, changed head/base and unresolved code findings still use the independent reviewer. This changes notification/execution cost, not the checks or their required outcomes. Continuations receive new feedback and an incremental patch when the base is unchanged; full acceptance, base-to-head patch and history stay accessible for independent inspection and recovery.
 
 Every review contains a concise progress record and versioned checkpoint binding PR, identities, revisions and rounds. Needs-user-attention also posts a conversation handoff. Settle the event and stop only after required publication is confirmed. Retry pending publication using its saved result and token; reuse confirmed earlier writes. GitHub and local files are not atomic, so reconcile uncertain writes from PR history before retry. Later feedback stays pending.
 

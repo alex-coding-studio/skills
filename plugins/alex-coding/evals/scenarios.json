@@ -148,5 +148,35 @@
     "id": "direct-request-material-gap",
     "input": "The current work has no Delivery Contract. The user requests offline sync but leaves a conflict outcome undefined, so implementation and verification cannot determine the expected result.",
     "expected": "Ask only for the missing conflict outcome as a direct clarification, then use the request and answer as acceptance; do not require Plan or create a Delivery Contract."
+  },
+  {
+    "id": "diagnosed-issue-current-code",
+    "input": "An accepted Issue names the file and a suggested fix, but the current caller has changed.",
+    "expected": "Batch the named code, relevant tests and gates, verify the diagnosis, then expand to the changed caller; do not blindly apply the suggestion or restart broad discovery."
+  },
+  {
+    "id": "direct-existing-test-name",
+    "input": "A direct small regression fix has adequate existing scenario tests with descriptive names and no Contract.",
+    "expected": "Map outcomes to those names in one task/PR record; do not create synthetic clause IDs or rename tests solely for tracing."
+  },
+  {
+    "id": "small-authentication-review",
+    "input": "A two-line session revocation change has an exact diagnosis and passing gates.",
+    "expected": "Use independent Sol/Opus high review because authentication risk outweighs diff size; gates remain unchanged."
+  },
+  {
+    "id": "bounded-deterministic-review",
+    "input": "A well-understood bounded fix has verified diagnosis, known dependencies, meaningful coverage and no sensitive or uncertain impact.",
+    "expected": "The independent reviewer may use Luna max or Sonnet max through deterministic complexity; preserve exact-head approval and all gates."
+  },
+  {
+    "id": "claude-native-monitor-boundary",
+    "input": "The delivery helper returns native-monitor-required on Claude.",
+    "expected": "Use the persistent native Monitor tool, then repeat start for the exact PR; never detach Bash as a notification substitute or claim reviewer startup prematurely."
+  },
+  {
+    "id": "cost-report-overlap",
+    "input": "The same reviewer is supplied as both a native transcript and CLI usage summaries.",
+    "expected": "Reject overlapping accounting instead of adding both, and report unavailable request counts as unknown."
   }
 ]

@@ -2,11 +2,13 @@
 
 Read the narrow source closure from the contract bound to this delivery and relevant current code. Expand only to resolve an actual missing fact, affected caller or contradiction within this delivery. Completed contracts from earlier deliveries are optional history and do not supply acceptance criteria. Return changes to the active delivery's product meaning to Plan rather than writing a test that invents a requirement.
 
-## Derive numbered acceptance cases before code
+## Record proportionate acceptance before code
 
 Use the current delivery's accepted contract as the authority for that delivery's correctness. Derive concrete setup/action/expected-result cases without reinterpreting the source document or independently inventing requirements. Each case keeps the original clause ID and a stable suffix, for example `MOVE-02/T03`. Store the checklist in the project's existing task/acceptance location, or another simple agreed repository location; do not require a new documentation system.
 
-A clause may need multiple cases, and a case may require evidence from more than one layer. Use representative observable failures instead of a combinatorial test matrix. Preserve the contract meaning and exclusions; return actual gaps or contradictions to Plan rather than changing acceptance. When the current work has no Delivery Contract, record the user's request, any direct clarifications and their source in the task/PR, and use the same numbering discipline without forcing a separate planning PR.
+A clause may need multiple cases, and a case may require evidence from more than one layer. Use representative observable failures instead of a combinatorial test matrix. Preserve the contract meaning and exclusions; return actual gaps or contradictions to Plan rather than changing acceptance.
+
+For direct work without a Delivery Contract, keep one short checklist in the existing task or PR: accepted request and clarifications, observable outcome, exact existing/new test name or other verification method, and observed result/revision. Number checklist items when useful, but do not require synthetic clause IDs, a separate document, or test renames solely for tracing. Reuse this record for the PR and reviewer input; export a local copy when the runner needs a file instead of maintaining another acceptance narrative. A direct request never bypasses an unfinished Plan-owned delivery.
 
 Prioritize cases that unit tests can prove. Before implementation, mark each case's verification method and identify integration or human/UI evidence that remains outside unit scope. Do not call storage/file-backed integration checks unit evidence. Do not add UI automation or CI UI jobs as part of this workflow unless separately requested. Deferring UI automation does not mark a UI requirement satisfied; report user-owned or unresolved acceptance honestly.
 
@@ -20,7 +22,7 @@ Do not perform mutation testing: do not temporarily break correct production cod
 
 Stop when the accepted scenarios have adequate evidence and required project checks pass. Add further verification only for a specific unmet criterion, observed regression or new evidence; do not extend delivery through speculative test-validation cycles.
 
-Include the acceptance case ID in the test name or framework display name so failures can be traced back to the checklist and contract. Normalize the ID for language identifiers when necessary, preserving a deterministic recoverable form, such as `MOVE_02_T03`. Do not add prohibited source comments. Existing adequate tests can receive the ID in their name/display metadata and be mapped instead of copied; do not claim unnamed tests satisfy the new tracing convention without a supported identifier mapping.
+For Contract work, include the acceptance case ID in the test name or framework display name so failures can be traced back to the checklist and contract. Normalize the ID for language identifiers when necessary, preserving a deterministic recoverable form, such as `MOVE_02_T03`. Do not add prohibited source comments. Existing adequate tests can receive the ID in their name/display metadata and be mapped instead of copied. For direct work, mapping the outcome to the existing test identifier is sufficient.
 
 Maintain the mapping from contract clause to acceptance case to exact test identifier and observed result. A matching title is not proof: assertions must establish the case's expected outcome. Run declared project checks and report remaining non-unit evidence separately. The implementation reviewer checks both coverage of in-scope clauses and whether the actual assertions/code support the numbered cases. Worker verification makes no new product decisions.
 

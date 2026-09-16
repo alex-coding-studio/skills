@@ -77,11 +77,47 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.github.current = current(head='c' * 40, ci='pass')
         self.step()
         self.step()
-        self.assertEqual(self.calls, [None, 'one-pr-session', 'one-pr-session'])
+        self.assertEqual(self.calls, [None, 'one-pr-session'])
         self.github.current['terminal'] = 'merged'
         self.assertFalse(self.step())
         self.assertEqual(self.state['phase'], 'merged')
-        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_successful_ci_reuses_published_review_without_model_or_publication(self):
+        self.step()
+        self.step()
+        self.github.current = current(ci='pass')
+        self.step()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.github.published), 1)
+        self.assertEqual(self.state['ci'], 'pass')
+        self.assertIsNone(self.state['pending'])
+
+    def test_failed_ci_still_reaches_independent_reviewer(self):
+        self.step()
+        self.step()
+        self.github.current = current(ci='fail')
+        self.step()
+        self.assertEqual(len(self.calls), 2)
+
+    def test_continuation_keeps_acceptance_accessible_without_repeating_it(self):
+        self.state.update(session='existing', head='a' * 40, base='b' * 40)
+        self.state['acceptance'] = 'Authoritative scope ' * 100
+        with patch.object(runner, 'git', return_value='incremental diff'):
+            prompt = runner.prompt_for(self.root, self.state, current(head='c' * 40), 'head')
+        context = json.loads((self.root / 'context.json').read_text())
+        self.assertNotIn('acceptance', context)
+        self.assertNotIn('body', context)
+        self.assertEqual((self.root / 'acceptance.md').read_text(), self.state['acceptance'])
+        self.assertEqual((self.root / 'continuation.patch').read_text(), 'incremental diff')
+        self.assertIn('continuation.patch', prompt)
+        self.assertIn('current.patch', prompt)
+
+    def test_base_change_uses_full_patch_on_continuation(self):
+        self.state.update(session='existing', head='a' * 40, base='d' * 40)
+        prompt = runner.prompt_for(self.root, self.state, current(head='c' * 40), 'head')
+        self.assertNotIn('continuation.patch', prompt)
+        self.assertIn('current.patch', prompt)
 
     def test_PRL_04_publication_retry_reuses_result_without_model_replay(self):
         self.step()
@@ -230,7 +266,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(command[:4], ['/codex', 'exec', 'resume', 'one-session'])
         self.assertIn('sandbox_mode="read-only"', command)
         self.assertIn('approval_policy="never"', command)
-        self.assertNotIn('--model', command)
+        self.assertEqual(command[command.index('--model') + 1], 'gpt-5.6-sol')
+        self.assertIn('model_reasoning_effort="high"', command)
         self.assertNotIn('--last', command)
 
     def test_PRL_06_claude_only_has_read_tools_and_resumes_exact_session(self):
@@ -239,6 +276,29 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(command[command.index('--tools') + 1], 'Read,Glob,Grep')
         self.assertEqual(command[-2:], ['--resume', 'one-session'])
         self.assertNotIn('--dangerously-skip-permissions', command)
+        self.assertEqual(command[command.index('--model') + 1], 'claude-opus-5')
+        self.assertEqual(command[command.index('--effort') + 1], 'high')
+
+    def test_new_sessions_use_the_same_review_models_as_resumes(self):
+        for name, model in [('codex', 'gpt-5.6-sol'), ('claude', 'claude-opus-5')]:
+            state = {'runtime': name, 'executable': '/' + name, 'session': None, 'next_session': 'new'}
+            command = runtime.command(state, Path('/state'), Path('/state/result'))
+            self.assertEqual(command[command.index('--model') + 1], model)
+
+    def test_deterministic_reviews_use_lower_models_with_explicit_max_exception(self):
+        for name, model in [('codex', 'gpt-5.6-luna'), ('claude', 'claude-sonnet-5')]:
+            state = {'runtime': name, 'executable': '/' + name, 'session': 'existing',
+                     'complexity': 'deterministic'}
+            command = runtime.command(state, Path('/state'), Path('/state/result'))
+            self.assertEqual(command[command.index('--model') + 1], model)
+            self.assertIn('model_reasoning_effort="max"' if name == 'codex' else 'max', command)
+
+    def test_regular_review_effort_is_bounded_at_high(self):
+        for name, model in [('codex', 'gpt-5.6-sol'), ('claude', 'claude-opus-5')]:
+            for effort in ['low', 'medium', 'high']:
+                self.assertEqual(runtime.review_settings(name, effort), {'model': model, 'effort': effort})
+            with self.assertRaises(ValueError):
+                runtime.review_settings(name, 'max')
 
     def test_PRL_06_missing_runtime_fails_before_launch(self):
         with patch.object(runtime.shutil, 'which', return_value=None):
