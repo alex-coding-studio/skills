@@ -2,11 +2,14 @@
   "should_trigger": [
     "Follow author feedback on my named PR using the original headless session.",
     "Register each PR for author feedback after creation.",
-    "Handle author feedback on this named PR from the desktop task."
+    "Handle author feedback on this named PR from the desktop task.",
+    "Deliver new PR comments to the existing Codex queue while the author is busy.",
+    "Keep sending author feedback after the previous batch was accepted by the queue."
   ],
   "should_not_trigger": [
     "Start repository-wide reviewer discovery for every open PR.",
     "Write a milestone retrospective.",
-    "Explain how to use the CLI."
+    "Explain how to use the CLI.",
+    "Queue a generic reminder in my chat."
   ]
 }

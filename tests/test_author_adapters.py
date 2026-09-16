@@ -58,12 +58,13 @@ class ClaudeDeliveryTests(unittest.TestCase):
 
 
 class CodexDeliveryTests(unittest.TestCase):
-    def test_a_busy_desktop_refuses_delivery_without_queueing(self):
+    def test_a_busy_desktop_does_not_block_queue_delivery(self):
         runtime = codex.Runtime(THREAD, '/s.py', '/path/codex')
-        with patch.object(codex.transport, 'desktop_is_idle', return_value=False), \
+        with patch.object(codex.transport, 'desktop_is_idle', return_value=False) as idle, \
              patch.object(codex.transport, 'queue_message') as queue:
-            self.assertFalse(runtime.deliver('batch'))
-        queue.assert_not_called()
+            self.assertTrue(runtime.deliver('batch'))
+        idle.assert_not_called()
+        queue.assert_called_once_with('/path/codex', THREAD, 'batch')
 
     def test_an_idle_desktop_queues_the_batch(self):
         runtime = codex.Runtime(THREAD, '/s.py', '/path/codex')
@@ -72,11 +73,11 @@ class CodexDeliveryTests(unittest.TestCase):
             self.assertTrue(runtime.deliver('batch'))
         queue.assert_called_once_with('/path/codex', THREAD, 'batch')
 
-    def test_cleanup_waits_for_an_idle_desktop_when_a_checkout_is_bound(self):
+    def test_codex_cleanup_always_requires_foreground_completion(self):
         runtime = codex.Runtime(THREAD, '/s.py')
-        with patch.object(codex.transport, 'desktop_is_idle', return_value=False):
+        with patch.object(codex.transport, 'desktop_is_idle', side_effect=AssertionError('idle probe called')):
             self.assertFalse(runtime.may_clean({'checkout': '/tmp/x'}))
-            self.assertTrue(runtime.may_clean({'checkout': None}))
+            self.assertFalse(runtime.may_clean({'checkout': None}))
 
     def test_every_failure_is_reported_because_stdout_is_a_log_file(self):
         with tempfile.TemporaryDirectory() as directory:
