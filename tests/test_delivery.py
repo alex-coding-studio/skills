@@ -46,6 +46,18 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             delivery.verify_merge(state, snapshot, 'a' * 40, 'reviewer')
 
+    def test_waiting_ci_requires_positive_check_evidence(self):
+        state, snapshot = self.evidence()
+        state['phase'] = 'waiting-ci'
+        snapshot['ci'] = 'none'
+        with self.assertRaises(ValueError):
+            delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
+        snapshot['ci'] = 'pass'
+        delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
+        state['phase'] = 'approved'
+        snapshot['ci'] = 'none'
+        delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
+
     def test_claude_start_requires_native_monitor_without_launching_shell_listener(self):
         with tempfile.TemporaryDirectory() as directory:
             args = delivery.parser().parse_args(['start', '--runtime', 'claude', '--session', 'existing',

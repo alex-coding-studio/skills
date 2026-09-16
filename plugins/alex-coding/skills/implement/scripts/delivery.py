@@ -149,7 +149,8 @@ def verify_merge(state, current, expected_head, author):
             or state.get('head') != current['head'] or state.get('base') != current['base']):
         raise ValueError('PR does not match the expected ready reviewed head/base')
     if (state.get('pending') or state['phase'] not in {'approved', 'waiting-ci'}
-            or current['ci'] not in {'pass', 'none'}):
+            or current['ci'] not in {'pass', 'none'}
+            or (state['phase'] == 'waiting-ci' and current['ci'] != 'pass')):
         raise ValueError('review or checks are unresolved')
     if any(row['key'] not in state['seen'] for row in current['events']):
         raise ValueError('new feedback requires the existing reviewer before merge')
