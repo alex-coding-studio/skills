@@ -19,7 +19,8 @@ def initial_state(pr, reviewer, author, runtime, limit):
         raise ValueError('review round limit must be a positive integer')
     return {'schema': 1, 'pr': pr, 'reviewer': reviewer.lower(), 'author': author.lower(),
             'runtime': runtime, 'phase': 'starting', 'rounds': 0, 'round_limit': limit,
-            'head': None, 'base': None, 'ci': None, 'ci_key': None, 'seen': [],
+            'head': None, 'base': None, 'ci': None, 'ci_key': None, 'ci_seen': [], 'seen': [],
+            'review_phase': None,
             'session': None, 'pending': None}
 
 
@@ -32,7 +33,10 @@ def next_event(state, current):
         return 'head'
     if any(row['key'] not in state['seen'] for row in current['events']):
         return 'feedback'
-    if current['ci'] in {'pass', 'fail'} and current['ci_key'] != state['ci_key']:
+    terminal_changed = current['ci_key'] != state['ci_key']
+    if 'ci_events' in current and state.get('ci_seen') is not None:
+        terminal_changed = any(key not in state['ci_seen'] for key in current['ci_events'])
+    if current['ci'] in {'pass', 'fail'} and terminal_changed:
         return 'ci'
     return None
 
@@ -50,12 +54,15 @@ def settle(state, current, phase, seen):
         raise ValueError('invalid review phase')
     state.update(phase=phase, head=current['head'], base=current['base'], ci=current['ci'],
                  ci_key=current['ci_key'], seen=list(seen), pending=None)
+    state['review_phase'] = phase
+    if 'ci_events' in current:
+        state['ci_seen'] = sorted(set(state.get('ci_seen') or []) | set(current['ci_events']))
 
 
 def checkpoint(state, token):
     keys = ('schema', 'pr', 'reviewer', 'author', 'phase', 'rounds', 'round_limit',
-            'head', 'base', 'ci', 'ci_key', 'seen')
-    return {**{key: state[key] for key in keys}, 'token': token}
+            'head', 'base', 'ci', 'ci_key', 'ci_seen', 'seen', 'review_phase')
+    return {**{key: state.get(key) for key in keys}, 'token': token}
 
 
 def restore(state, record):
@@ -72,6 +79,11 @@ def restore(state, record):
             raise ValueError('invalid checkpoint revision')
     for key in ('phase', 'rounds', 'round_limit', 'head', 'base', 'ci', 'ci_key', 'seen'):
         state[key] = record.get(key)
+    ci_seen = record.get('ci_seen')
+    if ci_seen is not None and (not isinstance(ci_seen, list) or any(not isinstance(key, str) for key in ci_seen)):
+        raise ValueError('invalid checkpoint CI progress')
+    state['ci_seen'] = ci_seen
+    state['review_phase'] = record.get('review_phase') or record['phase']
 
 
 def encode_checkpoint(record):

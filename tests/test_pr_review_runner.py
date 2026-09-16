@@ -158,6 +158,17 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(self.state['rounds'], 2)
         self.assertEqual(len(self.calls), 1)
 
+    def test_PRL_03_unresolved_same_head_reassessment_reaches_the_limit(self):
+        self.state['rounds'] = 1
+        core.settle(self.state, current(), 'changes-requested', [])
+        self.github.current['events'] = [{'key': 'reply', 'kind': 'conversation', 'id': 2}]
+        def execute(state, root, prompt, persist):
+            return result('changes-requested')
+        runner.step(self.root, self.state, self.github, execute)
+        self.assertFalse(runner.step(self.root, self.state, self.github, execute))
+        self.assertEqual(self.state['phase'], 'needs-user-attention')
+        self.assertEqual(self.state['rounds'], 2)
+
 
 class PublicationTests(unittest.TestCase):
     def test_PRL_02_failed_check_with_pending_churn_does_not_change_terminal_fingerprint(self):
@@ -167,6 +178,19 @@ class PublicationTests(unittest.TestCase):
         passed = {**queued, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}
         self.assertEqual(remote.terminal_check_key([failed, queued]), remote.terminal_check_key([failed, running]))
         self.assertNotEqual(remote.terminal_check_key([failed, running]), remote.terminal_check_key([failed, passed]))
+
+    def test_PRL_02_failed_status_rerun_only_wakes_for_its_new_terminal_result(self):
+        failed = {'__typename': 'CheckRun', 'name': 'tests', 'status': 'COMPLETED', 'conclusion': 'FAILURE'}
+        status = {'__typename': 'StatusContext', 'context': 'build', 'state': 'FAILURE'}
+        state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
+        def snapshot(checks):
+            snapshot = current(ci=remote.shared.checks_state(checks))
+            snapshot['ci_key'] = remote.terminal_check_key(checks)
+            snapshot['ci_events'] = remote.terminal_check_events(checks)
+            return snapshot
+        core.settle(state, snapshot([failed, status]), 'waiting-ci', [])
+        self.assertIsNone(core.next_event(state, snapshot([failed, {**status, 'state': 'PENDING'}])))
+        self.assertEqual(core.next_event(state, snapshot([failed, {**status, 'state': 'SUCCESS'}])), 'ci')
 
     def test_PRL_04_recovery_finds_posted_review_and_only_posts_missing_handoff(self):
         state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)

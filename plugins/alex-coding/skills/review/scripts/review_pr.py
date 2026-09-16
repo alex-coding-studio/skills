@@ -150,14 +150,16 @@ def step(root, state, github, execute=None):
     if reason is None:
         return state['phase'] not in core.TERMINAL
     token = uuid.uuid4().hex
-    if reason == 'head' and state['rounds'] >= state['round_limit']:
+    code_review = reason == 'head' or (
+        reason == 'feedback' and (state.get('review_phase') or state['phase']) == 'changes-requested')
+    if code_review and state['rounds'] >= state['round_limit']:
         state['pending'] = make_pending(state, current, attention_result(
             'the PR has reached its configured review-round limit and has new review work. '
             'A user decision is required before extending the existing round budget.'), token)
         save(root, state)
         return True
     prepare_checkout(root, current, github.repository)
-    if reason == 'head':
+    if code_review:
         state['rounds'] += 1
     state['phase'] = 'reviewing'
     state['pending'] = {'stage': 'execution', 'token': token, 'snapshot': current}
