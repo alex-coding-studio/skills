@@ -8,6 +8,17 @@ import time
 import uuid
 
 
+def review_settings(runtime, complexity='high'):
+    if complexity not in {'deterministic', 'low', 'medium', 'high'}:
+        raise ValueError('review complexity must be deterministic, low, medium or high')
+    if runtime not in {'codex', 'claude'}:
+        raise ValueError('unsupported review runtime')
+    models = {'codex': ('gpt-5.6-sol', 'gpt-5.6-luna'),
+              'claude': ('claude-opus-5', 'claude-sonnet-5')}
+    cheap = complexity == 'deterministic'
+    return {'model': models[runtime][int(cheap)], 'effort': 'max' if cheap else complexity}
+
+
 class PRFinished(Exception):
     def __init__(self, phase):
         self.phase = phase
@@ -30,9 +41,9 @@ def preflight(runtime, executable=None):
     executable = shutil.which(executable or runtime)
     if not executable:
         raise RuntimeError(f'{runtime} CLI is unavailable; reviewer is inactive')
-    probes = [(['exec', '--help'], ['--json', '--output-schema', '--sandbox']),
-              (['exec', 'resume', '--help'], ['--json', '--output-schema'])] if runtime == 'codex' else [
-                  (['--help'], ['--resume', '--json-schema', '--tools', '--strict-mcp-config', '--permission-mode', '--add-dir'])]
+    probes = [(['exec', '--help'], ['--json', '--output-schema', '--sandbox', '--model', '--config']),
+              (['exec', 'resume', '--help'], ['--json', '--output-schema', '--model', '--config'])] if runtime == 'codex' else [
+                  (['--help'], ['--resume', '--json-schema', '--tools', '--strict-mcp-config', '--permission-mode', '--add-dir', '--model', '--effort'])]
     for arguments, flags in probes:
         output = subprocess.run([executable, *arguments], capture_output=True, text=True, timeout=15, check=True).stdout
         if not all(flag in output for flag in flags):
@@ -42,16 +53,19 @@ def preflight(runtime, executable=None):
 
 def command(state, root, output):
     executable, session = state['executable'], state['session']
+    settings = review_settings(state['runtime'], state.get('complexity', 'high'))
     if state['runtime'] == 'codex':
         arguments = [executable, 'exec']
         if session:
             arguments += ['resume', session]
-        arguments += ['-c', 'sandbox_mode="read-only"', '-c', 'approval_policy="never"',
+        arguments += ['--model', settings['model'], '-c', f'model_reasoning_effort="{settings["effort"]}"',
+                      '-c', 'sandbox_mode="read-only"', '-c', 'approval_policy="never"',
                       '-c', 'features.multi_agent=false', '-c', 'web_search="disabled"',
                       '--json', '--output-schema', str(root / 'result-schema.json'),
                       '--output-last-message', str(output), '-']
         return arguments
-    arguments = [executable, '-p', '--output-format', 'json', '--json-schema', json.dumps(schema()),
+    arguments = [executable, '-p', '--model', settings['model'], '--effort', settings['effort'],
+                 '--output-format', 'json', '--json-schema', json.dumps(schema()),
                  '--tools', 'Read,Glob,Grep', '--permission-mode', 'dontAsk', '--strict-mcp-config',
                  '--mcp-config', str(root / 'empty-mcp.json'), '--settings', '{"disableAllHooks":true}',
                  '--add-dir', str(root)]

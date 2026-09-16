@@ -424,6 +424,7 @@ def run(store, interval, once=False):
     gh_command(store.role)
     with runner_lock(store) as runner:
         os.chdir(store.root.resolve())
+        note(store.root, f'{store.name} author PR monitor started; {store.runtime.delivery_name} delivery')
         print(f'{store.name} author PR monitor started; {store.runtime.delivery_name} delivery; '
               'persistent batch acknowledgement required', flush=True)
         while True:
