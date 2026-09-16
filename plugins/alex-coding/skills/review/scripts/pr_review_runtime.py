@@ -32,7 +32,7 @@ def preflight(runtime, executable=None):
         raise RuntimeError(f'{runtime} CLI is unavailable; reviewer is inactive')
     probes = [(['exec', '--help'], ['--json', '--output-schema', '--sandbox']),
               (['exec', 'resume', '--help'], ['--json', '--output-schema'])] if runtime == 'codex' else [
-                  (['--help'], ['--resume', '--json-schema', '--tools', '--strict-mcp-config', '--permission-mode'])]
+                  (['--help'], ['--resume', '--json-schema', '--tools', '--strict-mcp-config', '--permission-mode', '--add-dir'])]
     for arguments, flags in probes:
         output = subprocess.run([executable, *arguments], capture_output=True, text=True, timeout=15, check=True).stdout
         if not all(flag in output for flag in flags):
@@ -53,7 +53,8 @@ def command(state, root, output):
         return arguments
     arguments = [executable, '-p', '--output-format', 'json', '--json-schema', json.dumps(schema()),
                  '--tools', 'Read,Glob,Grep', '--permission-mode', 'dontAsk', '--strict-mcp-config',
-                 '--mcp-config', str(root / 'empty-mcp.json'), '--settings', '{"disableAllHooks":true}']
+                 '--mcp-config', str(root / 'empty-mcp.json'), '--settings', '{"disableAllHooks":true}',
+                 '--add-dir', str(root)]
     return arguments + (['--resume', session] if session else ['--session-id', state['next_session']])
 
 

@@ -79,11 +79,9 @@ def prompt_for(root, state, current, reason):
     (root / 'snapshot.json').write_text(json.dumps(current, indent=2))
     history = current['history']
     checkpoint = remote.GitHub(state['pr'], state['reviewer']).latest_checkpoint(history)
-    boundary = next((i for i, row in enumerate(history) if checkpoint and row is checkpoint[1]), -1)
     pending_keys = {event['key'] for event in current['events']} - set(state['seen'])
     event_ids = {(row['kind'], row['id']) for row in current['events'] if row['key'] in pending_keys}
-    recent = [row for i, row in enumerate(history)
-              if i > boundary and (row['kind'], row['id']) in event_ids]
+    recent = [row for row in history if (row['kind'], row['id']) in event_ids]
     context = {'pr': state['pr'], 'head': current['head'], 'base': current['base'], 'event': reason,
                'round': state['rounds'], 'round_limit': state['round_limit'],
                'acceptance': state['acceptance'], 'user_decision': state.get('decision'),
@@ -152,14 +150,14 @@ def step(root, state, github, execute=None):
     if reason is None:
         return state['phase'] not in core.TERMINAL
     token = uuid.uuid4().hex
-    if reason != 'ci' and state['rounds'] >= state['round_limit']:
+    if reason == 'head' and state['rounds'] >= state['round_limit']:
         state['pending'] = make_pending(state, current, attention_result(
             'the PR has reached its configured review-round limit and has new review work. '
             'A user decision is required before extending the existing round budget.'), token)
         save(root, state)
         return True
     prepare_checkout(root, current, github.repository)
-    if reason != 'ci':
+    if reason == 'head':
         state['rounds'] += 1
     state['phase'] = 'reviewing'
     state['pending'] = {'stage': 'execution', 'token': token, 'snapshot': current}
@@ -284,8 +282,8 @@ def main():
     args = parser.parse_args()
     pr = remote.shared.canonical(args.pr)
     root = state_root(pr, args.state_base)
-    if args.interval < 10 or args.worker_timeout < 1 or args.max_rounds < 1 or args.additional_rounds < 1:
-        parser.error('interval must be at least 10 seconds and limits must be positive')
+    if args.interval < 10 or args.worker_timeout < 1 or args.max_rounds < 1 or args.additional_rounds < 0:
+        parser.error('interval must be at least 10 seconds, limits positive and additional rounds nonnegative')
     if args.completed_rounds is not None and args.completed_rounds < 0:
         parser.error('completed rounds must be nonnegative')
     if args.action == 'run':
@@ -310,6 +308,8 @@ def main():
                         raise ValueError('continue requires stopped settled work; retry pending publication first')
                     state.update(decision=args.decision_file.read_text(), session=None, phase='starting')
                     state['round_limit'] = max(state['round_limit'], state['rounds']) + args.additional_rounds
+                    if state['rounds'] >= state['round_limit']:
+                        raise ValueError('the existing round budget is exhausted; an authorized extension is required')
                     if args.runtime:
                         state['runtime'] = args.runtime
                     state['executable'] = runtime.preflight(state['runtime'], args.executable)

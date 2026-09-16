@@ -135,8 +135,39 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertIsNone(self.state['pending'])
         self.assertFalse(self.github.published)
 
+    def test_PRL_05_unseen_feedback_before_checkpoint_publication_is_included(self):
+        checkpoint = {'kind': 'review', 'id': 10, 'user': {'login': 'reviewer'},
+                      'body': core.encode_checkpoint(core.checkpoint(self.state, 'previous'))}
+        for body in ['Edited an older comment with a new question.', 'Reply posted while the reviewer was running.']:
+            with self.subTest(body=body):
+                comment = {'kind': 'conversation', 'id': 1, 'body': body, 'user': {'login': 'author'}}
+                snapshot = current()
+                snapshot['history'] = [comment, checkpoint]
+                snapshot['events'] = [{'key': 'unseen-version', 'kind': 'conversation', 'id': 1}]
+                runner.prompt_for(self.root, self.state, snapshot, 'feedback')
+                context = json.loads((self.root / 'context.json').read_text())
+                self.assertEqual(context['new_feedback'], [comment])
+
+    def test_PRL_03_feedback_on_approved_head_does_not_consume_another_code_round(self):
+        self.state['rounds'] = 2
+        core.settle(self.state, current(), 'approved', [])
+        self.github.current['events'] = [{'key': 'reply', 'kind': 'conversation', 'id': 2}]
+        self.step()
+        self.step()
+        self.assertEqual(self.state['phase'], 'approved')
+        self.assertEqual(self.state['rounds'], 2)
+        self.assertEqual(len(self.calls), 1)
+
 
 class PublicationTests(unittest.TestCase):
+    def test_PRL_02_failed_check_with_pending_churn_does_not_change_terminal_fingerprint(self):
+        failed = {'__typename': 'CheckRun', 'name': 'tests', 'status': 'COMPLETED', 'conclusion': 'FAILURE'}
+        queued = {'__typename': 'CheckRun', 'name': 'build', 'status': 'QUEUED', 'conclusion': None}
+        running = {**queued, 'status': 'IN_PROGRESS'}
+        passed = {**queued, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}
+        self.assertEqual(remote.terminal_check_key([failed, queued]), remote.terminal_check_key([failed, running]))
+        self.assertNotEqual(remote.terminal_check_key([failed, running]), remote.terminal_check_key([failed, passed]))
+
     def test_PRL_04_recovery_finds_posted_review_and_only_posts_missing_handoff(self):
         state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
         state['rounds'] = 2
@@ -189,6 +220,12 @@ class RuntimeTests(unittest.TestCase):
         with patch.object(runtime.shutil, 'which', return_value=None):
             with self.assertRaises(RuntimeError):
                 runtime.preflight('codex')
+
+    def test_PRL_06_claude_can_read_the_supplied_inputs_outside_its_checkout(self):
+        state = {'runtime': 'claude', 'executable': '/claude', 'session': 'one-session'}
+        command = runtime.command(state, Path('/state'), Path('/state/result'))
+        self.assertIn('--add-dir', command)
+        self.assertEqual(command[command.index('--add-dir') + 1], '/state')
 
 
 if __name__ == '__main__':

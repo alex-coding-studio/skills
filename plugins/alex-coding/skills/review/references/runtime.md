@@ -6,7 +6,7 @@
 
 Requires macOS/Linux Python 3.9+, Git, GitHub CLI with `gh_as admin`, repository read access for Git fetch, and an authenticated Codex or Claude CLI. Windows is unsupported because locks use `fcntl`. Required CLI flags are probed before launch. Unsupported execution is inactive review, not permission to substitute another runtime, account or service. Use the current host's runtime unless the user/project selects another; do not choose a model or reasoning override automatically.
 
-Codex uses `codex exec` and `codex exec resume <exact-session>` with JSON output, a result schema and a read-only sandbox. Claude uses print mode, structured output and exact-session resume; built-in tools are restricted to Read, Glob and Grep, MCP servers are disabled and hooks are disabled for that invocation. Workers inspect source/test assertions and reuse exact-revision execution evidence. They do not run write-requiring gates or make GitHub changes. The runner owns Git fetch, local state and authorized publication. These boundaries do not claim arbitrary third-party extensions provide an OS sandbox.
+Codex uses `codex exec` and `codex exec resume <exact-session>` with JSON output, a result schema and a read-only sandbox. Claude uses print mode, structured output and exact-session resume; built-in tools are restricted to Read, Glob and Grep, MCP servers are disabled and hooks are disabled for that invocation. The generated PR state directory is an explicit additional read root so the worker can read its acceptance, patch and snapshot outside the checkout. Workers inspect source/test assertions and reuse exact-revision execution evidence. They do not run write-requiring gates or make GitHub changes. The runner owns Git fetch, local state and authorized publication. These boundaries do not claim arbitrary third-party extensions provide an OS sandbox.
 
 CLI contracts: [Codex non-interactive mode](https://developers.openai.com/codex/noninteractive), [Claude programmatic execution](https://code.claude.com/docs/en/headless). Verify installed capability and real session continuation when adapting another version; help output alone is not execution evidence.
 
@@ -40,7 +40,7 @@ Only the named PR is queried. Events are a new head/base, new or edited feedback
 
 The result is persisted before publication. Before every write, verify the current Ready head/base, actual admin login and repository push permission. Formal reviews and inline findings carry the runtime marker. A head change during review supersedes publication and leaves the new head pending; completed review attempts still count against the PR budget.
 
-Approval and waiting-ci retain the same reviewer. CI-only work reuses code review and does not increment code-review rounds. Other dispatches consume the configured cumulative budget. Blockers at the limit, or new review work beyond it, produce needs-user-attention. Only explicit human continuation extends the budget; restarting or switching runtime cannot reset it.
+Approval and waiting-ci retain the same reviewer. A new head/base assessment consumes a code-review round. CI and feedback on the already-reviewed revision reuse that review without consuming another code round. Blockers at the limit, or new review work beyond it, produce needs-user-attention. Only explicit human continuation extends the budget; restarting or switching runtime cannot reset it.
 
 Every review contains a concise progress record and versioned checkpoint binding PR, identities, revisions and rounds. Needs-user-attention also posts a conversation handoff. Settle the event and stop only after required publication is confirmed. Retry pending publication using its saved result and token; reuse confirmed earlier writes. GitHub and local files are not atomic, so reconcile uncertain writes from PR history before retry. Later feedback stays pending.
 
@@ -61,7 +61,7 @@ python3 <review>/scripts/review_pr.py continue --pr 'owner/repo#123' \
   --decision-file <user-decision-file> --additional-rounds 1
 ```
 
-Requires stopped, settled work. Clears the old model session, preserves total rounds and records the decision. One additional round is the default; larger extensions require existing user/project authorization. `--runtime` can explicitly change runtime here. Reconcile pending publication with `retry` first; continuation never discards it. Reopened unmerged PRs require explicit continuation. Merged PRs cannot continue.
+Requires stopped, settled work. Clears the old model session, preserves total rounds and records the decision. One additional round is the default; use `--additional-rounds 0` when resolving an execution prerequisite within the still-available budget. Larger extensions require existing user/project authorization. `--runtime` can explicitly change runtime here. Reconcile pending publication with `retry` first; continuation never discards it. Reopened unmerged PRs require explicit continuation. Merged PRs cannot continue.
 
 ## Legacy repository watchers
 

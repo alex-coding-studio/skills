@@ -17,7 +17,7 @@ No model, account, personal path, Semina endpoint or blanket merge authorization
 ## Verification
 
 - Natural Red: the initial PRL state scenarios failed because the new state module did not exist; implementation returned them to Green.
-- `python3 -m unittest discover -s tests`: 210 tests passed, including 20 PRL state/runner/publication/adapter scenarios.
+- `python3 -m unittest discover -s tests`: 214 tests passed, including 24 PRL state/runner/publication/adapter scenarios.
 - `python3 -m unittest discover -s skills/respond-to-agent/tests`: 5 tests passed.
 - All four skill entrypoints passed native quick validation. Codex plugin validation, Claude plugin validation, Python 3.9 syntax parsing and `git diff --check` passed.
 - Real Codex and Claude CLIs each completed a two-turn structured-output probe. Each second invocation reused its first session ID and recalled its previous input. This proves start/resume transport, not review quality or every lifecycle edge.
@@ -25,3 +25,9 @@ No model, account, personal path, Semina endpoint or blanket merge authorization
 - Supplementary Yao Skill OS checks were run in an isolated copy. IR/compiler, Atlas, drift and review rendering executed; full conformance/trust/install certification remains missing evidence because this native plugin does not use Yao per-skill manifests, permission ledgers or registry packaging. No approvals, adoption telemetry or certification were fabricated. Native plugin packaging and the real CLI probes provide the applicable packaging/runtime evidence.
 
 Live PR review and terminal-lifecycle evidence will be recorded on the delivery PR. The older watcher scripts and existing author-monitor transport/cleanup tests remain intact.
+
+## Live validation corrections
+
+The first real Claude review could not read inputs outside its checkout. Its handoff was published before exit. The adapter now grants the generated state directory as an explicit read root; a real Read-tool probe confirmed access. The code-review budget is preserved on retry.
+
+The independent Codex review found that an edited older comment or a reply arriving during review could be excluded from context yet acknowledged, and that failed-plus-pending CI could trigger model calls on pending-only churn. Regression scenarios demonstrated both failures before correction. Unseen feedback is now selected by event identity/version, and only terminal check results contribute to the CI fingerprint. A feedback-only continuation on an approved revision also retains the existing code-review round count.

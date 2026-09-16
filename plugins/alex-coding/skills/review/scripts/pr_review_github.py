@@ -16,6 +16,13 @@ class StaleHead(RuntimeError):
     pass
 
 
+def terminal_check_key(checks):
+    terminal = [check for check in checks if (
+        check.get('__typename') == 'StatusContext' and check.get('state') in {'SUCCESS', 'FAILURE', 'ERROR'}
+    ) or (check.get('__typename') != 'StatusContext' and check.get('status') == 'COMPLETED')]
+    return state_core.digest(sorted(json.dumps(check, sort_keys=True) for check in terminal))
+
+
 class GitHub:
     def __init__(self, pr, reviewer):
         self.repository, self.number = shared.parse_target(pr)
@@ -83,8 +90,7 @@ class GitHub:
             events.append({'key': key, 'kind': row['kind'], 'id': row['id'], 'url': row.get('html_url')})
         return {'head': pr['head']['sha'], 'base': pr['base']['sha'], 'draft': pr['draft'],
                 'terminal': 'merged' if pr.get('merged') else 'closed' if pr['state'] == 'closed' else None,
-                'ci': shared.checks_state(checks), 'ci_key': state_core.digest(sorted(
-                    json.dumps(check, sort_keys=True) for check in checks)),
+                'ci': shared.checks_state(checks), 'ci_key': terminal_check_key(checks),
                 'checks': checks, 'events': events, 'history': history, 'pr': pr}
 
     def post(self, endpoint, payload, state, current):
