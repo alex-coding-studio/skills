@@ -2,6 +2,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -29,6 +30,134 @@ class QueueRuntime(FakeRuntime):
 
 
 class QueueReceiptTests(unittest.TestCase):
+    def disposable_store(self, subject):
+        enrol(subject, checkout='/work')
+        with subject.locked() as data:
+            data['target']['cleanup']['lifecycle'] = 'disposable-v1'
+        return subject
+
+    def test_merged_disposable_target_is_cleaned_without_agent_delivery(self):
+        runtime = codex.Runtime(THREAD, '/monitor.py')
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            with patch.object(core, 'cleanup_target', return_value={'status': 'cleaned'}) as cleanup:
+                subject.apply(result(ending(), terminal='merged'))
+            cleanup.assert_called_once()
+            self.assertTrue(subject.read()['target']['stopped'])
+            self.assertFalse(subject.deliver())
+
+    def test_partial_disposable_completion_retries_without_an_agent(self):
+        runtime = codex.Runtime(THREAD, '/monitor.py')
+        partial = {'status': 'partial', 'cleanup': {'status': 'cleaned'}, 'sync': {'status': 'failed'}}
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            with patch.object(core, 'cleanup_target', side_effect=[partial, {'status': 'cleaned'}]) as cleanup:
+                subject.apply(result(ending(), terminal='merged'))
+                with patch.object(runtime, 'deliver', return_value=True) as deliver:
+                    self.assertFalse(subject.deliver())
+                deliver.assert_not_called()
+                self.assertFalse(subject.read()['target']['stopped'])
+                subject.apply(result(ending(), terminal='merged'))
+            self.assertEqual(cleanup.call_count, 2)
+            self.assertTrue(subject.read()['target']['stopped'])
+
+    def test_claude_partial_cleanup_retries_without_creating_a_claim(self):
+        runtime = FakeRuntime()
+        partial = {'status': 'partial', 'cleanup': {'status': 'cleaned'}, 'sync': {'status': 'failed'}}
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            with patch.object(core, 'cleanup_target', side_effect=[partial, {'status': 'cleaned'}]) as cleanup:
+                subject.apply(result(ending(), terminal='merged'))
+                self.assertFalse(subject.deliver())
+                self.assertIsNone(subject.read()['batch'])
+                subject.apply(result(ending(), terminal='merged'))
+            self.assertEqual(cleanup.call_count, 2)
+            self.assertTrue(subject.read()['target']['stopped'])
+
+    def test_explicit_completion_retries_a_disposable_partial_result(self):
+        runtime = codex.Runtime(THREAD, '/monitor.py')
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            with subject.locked() as data:
+                data['target']['cleanup_result'] = {'status': 'partial'}
+            with patch.object(core, 'snapshot', return_value=result(ending(), terminal='merged')), \
+                 patch.object(core, 'cleanup_target', return_value={'status': 'cleaned'}) as cleanup:
+                self.assertEqual(subject.complete()['status'], 'cleaned')
+            cleanup.assert_called_once()
+
+    def test_explicit_completion_retries_after_a_reported_external_lock_is_resolved(self):
+        runtime = codex.Runtime(THREAD, '/monitor.py')
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            with subject.locked() as data:
+                data['target']['cleanup_result'] = {'status': 'partial', 'retryable': False}
+                data['target']['stopped'] = True
+            with patch.object(core, 'snapshot', return_value=result(notice(1), ending(), terminal='merged')) as snapshot, \
+                 patch.object(core, 'cleanup_target', return_value={'status': 'cleaned'}) as cleanup:
+                self.assertEqual(subject.complete()['status'], 'cleaned')
+            snapshot.assert_called_once()
+            cleanup.assert_called_once()
+            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'pending')
+            self.assertFalse(subject.read()['target']['stopped'])
+
+    def test_runner_stays_alive_until_explicit_recovery_delivers_new_feedback(self):
+        runtime = codex.Runtime(THREAD, '/monitor.py')
+        partial = {'status': 'partial', 'retryable': False}
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            snapshots = [result(ending(), terminal='merged'), result(notice(1), ending(), terminal='merged'), result(notice(1), ending(), terminal='merged')]
+            cycles = 0
+
+            def recover_after_first_poll(_):
+                nonlocal cycles
+                cycles += 1
+                self.assertEqual(cycles, 1)
+                self.assertFalse(subject.read()['target']['stopped'])
+                self.assertEqual(subject.complete()['status'], 'cleaned')
+
+            previous = os.getcwd()
+            try:
+                with patch.object(core, 'gh_command', return_value=['gh']), \
+                     patch.object(core, 'snapshot', side_effect=snapshots), \
+                     patch.object(core, 'cleanup_target', side_effect=[partial, {'status': 'cleaned'}]), \
+                     patch.object(core.time, 'sleep', side_effect=recover_after_first_poll), \
+                     patch.object(runtime, 'deliver', return_value=True) as deliver:
+                    core.run(subject, 0, False)
+            finally:
+                os.chdir(previous)
+            self.assertEqual(cycles, 1)
+            self.assertEqual(deliver.call_count, 2)
+            self.assertTrue(subject.read()['target']['stopped'])
+            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['disposition'], 'queue-accepted')
+            self.assertFalse((subject.root / 'run.pid').exists())
+
+    def test_disposal_does_not_wait_for_or_erase_a_claude_feedback_claim(self):
+        runtime = FakeRuntime()
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            subject.apply(result(notice(1)))
+            subject.deliver()
+            token = subject.read()['batch']['token']
+            with patch.object(core, 'cleanup_target', return_value={'status': 'cleaned'}) as cleanup:
+                subject.apply(result(notice(1), ending(), terminal='merged'))
+            cleanup.assert_called_once()
+            self.assertEqual(subject.read()['batch']['token'], token)
+            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'delivered')
+            self.assertFalse(subject.read()['target']['stopped'])
+            subject.acknowledge(token)
+            self.assertTrue(subject.read()['target']['stopped'])
+
+    def test_disposal_does_not_silently_settle_unseen_feedback(self):
+        runtime = codex.Runtime(THREAD, '/monitor.py')
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            with patch.object(core, 'cleanup_target', return_value={'status': 'cleaned'}):
+                subject.apply(result(notice(1), ending(), terminal='merged'))
+            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'pending')
+            with patch.object(runtime, 'deliver', return_value=True):
+                self.assertTrue(subject.deliver())
+            self.assertTrue(subject.read()['target']['stopped'])
+
     def test_CQ_02_later_batches_enqueue_without_waiting_for_agent_ack(self):
         runtime = QueueRuntime()
         with store(runtime=runtime) as subject:

@@ -50,7 +50,7 @@ class Runtime:
         return True
 
     def may_clean(self, target):
-        return False
+        return (target.get('cleanup') or {}).get('lifecycle') == 'disposable-v1'
 
     def report(self, root, failures):
         for line in failures:

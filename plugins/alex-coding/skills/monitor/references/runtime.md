@@ -56,7 +56,7 @@ Queue receipt does not mean a blocker was fixed or the PR is approved. Those rem
 
 ## Terminal delivery and protected completion
 
-Codex performs no background checkout cleanup. A merged or closed PR produces a terminal notification; after all event versions are accepted by the queue, the listener stops. The final merged notification includes the protected completion command. Closed-unmerged work stays local.
+For newly registered disposable linked worktrees, the listener calls the completion script directly after verifying a merge, without an Agent wakeup. It synchronizes the primary default checkout and force-removes the owned worktree independently. Partial/interrupted operations remain pending for model-free retry. Existing legacy targets retain terminal queue delivery and foreground completion. Closed-unmerged work stays local.
 
 After the author verifies its own merge, or processes a merged notification, invoke:
 
@@ -64,7 +64,7 @@ After the author verifies its own merge, or processes a merged notification, inv
 python3 <monitor>/scripts/codex_pr_monitor.py --thread <uuid> --pr 'owner/repo#123' complete
 ```
 
-Run from outside the owned checkout. Completion freshly verifies the merge and calls the existing protected helper to synchronize the primary default checkout and clean only proven owned merged work. It does not wait for acknowledgements of new queue-receipt deliveries. Preserve dirty, occupied, diverged or unproven work and report the concrete exception. Failed/interrupted cleanup is not blindly retried. See [feedback and completion](feedback-and-completion.md) for the author responsibilities and protection boundaries. Invoking completion directly after an author-initiated merge can settle the listener without another model wakeup.
+Run from outside the owned checkout. Completion freshly verifies PR identity, the merged head and default branch, then uses the [disposable lifecycle](../../../references/worktree-lifecycle.md) for a disposable registration. All remaining task files are discarded; primary default changes are overwritten by the fetched commit. Synchronization and disposal have separate receipts, and repeating completion retries a partial or interrupted disposable operation. This does not wait for acknowledgements of new Codex queue deliveries. Legacy registrations retain their existing foreground and preservation behavior. See [feedback and completion](feedback-and-completion.md).
 
 ## Existing ledgers and messages
 
