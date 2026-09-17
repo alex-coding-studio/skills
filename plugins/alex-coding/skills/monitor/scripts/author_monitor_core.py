@@ -30,6 +30,11 @@ def cleanup_target(target, current):
     return cleanup_module().cleanup_target(target, current)
 
 
+def retryable_cleanup(target):
+    return ((target.get('cleanup') or {}).get('lifecycle') == 'disposable-v1'
+            and (target.get('cleanup_result') or {}).get('status') in ('partial', 'interrupted', 'error'))
+
+
 def gh_command(role):
     if role is None:
         return ['gh']
@@ -233,18 +238,21 @@ class Store:
             for item in events:
                 target['events'].setdefault(item['key'], dict(item, status='pending'))
             target.update(terminal=result['terminal'], ci=result['ci'], ci_version=result['ci_version'], head=result['head'])
-            if (result['terminal'] == 'merged' and not target.get('cleanup_result') and data['batch'] is None
+            if (result['terminal'] == 'merged' and (not target.get('cleanup_result') or retryable_cleanup(target)) and data['batch'] is None
                     and self.runtime.may_clean(target)):
                 self._attempt_cleanup(data, target, result)
             self._stop_when_settled(target)
 
     @staticmethod
     def _stop_when_settled(target):
+        if retryable_cleanup(target):
+            target['stopped'] = False
+            return
         if target['terminal'] and all(e['status'] in ('handled', 'settled') for e in target['events'].values()):
             target['stopped'] = True
 
     def _attempt_cleanup(self, data, target, result):
-        if target.get('cleanup_result'):
+        if target.get('cleanup_result') and not retryable_cleanup(target):
             return copy.deepcopy(target['cleanup_result'])
         target['cleanup_result'] = dict(status='interrupted', reason='Cleanup attempt was interrupted; inspect before any retry')
         self.persist(data)
@@ -269,7 +277,7 @@ class Store:
             if data['batch'] is not None:
                 raise ValueError('acknowledge the active delivered batch before completing this PR')
             target = self.require(data)
-            if target.get('cleanup_result'):
+            if target.get('cleanup_result') and not retryable_cleanup(target):
                 return copy.deepcopy(target['cleanup_result'])
             current = snapshot(target, self.role)
             if current['terminal'] != 'merged':

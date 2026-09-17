@@ -23,7 +23,7 @@ Make project-specific pitfalls available to the Worker when relevant: explain th
 
 ## Publish and hand off
 
-1. Write only the user-accepted planning documents on a work branch. Protect existing edits. Changes to ProjectContext follow its own approval and separate-PR rules; ordinary planning authorization does not bypass them.
+1. Create a task worktree through the [disposable worktree lifecycle](../../references/worktree-lifecycle.md), or resume the same delivery in its existing worktree. Write only the user-accepted planning documents there. Protect unrelated work. Changes to ProjectContext follow its own approval and separate-PR rules; ordinary planning authorization does not bypass them.
 2. Open a ready documentation PR with the configured author identity. Use Draft only when requested. Register author-side follow-up through the project's existing monitoring mechanism when configured and available.
 3. Invoke `alex-coding:review` for the exact planning PR using [review startup](../review/references/runtime.md), unless a reviewer is already assigned or the project explicitly requires a human-owned path. Automatic reviewer startup is part of this delivery. Supply the frozen accepted source and clause mapping, address document feedback, obtain current-head approval and satisfy applicable document checks. Do not create a competing reviewer or supply the author's own verdict.
 4. When existing user/project authorization permits merge and all required conditions are satisfied, merge and verify the terminal state. Otherwise retain the PR and state the missing authorization or gate. Never hand off an open or rejected planning PR as implementation-ready.

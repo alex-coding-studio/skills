@@ -29,6 +29,47 @@ class QueueRuntime(FakeRuntime):
 
 
 class QueueReceiptTests(unittest.TestCase):
+    def disposable_store(self, subject):
+        enrol(subject, checkout='/work')
+        with subject.locked() as data:
+            data['target']['cleanup']['lifecycle'] = 'disposable-v1'
+        return subject
+
+    def test_merged_disposable_target_is_cleaned_without_agent_delivery(self):
+        runtime = codex.Runtime(THREAD, '/monitor.py')
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            with patch.object(core, 'cleanup_target', return_value={'status': 'cleaned'}) as cleanup:
+                subject.apply(result(ending(), terminal='merged'))
+            cleanup.assert_called_once()
+            self.assertTrue(subject.read()['target']['stopped'])
+            self.assertFalse(subject.deliver())
+
+    def test_partial_disposable_completion_retries_without_an_agent(self):
+        runtime = codex.Runtime(THREAD, '/monitor.py')
+        partial = {'status': 'partial', 'cleanup': {'status': 'cleaned'}, 'sync': {'status': 'failed'}}
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            with patch.object(core, 'cleanup_target', side_effect=[partial, {'status': 'cleaned'}]) as cleanup:
+                subject.apply(result(ending(), terminal='merged'))
+                with patch.object(runtime, 'deliver', return_value=True):
+                    subject.deliver()
+                self.assertFalse(subject.read()['target']['stopped'])
+                subject.apply(result(ending(), terminal='merged'))
+            self.assertEqual(cleanup.call_count, 2)
+            self.assertTrue(subject.read()['target']['stopped'])
+
+    def test_explicit_completion_retries_a_disposable_partial_result(self):
+        runtime = codex.Runtime(THREAD, '/monitor.py')
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            with subject.locked() as data:
+                data['target']['cleanup_result'] = {'status': 'partial'}
+            with patch.object(core, 'snapshot', return_value=result(ending(), terminal='merged')), \
+                 patch.object(core, 'cleanup_target', return_value={'status': 'cleaned'}) as cleanup:
+                self.assertEqual(subject.complete()['status'], 'cleaned')
+            cleanup.assert_called_once()
+
     def test_CQ_02_later_batches_enqueue_without_waiting_for_agent_ack(self):
         runtime = QueueRuntime()
         with store(runtime=runtime) as subject:

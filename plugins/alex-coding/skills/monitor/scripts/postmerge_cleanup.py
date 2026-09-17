@@ -1,4 +1,5 @@
 import fcntl
+import importlib.util
 import json
 import os
 import re
@@ -6,6 +7,10 @@ import sys
 from pathlib import Path
 import subprocess
 from urllib.parse import quote, urlparse
+
+_spec = importlib.util.spec_from_file_location('worktree_lifecycle', Path(__file__).with_name('worktree_lifecycle.py'))
+lifecycle = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lifecycle)
 
 
 def _run(args, cwd=None):
@@ -108,6 +113,8 @@ def _cleanup(target, snapshot, actions):
     if (pr['head']['ref'] != branch or pr['head']['repo']['full_name'].casefold() != repository.casefold()
             or pr['base']['repo']['full_name'].casefold() != repository.casefold() or snapshot.get('head') != head):
         return _result('preserved', 'PR identity or final head changed')
+    if metadata.get('lifecycle') == 'disposable-v1' and pr['base'].get('ref') != default:
+        return _result('preserved', 'The PR did not merge into the registered default branch')
     if not primary.is_dir() or not common.is_dir():
         return _result('preserved', 'Registered repository no longer exists')
     actual_common = Path(_git(primary, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve()
@@ -120,7 +127,56 @@ def _cleanup(target, snapshot, actions):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return _result('preserved', 'Another cleanup holds the repository lock')
+        if metadata.get('lifecycle') == 'disposable-v1':
+            return _disposable(checkout, primary, common, branch, default, remote, head, actions)
         return _locked(target, metadata, checkout, primary, common, branch, default, remote, head, pr.get('merge_commit_sha'), actions)
+
+
+def _disposable(checkout, primary, common, branch, default, remote, head, actions):
+    if checkout == primary:
+        return _result('preserved', 'A disposable worktree cannot be the primary checkout')
+    records = _worktrees(primary)
+    owned = next((record for record in records if Path(record['worktree']).resolve() == checkout), None)
+    reference = f'refs/heads/{branch}'
+    exists = subprocess.run(['git', '-C', str(primary), 'show-ref', '--verify', '--quiet', reference], capture_output=True, timeout=60).returncode == 0
+    if exists and _git(primary, 'rev-parse', reference) != head:
+        return _result('preserved', 'Local branch has work beyond the final PR head')
+    if any(record.get('branch') == reference and Path(record['worktree']).resolve() != checkout for record in records):
+        return _result('preserved', 'Branch is occupied by a different worktree')
+    if owned:
+        if 'locked' in owned or owned.get('branch') != reference:
+            return _result('preserved', 'Worktree identity or lock changed')
+        if checkout.exists() and (Path(_git(checkout, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve() != common
+                                  or _git(checkout, 'rev-parse', 'HEAD') != head):
+            return _result('preserved', 'Worktree repository or final head changed')
+    elif checkout.exists():
+        return _result('preserved', 'The checkout path exists without its worktree registration')
+    try:
+        commit = lifecycle.synchronize(primary, remote, default, _git)
+        sync = dict(status='synced', commit=commit)
+        actions.append('Reset default checkout to the fetched remote commit')
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        sync = dict(status='failed', reason=str(error))
+    try:
+        if owned:
+            current = next((record for record in _worktrees(primary) if Path(record['worktree']).resolve() == checkout), None)
+            if not current or 'locked' in current or current.get('branch') != reference:
+                raise ValueError('Worktree identity changed before disposal')
+            if exists and _git(primary, 'rev-parse', reference) != head:
+                raise ValueError('Branch changed before disposal')
+            _git(primary, 'worktree', 'remove', '--force', str(checkout))
+            actions.append('Removed disposable worktree including all residual files')
+        if exists:
+            _git(primary, 'update-ref', '-d', reference, head)
+            actions.append('Deleted the final merged task branch')
+        disposal = dict(status='cleaned')
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        disposal = dict(status='failed', reason=str(error))
+    complete = sync['status'] == 'synced' and disposal['status'] == 'cleaned'
+    result = _result('cleaned' if complete else 'partial',
+                     'Default synchronized and task worktree disposed' if complete else 'Synchronization and disposal have separate results; retry the failed operation', actions)
+    result.update(sync=sync, cleanup=disposal)
+    return result
 
 
 def _on_default(path, remote, default, commit):
@@ -245,8 +301,11 @@ def bind_cleanup(checkout, repository, pr):
     branch_info = json.loads(_run(['gh', 'api', f'repos/{repository}/branches/{quote(pr["head"]["ref"], safe="")}']))
     if branch_info.get('name') != pr['head']['ref'] or not isinstance(branch_info.get('protected'), bool):
         raise ValueError('Branch protection could not be captured')
-    return {'owned': True, 'head_protected': branch_info['protected'], 'common_dir': str(common), 'remote': remote, 'remote_url': url,
-            'default_branch': default, 'default_checkout': str(primary)}
+    result = {'owned': True, 'head_protected': branch_info['protected'], 'common_dir': str(common), 'remote': remote, 'remote_url': url,
+              'default_branch': default, 'default_checkout': str(primary)}
+    if path != primary:
+        result['lifecycle'] = 'disposable-v1'
+    return result
 
 
 def _matches_remote(url, repository):
