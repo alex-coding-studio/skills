@@ -36,7 +36,7 @@ class FakeGitHub:
     def snapshot(self, author):
         return copy.deepcopy(self.current)
 
-    def publish(self, state, pending):
+    def publish(self, state, pending, patch=''):
         if self.fail:
             raise TimeoutError()
         self.published.append(copy.deepcopy(pending))

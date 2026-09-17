@@ -20,7 +20,7 @@ If supported independent execution is unavailable, report the concrete missing c
 
 Bind every review and approval to the exact head. Recheck the current PR before publication and merge. Changes require the affected review to be renewed; approvals on old heads do not establish acceptance of new changes. Follow the project's existing review-loop limits and escalation rules.
 
-Approval is not the reviewer's terminal state. Keep that PR's reviewer through CI and later changes until merge or closure, using model-free waiting. At a user-attention boundary, publish findings and handoff evidence before stopping. Rounds belong to the PR and survive session replacement. An explicit user continuation can extend the existing budget without resetting it. Author Monitor retains responsibility for follow-up Issues, fixes, merge and cleanup.
+Approval is not the reviewer's terminal state. Keep that PR's reviewer through CI and later changes until merge or closure, using model-free waiting. At a user-attention boundary, publish findings and handoff evidence before stopping. Rounds belong to the PR and survive session replacement. An explicit user request for fresh review can extend the existing budget and replace the session without requiring previous publication to succeed. Implement/Plan invokes Review's continuation entrypoint; it preserves prior evidence and obtains a new independent judgment, never an author-supplied approval. Author Monitor retains responsibility for follow-up Issues, fixes, merge and cleanup.
 
 ## Follow-up and completion
 

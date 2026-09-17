@@ -21,6 +21,8 @@ For Claude use `--runtime claude --session <existing-session-id>`. When the rece
 
 Read the compact receipt. `started` establishes active processes, not approval or completed event delivery. An occupied lock without verifiable startup, inactive reviewer, attention gate or failed step is a reported exception. Inspect the retained state/log for that exact PR; do not repeatedly call status during quiet waiting, launch another owner or erase state to retry.
 
+For a user-authorized fresh review, use Review's [`continue --decision-file`](../../review/references/runtime.md#continue-after-user-intervention) directly. Repeating this helper's `start` only reuses the existing reviewer. The continuation entrypoint replaces its verified process/session and retains previous findings without requiring a failed publication to succeed first.
+
 Once the author has handled feedback, created required follow-up Issues, satisfied human/project acceptance, verified all declared gates, and has existing authorization to merge:
 
 ```sh
