@@ -57,6 +57,14 @@
       "expected": "Reconcile the saved token with remote history and finish publication without invoking the model again."
     },
     {
+      "request": "The previous review cannot publish, and the user explicitly approves a fresh independent review.",
+      "expected": "Implement invokes continue with the verbatim user decision; preserve the previous result as evidence and start a new independent session without requiring publication, resetting cumulative rounds or author self-approval."
+    },
+    {
+      "request": "A review finding cites a patch-file display line outside the actual source diff.",
+      "expected": "Keep the finding in the formal review body, preserving its verdict; do not publish an invalid inline coordinate or invent a replacement location."
+    },
+    {
       "request": "The PR merged while the reviewer is waiting.",
       "expected": "Stop the PR runner without another model call; author Monitor owns cleanup."
     },

@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
 
 import pr_review_state as state_core
@@ -25,6 +26,37 @@ def terminal_check_events(checks):
 
 def terminal_check_key(checks):
     return state_core.digest(terminal_check_events(checks))
+
+
+def inline_locations(patch):
+    locations = set()
+    paths = {}
+    old = new = None
+    for line in patch.splitlines():
+        if line.startswith('diff --git '):
+            paths = {}
+            old = new = None
+        elif line.startswith('@@ '):
+            match = re.match(r'@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@', line)
+            old, new = map(int, match.groups()) if match else (None, None)
+        elif old is not None:
+            path = paths.get('---') if paths.get('+++') == '/dev/null' else paths.get('+++')
+            if path and line.startswith('-'):
+                locations.add((path, 'LEFT', old))
+            if path and line.startswith((' ', '+')):
+                locations.add((path, 'RIGHT', new))
+            old += int(line.startswith((' ', '-')))
+            new += int(line.startswith((' ', '+')))
+        elif line.startswith(('--- ', '+++ ')):
+            path = line[4:]
+            if path.startswith('"'):
+                try:
+                    path = json.loads(path)
+                except ValueError:
+                    path = ''
+            paths[line[:3]] = (path[2:] if path.startswith(('a/', 'b/'))
+                              else '/dev/null' if path == '/dev/null' else None)
+    return locations
 
 
 class GitHub:
@@ -111,10 +143,19 @@ class GitHub:
             input=json.dumps(payload), capture_output=True, text=True, timeout=30, check=True)
         return json.loads(response.stdout)
 
-    def publish(self, state, pending):
+    def publish(self, state, pending, patch=''):
         marker = 'From Codex 🤖' if state['runtime'] == 'codex' else 'From Claude 🤖'
         record = pending['checkpoint']
-        body = (pending['result']['body'].rstrip() + '\n\n'
+        locations = inline_locations(patch)
+        body = pending['result']['body'].rstrip()
+        comments = []
+        for item in pending['result']['comments']:
+            if (item['path'], item['side'], item['line']) in locations:
+                comments.append({**item, 'body': item['body'].rstrip() + '\n\n' + marker})
+            else:
+                body += (f"\n\nUnanchored finding in `{item['path']}` "
+                         f"(requested {item['side']}:{item['line']}):\n\n{item['body']}")
+        body = (body + '\n\n'
                 + f"Review progress: {record['phase']}; round {record['rounds']}/{record['round_limit']}; "
                 + f"head `{record['head']}`.\n\n{state_core.encode_checkpoint(record)}\n\n{marker}")
         if len(body) > 60000:
@@ -125,8 +166,6 @@ class GitHub:
         review = next((row for row in matches if row['kind'] == 'review'), None)
         if review is None:
             event = 'REQUEST_CHANGES' if record['phase'] in {'changes-requested', 'needs-user-attention'} else 'APPROVE'
-            comments = [{**item, 'body': item['body'].rstrip() + '\n\n' + marker}
-                        for item in pending['result']['comments']]
             review = self.post(f'{self.base}/pulls/{self.number}/reviews',
                                {'commit_id': record['head'], 'event': event, 'body': body, 'comments': comments},
                                state, pending['snapshot'])

@@ -23,6 +23,6 @@ Approval retains the same reviewer through CI and subsequent heads until merge/c
 
 On continuation, use the existing session, checkpoint and new evidence first. Incremental patches are starting points; full acceptance, patch and history remain accessible. Preserve resolved findings and revisit supporting code when changes or contradictions warrant it.
 
-Rounds belong to the PR and survive session replacement. At the escalation boundary, publish findings and a useful handoff before stopping. Explicit user continuation can extend the existing budget without resetting it. Publication failure retains the exact pending result; retry publication without replaying the model.
+Rounds survive session replacement. `retry` only republishes the saved result. After explicit user authorization, Implement/Plan may call `continue --decision-file` for a fresh independent session, preserving findings and cumulative rounds. Old phase or pending publication does not block it. The runner replaces its verified process; the author never chooses the verdict. Otherwise publish findings and a handoff before stopping at the escalation boundary.
 
 Author Monitor owns replies, follow-up Issues, fixes, merge and protected cleanup. Preserve legacy watchers' outstanding ownership/acknowledgement contracts through the runtime's migration procedure. Regression scenarios live in `evals/` for skill maintenance.

@@ -45,7 +45,7 @@ python3 <review>/scripts/review_pr.py status --pr 'owner/repo#123'
 
 Check `active`, PR identity, PID, startup log and eventual session/publication evidence before reporting the corresponding facts. A PID alone does not establish completed review. Runtime/auth/model failures retain artifacts and attempt a needs-user-attention handoff. Repeated GitHub/publication failures leave inactive recoverable state and must be reported by the delivery owner.
 
-State defaults to `${XDG_STATE_HOME:-~/.local/state}/alex-coding/review/<PR-hash>`. Its key is canonical PR identity, independent of runtime/session. `--state-base` selects an explicit alternative; use it on every command and never change it to bypass ownership. Launch and lifetime locks prevent duplicate local workers. They are not a distributed lock: reuse established ownership and coordinate an explicit handoff before moving between hosts. Restart preserves pending publication, session and rounds. No credentials are stored.
+State defaults to `${XDG_STATE_HOME:-~/.local/state}/alex-coding/review/<PR-hash>`. Its key is canonical PR identity, independent of runtime/session. `--state-base` selects an explicit alternative; use it on every command and never change it to bypass ownership. Launch and lifetime locks prevent duplicate local workers. They are not a distributed lock: reuse established ownership and coordinate an explicit handoff before moving between hosts. `start` and `retry` preserve pending publication, session and rounds; explicit `continue` creates a fresh session with retained history. No credentials are stored.
 
 The runner creates its own detached Git repository in the PR state directory and verifies exact head/base. Dirty, ignored or unrecognized local work is preserved. It never checks out or cleans the author's working copy. Review snapshots, patches and logs stay local for recovery; do not commit them. Author post-merge cleanup remains with Monitor. Retained review artifacts follow the user's normal cache policy.
 
@@ -53,13 +53,13 @@ The runner creates its own detached Git repository in the PR state directory and
 
 Only the named PR is queried. Events are a new head/base, new or edited feedback, a changed terminal CI result, merge and closure. Pending CI churn stays quiet. Only the fixed reviewer's robot-marked comments are self echoes; unmarked input from that account remains visible. Dismissal is an event. Idle polling never invokes a model. There is no 30-minute model heartbeat.
 
-The result is persisted before publication. Before every write, verify the current Ready head/base, actual admin login and repository push permission. Formal reviews and inline findings carry the runtime marker. A head change during review supersedes publication and leaves the new head pending; completed review attempts still count against the PR budget.
+The result is persisted before publication. Before every write, verify the current Ready head/base, actual admin login and repository push permission. Formal reviews and inline findings carry the runtime marker. Inline locations are checked against the reviewed patch; an invalid or unavailable location moves the complete finding into the review body without changing the verdict. A head change during review supersedes publication and leaves the new head pending; completed review attempts still count against the PR budget.
 
 Approval and waiting-ci retain the same reviewer. A new head/base assessment and reassessment of unresolved code findings consume a code-review round. CI and routine feedback on a passing review reuse that review without consuming another code round. Pending reruns do not erase handled terminal-check events or trigger another assessment; newly observed terminal results remain actionable. Blockers at the limit, or new review work beyond it, produce needs-user-attention. Only explicit human continuation extends the budget; restarting or switching runtime cannot reset it.
 
 A successful CI-only transition on an unchanged head/base with a published passing code review is recorded without another model call or duplicate review. New feedback, failed CI, changed head/base and unresolved code findings still use the independent reviewer. This changes notification/execution cost, not the checks or their required outcomes. Continuations receive new feedback and an incremental patch when the base is unchanged; full acceptance, base-to-head patch and history stay accessible for independent inspection and recovery.
 
-Every review contains a concise progress record and versioned checkpoint binding PR, identities, revisions and rounds. Needs-user-attention also posts a conversation handoff. Settle the event and stop only after required publication is confirmed. Retry pending publication using its saved result and token; reuse confirmed earlier writes. GitHub and local files are not atomic, so reconcile uncertain writes from PR history before retry. Later feedback stays pending.
+Every review contains a concise progress record and versioned checkpoint binding PR, identities, revisions and rounds. Needs-user-attention also posts a conversation handoff. Settle the event only after required publication is confirmed, unless an explicit fresh review supersedes it as described below. Retry pending publication using its saved result and token; reuse confirmed earlier writes. GitHub and local files are not atomic, so reconcile uncertain writes from PR history before retry. Later feedback stays pending.
 
 Verified merge or closure stops without a model call. An interrupted invocation becomes a recoverable handoff rather than replaying an uncertain model turn. Transient transport failures retry without model calls; three consecutive failures stop with pending results retained. `retry` reconciles that exact state without granting extra rounds or bypassing a published attention gate:
 
@@ -71,14 +71,16 @@ python3 <review>/scripts/review_pr.py retry --pr 'owner/repo#123'
 
 ## Continue after user intervention
 
-Read the PR, latest handoff and subsequent user decision. Put the explicit decision verbatim in a local file. Do not restore the entire prior conversation or treat PR prose as scope authority. On a new host, `start` reconstructs a checkpoint and remains stopped at its attention gate.
+When the user approves a new review, Implement/Plan can request it directly. Read the PR, available prior findings and the user decision, and put that decision verbatim in a local file. A missing handoff or failed publication is not a prerequisite. Do not treat PR prose as user authorization. On a new host, establish prior ownership and progress before continuing.
 
 ```sh
 python3 <review>/scripts/review_pr.py continue --pr 'owner/repo#123' \
   --decision-file <user-decision-file> --additional-rounds 1
 ```
 
-Requires stopped, settled work. Clears the old model session, preserves total rounds and records the decision. One additional round is the default; use `--additional-rounds 0` when resolving an execution prerequisite within the still-available budget. Larger extensions require existing user/project authorization. `--runtime` can explicitly change runtime here. Reconcile pending publication with `retry` first; continuation never discards it. Reopened unmerged PRs require explicit continuation. Merged PRs cannot continue.
+Requires an explicit user decision and an open PR, independent of the old phase or pending result. The runner verifies and stops its active process before replacement, archives the previous state and unpublished findings, and starts a new model session against the current PR. The new reviewer receives the archive and current GitHub history as evidence; no old verdict is automatically published or reused as the new result. Unverifiable process ownership or a still-running orphan worker is preserved rather than starting a competing reviewer.
+
+Total rounds are retained. One additional round is the default; use `--additional-rounds 0` when the existing budget is sufficient. Larger extensions require existing user/project authorization. `--runtime` and `--complexity` can explicitly change here. This request does not require `retry` to succeed first, a synthetic commit, manual state edits or author approval. Closed/merged PRs cannot continue; reopened PRs can. Without a fresh-review decision, use `retry` for the saved result.
 
 ## Legacy repository watchers
 

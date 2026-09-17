@@ -92,6 +92,8 @@ def prompt_for(root, state, current, reason):
     inputs = {'context': str(root / 'context.json'), 'patch': str(root / 'current.patch'),
               'acceptance': str(root / 'acceptance.md'),
               'full_history_if_needed': str(root / 'snapshot.json')}
+    if state.get('previous_review'):
+        inputs['previous_review'] = str(root / state['previous_review'])
     if not state.get('session'):
         context['body'] = current['pr'].get('body')
     elif (state.get('head') and state['head'] != current['head']
@@ -158,7 +160,9 @@ def step(root, state, github, execute=None):
             state['phase'] = 'starting'
             save(root, state)
             return True
-        state['last_review_url'] = github.publish(state, pending)
+        patch_file = root / 'current.patch'
+        patch_text = patch_file.read_text() if patch_file.exists() else ''
+        state['last_review_url'] = github.publish(state, pending, patch_text)
         core.restore(state, pending['checkpoint'])
         state['pending'] = None
         save(root, state)
@@ -291,6 +295,61 @@ def register(args, root, pr):
     return state
 
 
+def stop_runner(root, pr):
+    if not running(root):
+        return
+    pid = read(root, pr).get('pid')
+    process = subprocess.run(['ps', '-p', str(pid), '-o', 'command='],
+                             capture_output=True, text=True, timeout=10)
+    expected = f'/review_pr.py run --pr {pr} --state-base {root.parents[2]}'
+    if process.returncode or not process.stdout.strip().endswith(expected):
+        raise RuntimeError('cannot verify active reviewer process ownership; existing work is preserved')
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + 10
+    while running(root):
+        if time.monotonic() >= deadline:
+            raise RuntimeError('previous reviewer has not stopped; existing work is preserved')
+        time.sleep(0.1)
+
+
+def continue_review(args, root, pr):
+    decision = args.decision_file.read_text()
+    previous = read(root, pr)
+    github = remote.GitHub(pr, previous['reviewer'])
+    pull = github.pull()
+    if pull.get('merged') or pull['state'] != 'open':
+        raise ValueError('fresh review requires an open PR')
+    if pull['user']['login'].casefold() != previous['author']:
+        raise PermissionError('PR author identity changed')
+    github.verify_writer(previous['author'])
+    selected_runtime = args.runtime or previous['runtime']
+    executable = runtime.preflight(selected_runtime, args.executable)
+    stop_runner(root, pr)
+    with lock(root, 'run.lock'):
+        previous = read(root, pr)
+        if previous.get('worker_pid'):
+            try:
+                os.kill(previous['worker_pid'], 0)
+            except ProcessLookupError:
+                pass
+            else:
+                raise RuntimeError('previous review worker is still running; preserve its ownership')
+        limit = max(previous['round_limit'], previous['rounds']) + args.additional_rounds
+        if previous['rounds'] >= limit:
+            raise ValueError('the existing round budget is exhausted; an authorized extension is required')
+        archive = f'previous-review-{uuid.uuid4().hex}.json'
+        (root / archive).write_text(json.dumps(previous, indent=2) + '\n')
+        state = dict(previous)
+        state.update(decision=decision, session=None, pending=None, phase='starting',
+                     head=None, base=None, review_phase=None, last_review_url=None,
+                     previous_review=archive, round_limit=limit, runtime=selected_runtime,
+                     executable=executable, complexity=args.complexity or previous.get('complexity', 'high'))
+        for key in ('last_error', 'last_transport_error', 'worker_pid', 'pid', 'started_at', 'next_session'):
+            state.pop(key, None)
+        save(root, state)
+        return state
+
+
 def main():
     parser = argparse.ArgumentParser(description='Run one independent reviewer for one PR until merge, closure or handoff.')
     parser.add_argument('action', choices=['start', 'run', 'status', 'continue', 'retry'])
@@ -326,26 +385,15 @@ def main():
                 if not args.runtime or not args.reviewer or not args.acceptance_file:
                     parser.error('start requires --runtime, --reviewer and --acceptance-file')
                 state = register(args, root, pr)
+            elif args.action == 'continue':
+                if not args.decision_file or not args.decision_file.read_text().strip():
+                    parser.error('continue requires the explicit user decision in --decision-file')
+                state = continue_review(args, root, pr)
             else:
                 if running(root):
                     raise RuntimeError('the existing reviewer is still running; do not replace its ownership')
                 state = read(root, pr)
-                if args.action == 'continue':
-                    if not args.decision_file or not args.decision_file.read_text().strip():
-                        parser.error('continue requires the explicit user decision in --decision-file')
-                    if state['phase'] not in {'needs-user-attention', 'error', 'closed'} or state.get('pending'):
-                        raise ValueError('continue requires stopped settled work; retry pending publication first')
-                    state.update(decision=args.decision_file.read_text(), session=None, phase='starting')
-                    state['round_limit'] = max(state['round_limit'], state['rounds']) + args.additional_rounds
-                    if state['rounds'] >= state['round_limit']:
-                        raise ValueError('the existing round budget is exhausted; an authorized extension is required')
-                    if args.runtime:
-                        state['runtime'] = args.runtime
-                    if args.complexity:
-                        state['complexity'] = args.complexity
-                    state['executable'] = runtime.preflight(state['runtime'], args.executable)
-                    state['head'] = None
-                elif state['phase'] == 'error':
+                if state['phase'] == 'error':
                     state['phase'] = 'starting'
                 elif state['phase'] in core.TERMINAL:
                     raise ValueError('terminal review requires an explicit continuation decision')
