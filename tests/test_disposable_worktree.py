@@ -277,4 +277,3 @@ module.synchronize(Path({str(self.repo)!r}),'origin','main',pause)
             self.assertTrue(self.checkout.exists())
         self.assertEqual(self.clean()['status'], 'cleaned')
         self.assertFalse(self.checkout.exists())
-
