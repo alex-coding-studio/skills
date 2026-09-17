@@ -4,7 +4,9 @@ One delivery owns one task worktree. Continue its review fixes in that worktree;
 
 ## Create
 
-For a new delivery, run the bundled script before editing:
+If the execution host (for example, Semina or a Codex project task) has already created and explicitly assigned a fresh worktree to this delivery, keep that path and verify its recorded baseline against the synchronized default checkout. That assignment has already performed the creation step; do not create a second worktree or leave the host-owned directory behind. Preserve existing delivery progress in place.
+
+When no task worktree has been assigned, run the bundled script before editing:
 
 ```sh
 python3 <plugin>/skills/monitor/scripts/worktree_lifecycle.py \

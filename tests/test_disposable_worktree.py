@@ -2,6 +2,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import fcntl
 import unittest
 from unittest.mock import patch
 
@@ -266,3 +267,14 @@ module.synchronize(Path({str(self.repo)!r}),'origin','main',pause)
         self.assertFalse(self.checkout.exists())
         (self.repo / '.git/index.lock').unlink()
         self.assertEqual(self.clean()['status'], 'cleaned')
+
+    def test_repository_lock_contention_is_retryable_after_the_other_delivery(self):
+        with (self.repo / '.git/author-monitor-cleanup.lock').open('a') as other:
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.clean()
+            self.assertEqual(result['status'], 'partial', result)
+            self.assertTrue(result['retryable'])
+            self.assertTrue(self.checkout.exists())
+        self.assertEqual(self.clean()['status'], 'cleaned')
+        self.assertFalse(self.checkout.exists())
+

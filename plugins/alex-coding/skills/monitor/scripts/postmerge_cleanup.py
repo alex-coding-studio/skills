@@ -126,6 +126,8 @@ def _cleanup(target, snapshot, actions):
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
+            if metadata.get('lifecycle') == 'disposable-v1':
+                return dict(_result('partial', 'Another lifecycle operation holds the repository lock', actions), retryable=True)
             return _result('preserved', 'Another cleanup holds the repository lock')
         if metadata.get('lifecycle') == 'disposable-v1':
             return _disposable(checkout, primary, common, branch, default, remote, head, actions, lock.fileno())
