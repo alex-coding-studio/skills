@@ -1,4 +1,5 @@
 import argparse
+from contextlib import contextmanager
 import fcntl
 import json
 import os
@@ -13,8 +14,54 @@ def git(path, *args):
                           text=True, check=True, timeout=60).stdout.strip()
 
 
-def synchronize(primary, remote, default, run_git=None):
+class UnownedIndexLock(FileExistsError):
+    pass
+
+
+@contextmanager
+def owned_index_lock(index):
+    lock = index.with_name(index.name + '.lock')
+    if lock.exists():
+        try:
+            data = json.loads(lock.read_text())
+            token = data['token']
+            if data.get('owner') != 'alex-coding-disposable-v1' or not re.fullmatch(r'[0-9a-f]{32}', token):
+                raise ValueError('Unrecognized owner')
+            owner = index.with_name('task-sync-' + token + '.owner')
+            if not lock.samefile(owner):
+                raise ValueError('Ownership inode does not match')
+        except (OSError, UnicodeError, ValueError, KeyError, TypeError) as error:
+            raise UnownedIndexLock('An unrelated Git index lock was preserved; synchronization needs attention') from error
+        lock.unlink()
+        owner.unlink()
+        for suffix in ('.index', '.index.lock'):
+            index.with_name('task-sync-' + token + suffix).unlink(missing_ok=True)
+    token = uuid.uuid4().hex
+    owner = index.with_name('task-sync-' + token + '.owner')
+    temporary = index.with_name('task-sync-' + token + '.index')
+    with owner.open('x') as file:
+        json.dump(dict(owner='alex-coding-disposable-v1', token=token), file)
+        file.flush()
+        os.fsync(file.fileno())
+    acquired = False
+    try:
+        os.link(owner, lock)
+        acquired = True
+        yield temporary
+    finally:
+        if acquired and lock.exists() and lock.samefile(owner):
+            lock.unlink()
+        owner.unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
+
+
+def synchronize(primary, remote, default, run_git=None, lock_fd=None):
     run_git = run_git or git
+    if lock_fd is None:
+        common = Path(run_git(primary, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve()
+        with (common / 'author-monitor-cleanup.lock').open('a') as repository_lock:
+            fcntl.flock(repository_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return synchronize(primary, remote, default, run_git, repository_lock.fileno())
     if run_git(primary, 'symbolic-ref', '--short', 'HEAD') != default:
         raise ValueError('The primary checkout must be on the remote default branch')
     reference = f'refs/remotes/{remote}/{default}'
@@ -22,22 +69,16 @@ def synchronize(primary, remote, default, run_git=None):
             f'+refs/heads/{default}:{reference}')
     commit = run_git(primary, 'rev-parse', '--verify', reference + '^{commit}')
     index = Path(run_git(primary, 'rev-parse', '--path-format=absolute', '--git-path', 'index'))
-    lock = index.with_name(index.name + '.lock')
-    temporary = index.with_name('task-sync-' + uuid.uuid4().hex + '.index')
-    with lock.open('x'):
-        try:
-            if run_git(primary, 'symbolic-ref', '--short', 'HEAD') != default:
-                raise ValueError('The primary branch changed during fetch')
-            previous = run_git(primary, 'rev-parse', 'HEAD')
-            environment = dict(os.environ, GIT_INDEX_FILE=str(temporary))
-            for args in [('read-tree', previous), ('read-tree', '--reset', '-u', '--no-sparse-checkout', commit)]:
-                subprocess.run(['git', '-C', str(primary), *args], env=environment,
-                               capture_output=True, text=True, check=True, timeout=60)
-            run_git(primary, 'update-ref', f'refs/heads/{default}', commit, previous)
-            temporary.replace(index)
-        finally:
-            temporary.unlink(missing_ok=True)
-            lock.unlink(missing_ok=True)
+    with owned_index_lock(index) as temporary:
+        if run_git(primary, 'symbolic-ref', '--short', 'HEAD') != default:
+            raise ValueError('The primary branch changed during fetch')
+        previous = run_git(primary, 'rev-parse', 'HEAD')
+        environment = dict(os.environ, GIT_INDEX_FILE=str(temporary))
+        for args in [('read-tree', previous), ('read-tree', '--reset', '-u', '--no-sparse-checkout', commit)]:
+            subprocess.run(['git', '-C', str(primary), *args], env=environment, pass_fds=(lock_fd,),
+                           capture_output=True, text=True, check=True, timeout=60)
+        run_git(primary, 'update-ref', f'refs/heads/{default}', commit, previous)
+        temporary.replace(index)
     if (run_git(primary, 'rev-parse', 'HEAD') != commit
             or run_git(primary, 'status', '--porcelain', '--untracked-files=no')):
         raise RuntimeError('Default checkout did not match the fetched commit')
@@ -67,7 +108,7 @@ def create_worktree(repository, destination, branch, remote='origin'):
         git(repository, 'check-ref-format', '--branch', branch)
         if branch == default:
             raise ValueError('A task branch must differ from the default branch')
-        commit = synchronize(primary, remote, default)
+        commit = synchronize(primary, remote, default, lock_fd=lock.fileno())
         git(primary, 'worktree', 'add', '-b', branch, str(destination), commit)
         return dict(path=str(destination.resolve()), branch=branch, base_sha=commit,
                     default_branch=default, default_checkout=str(primary))

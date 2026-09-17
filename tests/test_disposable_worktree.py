@@ -1,5 +1,7 @@
 from pathlib import Path
 import subprocess
+import sys
+import time
 import unittest
 from unittest.mock import patch
 
@@ -220,3 +222,45 @@ class DisposableWorktreeTests(unittest.TestCase):
         self.assertTrue(attempted)
         self.assertEqual(result['status'], 'cleaned', result)
         self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), tip)
+
+    def test_killed_synchronization_recovers_its_owned_index_lock(self):
+        tip = self.advance_remote()
+        marker = self.root / 'interrupted-after-checkout'
+        script = f'''
+import importlib.util,time
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('lifecycle',{str(Path(cleanup.__file__).with_name('worktree_lifecycle.py'))!r})
+module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+def pause(path,*args):
+    if args[0]=='update-ref':
+        Path({str(marker)!r}).write_text('ready')
+        time.sleep(60)
+    return module.git(path,*args)
+module.synchronize(Path({str(self.repo)!r}),'origin','main',pause)
+'''
+        process = subprocess.Popen([sys.executable, '-c', script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(100):
+                if marker.exists() or process.poll() is not None:
+                    break
+                time.sleep(.05)
+            self.assertTrue(marker.exists())
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+        self.assertTrue((self.repo / '.git/index.lock').exists())
+        result = self.clean()
+        self.assertEqual(result['status'], 'cleaned', result)
+        self.assertFalse((self.repo / '.git/index.lock').exists())
+        self.assertFalse(self.checkout.exists())
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), tip)
+        self.assertEqual(self.git(self.repo, 'status', '--porcelain'), '')
+
+    def test_an_unowned_git_lock_is_preserved_and_reported(self):
+        (self.repo / '.git/index.lock').write_bytes(b'Unrelated Git operation')
+        result = self.clean()
+        self.assertEqual(result['status'], 'partial', result)
+        self.assertFalse(result['retryable'])
+        self.assertEqual((self.repo / '.git/index.lock').read_bytes(), b'Unrelated Git operation')
+        self.assertFalse(self.checkout.exists())

@@ -36,6 +36,7 @@ def disposable_target(target):
 
 def retryable_cleanup(target):
     return (disposable_target(target)
+            and (target.get('cleanup_result') or {}).get('retryable', True)
             and (target.get('cleanup_result') or {}).get('status') in ('partial', 'interrupted', 'error'))
 
 

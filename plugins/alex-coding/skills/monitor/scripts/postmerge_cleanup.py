@@ -128,11 +128,11 @@ def _cleanup(target, snapshot, actions):
         except BlockingIOError:
             return _result('preserved', 'Another cleanup holds the repository lock')
         if metadata.get('lifecycle') == 'disposable-v1':
-            return _disposable(checkout, primary, common, branch, default, remote, head, actions)
+            return _disposable(checkout, primary, common, branch, default, remote, head, actions, lock.fileno())
         return _locked(target, metadata, checkout, primary, common, branch, default, remote, head, pr.get('merge_commit_sha'), actions)
 
 
-def _disposable(checkout, primary, common, branch, default, remote, head, actions):
+def _disposable(checkout, primary, common, branch, default, remote, head, actions, lock_fd):
     if checkout == primary:
         return _result('preserved', 'A disposable worktree cannot be the primary checkout')
     records = _worktrees(primary)
@@ -154,11 +154,11 @@ def _disposable(checkout, primary, common, branch, default, remote, head, action
     elif checkout.exists():
         return _result('preserved', 'The checkout path exists without its worktree registration')
     try:
-        commit = lifecycle.synchronize(primary, remote, default, _git)
+        commit = lifecycle.synchronize(primary, remote, default, _git, lock_fd)
         sync = dict(status='synced', commit=commit)
         actions.append('Reset default checkout to the fetched remote commit')
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
-        sync = dict(status='failed', reason=str(error))
+        sync = dict(status='failed', reason=str(error), retryable=not isinstance(error, lifecycle.UnownedIndexLock))
     try:
         if owned:
             current_records = _worktrees(primary)
@@ -181,6 +181,7 @@ def _disposable(checkout, primary, common, branch, default, remote, head, action
     result = _result('cleaned' if complete else 'partial',
                      'Default synchronized and task worktree disposed' if complete else 'Synchronization and disposal have separate results; retry the failed operation', actions)
     result.update(sync=sync, cleanup=disposal)
+    result['retryable'] = sync.get('retryable', True)
     return result
 
 
