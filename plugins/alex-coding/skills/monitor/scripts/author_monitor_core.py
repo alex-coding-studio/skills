@@ -34,9 +34,9 @@ def disposable_target(target):
     return (target.get('cleanup') or {}).get('lifecycle') == 'disposable-v1'
 
 
-def retryable_cleanup(target):
+def retryable_cleanup(target, explicit=False):
     return (disposable_target(target)
-            and (target.get('cleanup_result') or {}).get('retryable', True)
+            and (explicit or (target.get('cleanup_result') or {}).get('retryable', True))
             and (target.get('cleanup_result') or {}).get('status') in ('partial', 'interrupted', 'error'))
 
 
@@ -257,9 +257,11 @@ class Store:
         if target['terminal'] and all(e['status'] in ('handled', 'settled') for e in target['events'].values()):
             target['stopped'] = True
 
-    def _attempt_cleanup(self, data, target, result):
-        if target.get('cleanup_result') and not retryable_cleanup(target):
+    def _attempt_cleanup(self, data, target, result, explicit=False):
+        if target.get('cleanup_result') and not retryable_cleanup(target, explicit):
             return copy.deepcopy(target['cleanup_result'])
+        if explicit and disposable_target(target):
+            target['stopped'] = False
         target['cleanup_result'] = dict(status='interrupted', reason='Cleanup attempt was interrupted; inspect before any retry')
         self.persist(data)
         try:
@@ -284,7 +286,7 @@ class Store:
             target = self.require(data)
             if data['batch'] is not None and not disposable_target(target):
                 raise ValueError('acknowledge the active delivered batch before completing this PR')
-            if target.get('cleanup_result') and not retryable_cleanup(target):
+            if target.get('cleanup_result') and not retryable_cleanup(target, explicit=True):
                 return copy.deepcopy(target['cleanup_result'])
             current = snapshot(target, self.role)
             if current['terminal'] != 'merged':
@@ -296,7 +298,7 @@ class Store:
                     e['status'] not in ('handled', 'settled') for e in target['events'].values()):
                 target['stopped'] = False
                 return dict(status='pending-feedback', reason='Drain and acknowledge pending feedback before completion')
-            return self._attempt_cleanup(data, target, current)
+            return self._attempt_cleanup(data, target, current, explicit=True)
 
     def acknowledge(self, token):
         with self.locked() as data:

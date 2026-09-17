@@ -84,6 +84,21 @@ class QueueReceiptTests(unittest.TestCase):
                 self.assertEqual(subject.complete()['status'], 'cleaned')
             cleanup.assert_called_once()
 
+    def test_explicit_completion_retries_after_a_reported_external_lock_is_resolved(self):
+        runtime = codex.Runtime(THREAD, '/monitor.py')
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            with subject.locked() as data:
+                data['target']['cleanup_result'] = {'status': 'partial', 'retryable': False}
+                data['target']['stopped'] = True
+            with patch.object(core, 'snapshot', return_value=result(notice(1), ending(), terminal='merged')) as snapshot, \
+                 patch.object(core, 'cleanup_target', return_value={'status': 'cleaned'}) as cleanup:
+                self.assertEqual(subject.complete()['status'], 'cleaned')
+            snapshot.assert_called_once()
+            cleanup.assert_called_once()
+            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'pending')
+            self.assertFalse(subject.read()['target']['stopped'])
+
     def test_disposal_does_not_wait_for_or_erase_a_claude_feedback_claim(self):
         runtime = FakeRuntime()
         with store(runtime=runtime) as subject:
