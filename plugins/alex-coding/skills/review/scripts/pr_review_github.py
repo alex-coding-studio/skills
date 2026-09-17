@@ -41,7 +41,7 @@ def inline_locations(patch):
             old, new = map(int, match.groups()) if match else (None, None)
         elif old is not None:
             path = paths.get('---') if paths.get('+++') == '/dev/null' else paths.get('+++')
-            if path and line.startswith((' ', '-')):
+            if path and line.startswith('-'):
                 locations.add((path, 'LEFT', old))
             if path and line.startswith((' ', '+')):
                 locations.add((path, 'RIGHT', new))

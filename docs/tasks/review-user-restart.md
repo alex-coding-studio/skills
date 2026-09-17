@@ -15,7 +15,8 @@ Accepted directly on 2026-09-16. The user wants a lightweight review workflow: a
 - Natural Red reproduced the old pending-publication gate and invalid inline publication in `tests/test_pr_review_recovery.py` before implementation.
 - `test_failed_publication_does_not_block_user_authorized_fresh_review` verifies a new independent invocation with the original finding and cumulative rounds preserved; interrupted execution and settled approval have separate recovery scenarios.
 - Active-runner tests include a real local subprocess holding the PR lock: replacement waits for termination and lock release. Unrelated processes, missing decisions, unavailable execution and closed/merged PRs preserve the prior request.
-- Inline scenarios cover invalid, valid LEFT/RIGHT, renamed/deleted and unavailable-diff locations while preserving the original result and verdict.
+- Inline scenarios cover invalid, valid LEFT/RIGHT, renamed/deleted and unavailable-diff locations while preserving the original result and verdict. Independent review identified that GitHub context lines belong only to RIGHT; the regression reproduced the invalid LEFT acceptance before correction.
 - `python3 -m unittest discover -s tests`: 256 tests passed. `python3 -m unittest discover -s skills/respond-to-agent/tests`: 5 tests passed.
 - Native plugin and changed-skill validation passed. `git diff --check` passed.
 - No live Harvis state or review was modified. The process scenario proves local ownership/termination; GitHub publication is verified with controlled adapter responses, not a new Harvis review. Independent review of this delivery is required before merge.
+- A read-only local simulation using the original Harvis pending result and patch confirmed its invalid RIGHT:85 finding moves intact into the body while retaining its verdict. No GitHub or state writes occurred.

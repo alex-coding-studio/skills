@@ -199,7 +199,9 @@ class InlinePublicationTests(unittest.TestCase):
                         for line, side, body in [(85, 'RIGHT', 'Misnumbered finding'),
                                                  (199, 'RIGHT', 'New line finding'),
                                                  (196, 'LEFT', 'Deleted line finding'),
-                                                 (199, 'LEFT', 'Wrong side finding')]]
+                                                 (199, 'LEFT', 'Wrong side finding'),
+                                                 (195, 'LEFT', 'Context on wrong side'),
+                                                 (198, 'RIGHT', 'Context finding')]]
             pending = runner.make_pending(state, snapshot(), {'outcome': outcome, 'body': 'Review',
                                                               'comments': comments}, 'token')
             original = copy.deepcopy(pending)
@@ -210,9 +212,10 @@ class InlinePublicationTests(unittest.TestCase):
             payload = post.call_args.args[1]
             self.assertEqual(payload['event'], event)
             self.assertEqual([item['body'].split('\n')[0] for item in payload['comments']],
-                             ['New line finding', 'Deleted line finding'])
+                             ['New line finding', 'Deleted line finding', 'Context finding'])
             self.assertIn('Misnumbered finding', payload['body'])
             self.assertIn('Wrong side finding', payload['body'])
+            self.assertIn('Context on wrong side', payload['body'])
             self.assertEqual(pending, original)
 
     def test_unavailable_diff_preserves_finding_in_body(self):
