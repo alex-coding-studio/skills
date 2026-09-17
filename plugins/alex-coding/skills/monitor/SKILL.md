@@ -10,7 +10,7 @@ Keep this task responsible for each named PR it created or was explicitly asked 
 ## Select the runtime
 
 - **Codex:** read [runtime.md](references/runtime.md). Submit directly to the existing session's native queue, or its host-provided persistent endpoint. The host owns scheduling; do not inspect desktop busy/idle state. Queue acceptance completes delivery without waiting for an Agent acknowledgement. Never invent an endpoint, replacement executor or task.
-- **Claude:** read [claude-runtime.md](references/claude-runtime.md). Use its persistent `Monitor` tool; background Bash does not provide per-event notification.
+- **Claude:** read [claude-runtime.md](references/claude-runtime.md). Submit to the host-provided persistent endpoint when the execution host supplies one; otherwise use the session's own persistent `Monitor` tool, where background Bash does not provide per-event notification. Never invent an endpoint.
 
 Read only the runtime in use. Report unsupported transport, failed startup or rejected submissions accurately. Do not substitute a Scheduled task or silently switch hosts. Codex queue submission is the normal authorized delivery path; no additional approval for queued mode is needed.
 

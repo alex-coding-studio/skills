@@ -73,6 +73,36 @@ class DeliveryTests(unittest.TestCase):
             self.assertIn('claude_pr_monitor.py', result['monitor_command'])
             popen.assert_not_called()
 
+    def test_claude_start_launches_its_own_listener_once_a_session_endpoint_is_bound(self):
+        endpoint = 'unix:///tmp/semina-claude-test/control.sock'
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / 'state.json').write_text(json.dumps({'target': {'session_remote': endpoint}}))
+            args = delivery.parser().parse_args(['start', '--runtime', 'claude', '--session', 'existing',
+                '--pr', 'owner/repo#1', '--checkout', directory, '--acceptance-file', __file__,
+                '--reviewer', 'reviewer', '--session-remote', endpoint])
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'invoke', return_value={'active': True, 'phase': 'starting'}) as invoke, \
+                    patch.object(delivery, 'monitor_live', side_effect=[False, True]), \
+                    patch.object(delivery.subprocess, 'Popen') as popen:
+                result = delivery.start(args)
+            self.assertEqual(result['status'], 'started')
+            self.assertTrue(result['monitor_active'])
+            popen.assert_called_once()
+            self.assertNotIn('--session-remote', invoke.call_args_list[0].args[0])
+
+    def test_claude_start_refuses_a_session_endpoint_that_differs_from_the_bound_one(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / 'state.json').write_text(
+                json.dumps({'target': {'session_remote': 'unix:///tmp/one/control.sock'}}))
+            args = delivery.parser().parse_args(['start', '--runtime', 'claude', '--session', 'existing',
+                '--pr', 'owner/repo#1', '--checkout', directory, '--acceptance-file', __file__,
+                '--reviewer', 'reviewer', '--session-remote', 'unix:///tmp/two/control.sock'])
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'invoke', return_value={}), \
+                    patch.object(delivery.subprocess, 'Popen'), \
+                    self.assertRaisesRegex(ValueError, 'refusing reroute'):
+                delivery.start(args)
+
     def test_existing_monitor_is_reused_before_starting_reviewer(self):
         with tempfile.TemporaryDirectory() as directory:
             args = delivery.parser().parse_args(['start', '--runtime', 'codex',

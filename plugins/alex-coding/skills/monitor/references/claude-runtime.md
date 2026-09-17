@@ -2,9 +2,37 @@
 
 ## Compatibility and activation
 
-Requires Python 3 on macOS/Linux and authorized `gh` read access through `gh_as bot`. The listener reads GitHub under the explicit bot role, never under whichever account happens to be active, and a missing `gh_as` fails at startup rather than falling back. Delivery uses the Claude Code `Monitor` tool. Its documented framing is that stdout lines written within 200ms are batched into a single notification, so a multiline block emitted by one write arrives as one notification rather than one per line. This listener relies on that: `deliver` builds the whole batch as one string and issues exactly one `print`, which `test_the_whole_batch_is_written_by_one_stdout_call` pins. Observed on this installation: a batch of six events plus its header and instructions arrived as a single notification, three separate times. If a future runtime fragments a multiline write, that test still passes while delivery degrades, so re-check the tool contract before assuming the framing still holds. There is no desktop queue, no IPC snapshot adapter and no idle probe, because a `Monitor` notification arrives in the session's own conversation instead of being inserted into another task's input queue.
+Requires Python 3 on macOS/Linux and authorized `gh` read access through `gh_as bot`. The listener reads GitHub under the explicit bot role, never under whichever account happens to be active, and a missing `gh_as` fails at startup rather than falling back.
 
-Start the runner only through `Monitor` with `persistent: true`. Background Bash notifies once on process exit, which silently loses every event before that exit. Never substitute a Scheduled task. If `Monitor` is unavailable, report that automatic follow-up is inactive and say why.
+Two delivery paths exist. Stdout delivery, described in the rest of this section, uses the Claude Code `Monitor` tool and suits an interactive session. [Session delivery](#session-delivery-to-the-owning-host) suits a session started by an execution host that keeps its input open across turns and supplies an explicit endpoint. The event ledger, the exact-batch acknowledgement contract, terminal handling and completion are identical on both paths; startup, framing and failure reporting are not, and each path states its own. Sections below that name the `Monitor` tool describe stdout delivery only.
+
+The `Monitor` tool's documented framing is that stdout lines written within 200ms are batched into a single notification, so a multiline block emitted by one write arrives as one notification rather than one per line. This listener relies on that: `deliver` builds the whole batch as one string and issues exactly one `print`, which `test_the_whole_batch_is_written_by_one_stdout_call` pins. Observed on this installation: a batch of six events plus its header and instructions arrived as a single notification, three separate times. If a future runtime fragments a multiline write, that test still passes while delivery degrades, so re-check the tool contract before assuming the framing still holds. There is no desktop queue, no IPC snapshot adapter and no idle probe, because a `Monitor` notification arrives in the session's own conversation instead of being inserted into another task's input queue.
+
+Without a bound session endpoint, start the runner only through `Monitor` with `persistent: true`. Background Bash notifies once on process exit, which silently loses every event before that exit. Never substitute a Scheduled task. If `Monitor` is unavailable, report that automatic follow-up is inactive and say why.
+
+## Session delivery to the owning host
+
+When the execution host states that it keeps this session's input open and gives an explicit endpoint, register that endpoint and let the listener write to it. Use only an endpoint the host supplied; never construct one.
+
+```sh
+python3 <monitor>/scripts/claude_pr_monitor.py --session <stable-session-id> \
+  --pr 'owner/repo#123' register --checkout <absolute-task-owned-checkout> \
+  --session-remote unix:///absolute/path/control.sock
+```
+
+The endpoint must be a normalized absolute `unix://` socket path with no credentials, query or fragment. Registration records it on the target and writes `session-route.json` under the session's state root. The binding is immutable: rebinding the same endpoint is idempotent, a different endpoint is refused, and an unacknowledged batch must be acknowledged first. A run whose stored binding is missing or changed refuses to deliver.
+
+`run` then selects session delivery automatically; `--delivery stdout` against a bound target is refused, and `--delivery session` without a binding is refused. Because delivery no longer travels through stdout, this runner is started as a detached background process rather than through the `Monitor` tool. `scripts/delivery.py start --runtime claude --session-remote <endpoint>` performs registration, startup and startup verification.
+
+Each batch is written as one line:
+
+```json
+{"text": "<the whole batch, newlines included>"}
+```
+
+The line is written as UTF-8, and non-ASCII characters are sent unescaped, so the host must decode it as UTF-8. The host decodes that line and delivers its text to the session as a single user message. It answers `{"ok": true}` on acceptance and `{"ok": false, "error": ...}` when it cannot deliver. A refusal, a closed connection or an unreachable socket leaves the batch pending and unclaimed, so the next poll retries it; the failure is written to `monitor.log` and to this runner's stdout log. Do not send raw multi-line text to the endpoint: the host reads line by line, so an unframed batch becomes one user turn per line.
+
+The exact-batch acknowledgement contract is unchanged. The batch carries its own `ack` command, and only that token settles it.
 
 ## One monitor per pull request
 
@@ -17,7 +45,7 @@ python3 <monitor>/scripts/claude_pr_monitor.py --session <stable-session-id> \
   --pr 'owner/repo#123' register --checkout <absolute-task-owned-checkout>
 ```
 
-Then arm one `Monitor` per PR:
+Then arm one `Monitor` per PR. This step belongs to stdout delivery; a bound session endpoint starts its runner as a detached process instead:
 
 ```sh
 python3 -u <monitor>/scripts/claude_pr_monitor.py --session <stable-session-id> \
@@ -57,7 +85,7 @@ For merged targets, newly registered linked worktrees use the [disposable lifecy
 
 The process exits once its PR is stopped and no batch remains, which ends that `Monitor` watch and leaves every other PR's listener running. To stop earlier, use `TaskStop` on that exact monitor task; never use a user-wide process kill and never delete its event ledger. Resume with the same session and PR identity and state path.
 
-Repeated identical retries go to `monitor.log` in that PR's state directory. Stdout carries only the first failure and the later recovery, so one outage wakes the session once rather than every interval.
+Repeated identical retries go to `monitor.log` in that PR's state directory. On stdout delivery, stdout carries only the first failure and the later recovery, so one outage wakes the session once rather than every interval. Session delivery has no such deduplication and no channel back to the session: every failing cycle is written to `monitor.log` and to the detached runner's own log, so a lastingly unreachable endpoint retries quietly until someone reads that log.
 
 ## Publish authorized replies
 
