@@ -2,6 +2,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -98,6 +99,37 @@ class QueueReceiptTests(unittest.TestCase):
             cleanup.assert_called_once()
             self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'pending')
             self.assertFalse(subject.read()['target']['stopped'])
+
+    def test_runner_stays_alive_until_explicit_recovery_delivers_new_feedback(self):
+        runtime = codex.Runtime(THREAD, '/monitor.py')
+        partial = {'status': 'partial', 'retryable': False}
+        with store(runtime=runtime) as subject:
+            self.disposable_store(subject)
+            snapshots = [result(ending(), terminal='merged'), result(notice(1), ending(), terminal='merged'), result(notice(1), ending(), terminal='merged')]
+            cycles = 0
+
+            def recover_after_first_poll(_):
+                nonlocal cycles
+                cycles += 1
+                self.assertEqual(cycles, 1)
+                self.assertFalse(subject.read()['target']['stopped'])
+                self.assertEqual(subject.complete()['status'], 'cleaned')
+
+            previous = os.getcwd()
+            try:
+                with patch.object(core, 'gh_command', return_value=['gh']), \
+                     patch.object(core, 'snapshot', side_effect=snapshots), \
+                     patch.object(core, 'cleanup_target', side_effect=[partial, {'status': 'cleaned'}]), \
+                     patch.object(core.time, 'sleep', side_effect=recover_after_first_poll), \
+                     patch.object(runtime, 'deliver', return_value=True) as deliver:
+                    core.run(subject, 0, False)
+            finally:
+                os.chdir(previous)
+            self.assertEqual(cycles, 1)
+            self.assertEqual(deliver.call_count, 2)
+            self.assertTrue(subject.read()['target']['stopped'])
+            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['disposition'], 'queue-accepted')
+            self.assertFalse((subject.root / 'run.pid').exists())
 
     def test_disposal_does_not_wait_for_or_erase_a_claude_feedback_claim(self):
         runtime = FakeRuntime()

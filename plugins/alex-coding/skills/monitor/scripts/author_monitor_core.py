@@ -251,7 +251,8 @@ class Store:
 
     @staticmethod
     def _stop_when_settled(target):
-        if retryable_cleanup(target):
+        if (disposable_target(target) and target.get('terminal') == 'merged'
+                and (target.get('cleanup_result') or {}).get('status') in ('partial', 'interrupted', 'error')):
             target['stopped'] = False
             return
         if target['terminal'] and all(e['status'] in ('handled', 'settled') for e in target['events'].values()):
