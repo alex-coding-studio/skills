@@ -67,8 +67,6 @@ def start(args):
     with review.lock(root, 'launch.lock'):
         registration = command + ['register', '--checkout', str(args.checkout.resolve())]
         if args.session_remote:
-            if args.runtime != 'codex':
-                raise ValueError('session-remote is only supported by the Codex host')
             existing = json.loads((root / 'state.json').read_text()) if (root / 'state.json').exists() else {}
             bound = (existing.get('target') or {}).get('session_remote')
             if bound and bound != args.session_remote:
@@ -80,7 +78,8 @@ def start(args):
         if not monitor_live(root, command):
             if review.running(root):
                 raise RuntimeError('monitor lock is occupied without verified process/startup evidence')
-            if args.runtime == 'claude':
+            stored = json.loads((root / 'state.json').read_text()) if (root / 'state.json').exists() else {}
+            if args.runtime == 'claude' and not (stored.get('target') or {}).get('session_remote'):
                 return {'status': 'native-monitor-required', 'pr': args.pr, 'reviewer_active': False,
                         'monitor_command': shlex.join(run), 'persistent': True,
                         'next': 'Start this command with the native Monitor tool, then repeat start.'}
