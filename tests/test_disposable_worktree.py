@@ -166,3 +166,57 @@ class DisposableWorktreeTests(unittest.TestCase):
                 cleanup.lifecycle.create_worktree(self.repo, destination, 'not-created')
         self.assertFalse(destination.exists())
         self.assertNotIn('not-created', self.git(self.repo, 'branch', '--format=%(refname:short)').split())
+
+    def test_creation_rejects_nested_worktree_destinations(self):
+        self.git(self.remote, 'symbolic-ref', 'HEAD', 'refs/heads/main')
+        for parent in (self.repo, self.checkout):
+            with self.assertRaisesRegex(ValueError, 'inside another registered worktree'):
+                cleanup.lifecycle.create_worktree(self.repo, parent / 'nested-task', 'nested-task')
+            self.assertFalse((parent / 'nested-task').exists())
+
+    def test_nested_delivery_is_never_deleted_with_its_parent(self):
+        nested = self.checkout / 'another-delivery'
+        self.git(self.repo, 'worktree', 'add', '-b', 'nested', str(nested))
+        (nested / 'valuable').write_text('another task')
+        result = self.clean()
+        self.assertEqual(result['status'], 'preserved', result)
+        self.assertEqual((nested / 'valuable').read_text(), 'another task')
+        self.assertTrue(self.checkout.exists())
+
+    def test_branch_switch_during_fetch_does_not_reset_another_branch(self):
+        self.advance_remote()
+        original = cleanup._git
+
+        def switch_after_fetch(path, *args):
+            value = original(path, *args)
+            if args[0] == 'fetch':
+                self.git(self.repo, 'switch', '-c', 'concurrent-work')
+            return value
+
+        before = self.git(self.repo, 'rev-parse', 'HEAD')
+        with patch.object(cleanup, '_git', side_effect=switch_after_fetch):
+            result = self.clean()
+        self.assertEqual(result['sync']['status'], 'failed', result)
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'concurrent-work'), before)
+        self.assertEqual(self.git(self.repo, 'branch', '--show-current'), 'concurrent-work')
+        self.assertFalse(self.checkout.exists())
+
+    def test_index_lock_prevents_a_branch_switch_during_source_synchronization(self):
+        tip = self.advance_remote()
+        self.git(self.repo, 'branch', 'other')
+        original = cleanup._git
+        attempted = False
+
+        def try_switch_in_critical_section(path, *args):
+            nonlocal attempted
+            if args[0] == 'update-ref' and args[1] == 'refs/heads/main':
+                attempted = True
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.git(self.repo, 'switch', 'other')
+            return original(path, *args)
+
+        with patch.object(cleanup, '_git', side_effect=try_switch_in_critical_section):
+            result = self.clean()
+        self.assertTrue(attempted)
+        self.assertEqual(result['status'], 'cleaned', result)
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), tip)

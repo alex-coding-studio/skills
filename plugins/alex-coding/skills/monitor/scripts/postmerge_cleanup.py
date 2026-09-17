@@ -137,6 +137,8 @@ def _disposable(checkout, primary, common, branch, default, remote, head, action
         return _result('preserved', 'A disposable worktree cannot be the primary checkout')
     records = _worktrees(primary)
     owned = next((record for record in records if Path(record['worktree']).resolve() == checkout), None)
+    if any(checkout in Path(record['worktree']).resolve().parents for record in records):
+        return _result('preserved', 'Another registered worktree is nested inside this task directory')
     reference = f'refs/heads/{branch}'
     exists = subprocess.run(['git', '-C', str(primary), 'show-ref', '--verify', '--quiet', reference], capture_output=True, timeout=60).returncode == 0
     if exists and _git(primary, 'rev-parse', reference) != head:
@@ -159,7 +161,10 @@ def _disposable(checkout, primary, common, branch, default, remote, head, action
         sync = dict(status='failed', reason=str(error))
     try:
         if owned:
-            current = next((record for record in _worktrees(primary) if Path(record['worktree']).resolve() == checkout), None)
+            current_records = _worktrees(primary)
+            if any(checkout in Path(record['worktree']).resolve().parents for record in current_records):
+                raise ValueError('Another worktree was nested inside the task before disposal')
+            current = next((record for record in current_records if Path(record['worktree']).resolve() == checkout), None)
             if not current or 'locked' in current or current.get('branch') != reference:
                 raise ValueError('Worktree identity changed before disposal')
             if exists and _git(primary, 'rev-parse', reference) != head:

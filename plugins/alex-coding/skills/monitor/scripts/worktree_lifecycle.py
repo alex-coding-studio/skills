@@ -1,9 +1,11 @@
 import argparse
 import fcntl
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
+import uuid
 
 
 def git(path, *args):
@@ -19,11 +21,23 @@ def synchronize(primary, remote, default, run_git=None):
     run_git(primary, 'fetch', '--no-prune', '--no-tags', '--refmap=', remote,
             f'+refs/heads/{default}:{reference}')
     commit = run_git(primary, 'rev-parse', '--verify', reference + '^{commit}')
-    flagged = run_git(primary, 'ls-files', '-v', '-z').split('\0')
-    for entry in flagged:
-        if entry and (entry[0].islower() or entry[0] == 'S'):
-            run_git(primary, 'update-index', '--no-assume-unchanged', '--no-skip-worktree', '--', entry[2:])
-    run_git(primary, 'reset', '--hard', commit)
+    index = Path(run_git(primary, 'rev-parse', '--path-format=absolute', '--git-path', 'index'))
+    lock = index.with_name(index.name + '.lock')
+    temporary = index.with_name('task-sync-' + uuid.uuid4().hex + '.index')
+    with lock.open('x'):
+        try:
+            if run_git(primary, 'symbolic-ref', '--short', 'HEAD') != default:
+                raise ValueError('The primary branch changed during fetch')
+            previous = run_git(primary, 'rev-parse', 'HEAD')
+            environment = dict(os.environ, GIT_INDEX_FILE=str(temporary))
+            for args in [('read-tree', previous), ('read-tree', '--reset', '-u', '--no-sparse-checkout', commit)]:
+                subprocess.run(['git', '-C', str(primary), *args], env=environment,
+                               capture_output=True, text=True, check=True, timeout=60)
+            run_git(primary, 'update-ref', f'refs/heads/{default}', commit, previous)
+            temporary.replace(index)
+        finally:
+            temporary.unlink(missing_ok=True)
+            lock.unlink(missing_ok=True)
     if (run_git(primary, 'rev-parse', 'HEAD') != commit
             or run_git(primary, 'status', '--porcelain', '--untracked-files=no')):
         raise RuntimeError('Default checkout did not match the fetched commit')
@@ -38,8 +52,13 @@ def create_worktree(repository, destination, branch, remote='origin'):
     common = Path(git(repository, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve()
     with (common / 'author-monitor-cleanup.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        records = git(repository, 'worktree', 'list', '--porcelain').split('\n\n')
-        primary = Path(records[0].splitlines()[0].removeprefix('worktree ')).resolve()
+        paths = [Path(value.removeprefix('worktree ')).resolve()
+                 for value in git(repository, 'worktree', 'list', '--porcelain', '-z').split('\0')
+                 if value.startswith('worktree ')]
+        destination = destination.resolve()
+        if any(destination == path or path in destination.parents or destination in path.parents for path in paths):
+            raise ValueError('Task worktrees must not contain or be inside another registered worktree')
+        primary = paths[0]
         head = git(repository, 'ls-remote', '--symref', remote, 'HEAD')
         match = re.search(r'^ref: refs/heads/(.+)\tHEAD$', head, re.MULTILINE)
         if not match:

@@ -53,7 +53,7 @@ A restart preserves delivered claims, so it does not reprint unacknowledged work
 
 Closed-unmerged targets are preserved. They stop only after the terminal feedback batch is acknowledged and a final successful snapshot has no unhandled events. Other PRs have their own listeners and are unaffected. A reopened PR requires an explicit `reopen` and a running listener; old event history stays intact.
 
-For merged targets, newly registered linked worktrees use the [disposable lifecycle](../../../references/worktree-lifecycle.md) through the shared completion helper. After existing delivered batches are acknowledged, the listener synchronizes the default checkout and force-removes the task worktree independently. Residual files and process cwd do not veto removal. Partial/interrupted disposable operations retry without a model call; successful completion settles and stops only this PR. Legacy registrations retain their original conservative synchronization/removal rules and one-attempt exception handling. Never silently migrate ownership or acknowledgement state.
+For merged targets, newly registered linked worktrees use the [disposable lifecycle](../../../references/worktree-lifecycle.md) through the shared completion helper. The listener synchronizes the default checkout and force-removes the task worktree independently, without waiting for a feedback acknowledgement. Existing delivered claims are retained verbatim and still require their real acknowledgement before listener settlement; disposal never marks their feedback handled. Residual files and process cwd do not veto removal. Partial/interrupted disposable operations retry without a model call; successful completion settles and stops only this PR. Legacy registrations retain their original conservative synchronization/removal rules and one-attempt exception handling. Never silently migrate ownership or acknowledgement state.
 
 The process exits once its PR is stopped and no batch remains, which ends that `Monitor` watch and leaves every other PR's listener running. To stop earlier, use `TaskStop` on that exact monitor task; never use a user-wide process kill and never delete its event ledger. Resume with the same session and PR identity and state path.
 
@@ -80,7 +80,7 @@ Run the end action immediately after verifying a successful merge, from a direct
 python3 <monitor>/scripts/claude_pr_monitor.py --session <id> --pr 'owner/repo#123' complete
 ```
 
-It reads the registered identity and fresh PR state, rejects a non-merged PR or an unacknowledged batch, and enters the same completion helper used by background merge detection. Safe success settles only this PR; every other PR's listener remains active. A repeat reports success or retries a partial/interrupted disposable operation. Legacy failed or interrupted attempts retain their original exception handling. Report a preserved or error outcome honestly; it is not complete local synchronization.
+It reads the registered identity and fresh PR state, rejects a non-merged PR (and an unacknowledged batch for legacy cleanup), and enters the same completion helper used by background merge detection. Safe success settles only this PR; every other PR's listener remains active. A repeat reports success or retries a partial/interrupted disposable operation. Legacy failed or interrupted attempts retain their original exception handling. Report a preserved or error outcome honestly; it is not complete local synchronization.
 
 ## Validation
 
