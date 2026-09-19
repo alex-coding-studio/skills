@@ -30,4 +30,6 @@ Use declared lint/test/build entry points, respecting directory allowlists and p
 
 Temporary local shared-package overrides are development tools, not portable delivery artifacts. Respect project policy for dependency publication and pinning. Do not infer that repository-owned local packages are invalid.
 
+Direct dependency additions, removals, replacements and version changes, plus dependency resolution, package-manager configuration, dependency-related manifest fields and resulting lockfile changes, belong to Setup. Other manifest fields follow their actual product or technical meaning. When an accepted feature requires a foundation change, preserve the feature work, complete and merge a separate Setup delivery, then resume implementation on the new baseline. An already-merged dependency baseline can be consumed normally; feature implementation does not repeat its Setup checks without contrary evidence.
+
 A PR report states what changed, why, which checks actually ran and their limits. Never promote intended checks, cached historical reports or contract assertions into a current passing result.

@@ -15,6 +15,8 @@ Without a Contract, use the user's accepted request and direct clarifications. D
 
 For a diagnosed Issue, batch the Issue, named code, relevant tests and verification entry points. Verify the diagnosis and affected callers; suggestions are evidence, not instructions. Expand only for missing facts, changed locations, dependencies or contradictions. Do not repeat repository discovery when current context is adequate.
 
+If implementation needs a direct dependency addition/removal/version change, dependency resolution, package-manager configuration, dependency-related manifest/lockfile change, runtime, framework, database or other technical-foundation change that is not already merged, stop before editing that foundation and route the prerequisite through `alex-coding:setup`. Other manifest fields follow their actual product or technical meaning. Resume this delivery from the resulting default-branch baseline. Do not hide Setup work inside a feature PR.
+
 ## Implement and deliver
 
 1. Resolve default/current branches and checkout ownership. Use the [disposable worktree lifecycle](../../references/worktree-lifecycle.md): reuse the fresh worktree explicitly assigned by the execution host after verifying its synchronized baseline; otherwise synchronize the primary default checkout and create one task worktree with the bundled script. Resume an existing delivery in its existing worktree. Keep development off the primary checkout.

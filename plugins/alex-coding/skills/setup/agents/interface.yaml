@@ -1,0 +1,22 @@
+interface:
+  display_name: "Setup"
+  short_description: "Create or update a runnable technical baseline"
+  default_prompt: "Use alex-coding:setup to create, align, or update this project's technical baseline."
+compatibility:
+  canonical_format: "agent-skills"
+  adapter_targets: ["openai", "claude", "generic"]
+  activation:
+    mode: "automatic"
+    paths: []
+  execution:
+    context: "inline"
+    shell: "bash"
+  trust:
+    source_tier: "local"
+    remote_inline_execution: "forbid"
+    remote_metadata_policy: "allow-metadata-only"
+  degradation:
+    openai: "metadata-adapter"
+    claude: "neutral-source-plus-plugin"
+    generic: "neutral-source-with-bundled-references"
+

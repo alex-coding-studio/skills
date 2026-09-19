@@ -1,0 +1,15 @@
+{
+  "name": "setup",
+  "version": "0.8.0",
+  "owner": "Alex Coding Studio",
+  "updated_at": "2026-09-19",
+  "status": "active",
+  "maturity_tier": "production",
+  "lifecycle_stage": "production",
+  "context_budget_tier": "production",
+  "review_cadence": "per-release",
+  "skill_ir_source": "reports/skill-ir.json",
+  "skill_archetype": "project-setup",
+  "target_platforms": ["openai", "claude", "generic"],
+  "factory_components": ["references", "assets", "evals", "reports"]
+}

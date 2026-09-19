@@ -18,7 +18,7 @@ class PluginPackageTests(unittest.TestCase):
             self.assertEqual((ROOT / path).resolve(), PLUGIN)
         for manifest in [".codex-plugin/plugin.json", ".claude-plugin/plugin.json"]:
             self.assertEqual(json.loads((PLUGIN / manifest).read_text())["name"], "alex-coding")
-        for name in ["plan", "implement"]:
+        for name in ["setup", "plan", "implement"]:
             skill = PLUGIN / "skills" / name / "SKILL.md"
             self.assertIn(f"name: {name}\n", skill.read_text())
 

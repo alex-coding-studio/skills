@@ -1,0 +1,489 @@
+{
+  "ok": true,
+  "cases": "plugins/alex-coding/skills/setup/evals/output/cases.jsonl",
+  "summary": {
+    "case_count": 4,
+    "file_backed_case_count": 0,
+    "near_neighbor_case_count": 1,
+    "boundary_case_count": 1,
+    "baseline_pass_rate": 0.0,
+    "with_skill_pass_rate": 100.0,
+    "delta": 100.0,
+    "regression_count": 0,
+    "gate_pass": true,
+    "failure_taxonomy": [],
+    "blind_pair_count": 4
+  },
+  "results": [
+    {
+      "id": "create-runnable-baseline",
+      "prompt": "Create a new private Node web project after the user described its purpose but left the stack versions unspecified.",
+      "input_files": [],
+      "metadata": {
+        "case_type": "create"
+      },
+      "baseline": {
+        "score": 0.0,
+        "passed_count": 0,
+        "failed_count": 4,
+        "checks": [
+          {
+            "id": "runnable",
+            "description": "Creates and verifies a runnable baseline rather than documentation alone.",
+            "weight": 1.0,
+            "failure_type": "document_only",
+            "passed": false,
+            "missing": [
+              "clean install",
+              "lint",
+              "tests",
+              "build",
+              "foundation smoke"
+            ],
+            "present_forbidden": [
+              "add the application later"
+            ]
+          },
+          {
+            "id": "context",
+            "description": "Creates the durable project interfaces.",
+            "weight": 1.0,
+            "failure_type": "missing_context",
+            "passed": false,
+            "missing": [
+              "AGENTS.md",
+              "ProjectContext.md",
+              "README.md",
+              "ports",
+              "debug"
+            ],
+            "present_forbidden": []
+          },
+          {
+            "id": "delivery",
+            "description": "Uses the authorized complete initial delivery path.",
+            "weight": 1.0,
+            "failure_type": "unsafe_initial_delivery",
+            "passed": false,
+            "missing": [
+              "independent review",
+              "complete initial commit",
+              "private repository"
+            ],
+            "present_forbidden": []
+          },
+          {
+            "id": "boundary",
+            "description": "Does not invent product behavior.",
+            "weight": 1.0,
+            "failure_type": "scope_expansion",
+            "passed": false,
+            "missing": [
+              "without adding business features"
+            ],
+            "present_forbidden": []
+          }
+        ],
+        "failed": [
+          {
+            "id": "runnable",
+            "description": "Creates and verifies a runnable baseline rather than documentation alone.",
+            "weight": 1.0,
+            "failure_type": "document_only",
+            "passed": false,
+            "missing": [
+              "clean install",
+              "lint",
+              "tests",
+              "build",
+              "foundation smoke"
+            ],
+            "present_forbidden": [
+              "add the application later"
+            ]
+          },
+          {
+            "id": "context",
+            "description": "Creates the durable project interfaces.",
+            "weight": 1.0,
+            "failure_type": "missing_context",
+            "passed": false,
+            "missing": [
+              "AGENTS.md",
+              "ProjectContext.md",
+              "README.md",
+              "ports",
+              "debug"
+            ],
+            "present_forbidden": []
+          },
+          {
+            "id": "delivery",
+            "description": "Uses the authorized complete initial delivery path.",
+            "weight": 1.0,
+            "failure_type": "unsafe_initial_delivery",
+            "passed": false,
+            "missing": [
+              "independent review",
+              "complete initial commit",
+              "private repository"
+            ],
+            "present_forbidden": []
+          },
+          {
+            "id": "boundary",
+            "description": "Does not invent product behavior.",
+            "weight": 1.0,
+            "failure_type": "scope_expansion",
+            "passed": false,
+            "missing": [
+              "without adding business features"
+            ],
+            "present_forbidden": []
+          }
+        ]
+      },
+      "with_skill": {
+        "score": 100.0,
+        "passed_count": 4,
+        "failed_count": 0,
+        "checks": [
+          {
+            "id": "runnable",
+            "description": "Creates and verifies a runnable baseline rather than documentation alone.",
+            "weight": 1.0,
+            "failure_type": "document_only",
+            "passed": true,
+            "missing": [],
+            "present_forbidden": []
+          },
+          {
+            "id": "context",
+            "description": "Creates the durable project interfaces.",
+            "weight": 1.0,
+            "failure_type": "missing_context",
+            "passed": true,
+            "missing": [],
+            "present_forbidden": []
+          },
+          {
+            "id": "delivery",
+            "description": "Uses the authorized complete initial delivery path.",
+            "weight": 1.0,
+            "failure_type": "unsafe_initial_delivery",
+            "passed": true,
+            "missing": [],
+            "present_forbidden": []
+          },
+          {
+            "id": "boundary",
+            "description": "Does not invent product behavior.",
+            "weight": 1.0,
+            "failure_type": "scope_expansion",
+            "passed": true,
+            "missing": [],
+            "present_forbidden": []
+          }
+        ],
+        "failed": []
+      },
+      "delta": 100.0,
+      "winner": "with_skill",
+      "failure_taxonomy": []
+    },
+    {
+      "id": "reference-technical-only",
+      "prompt": "Set up a new website using Harvis as a reference.",
+      "input_files": [],
+      "metadata": {
+        "case_type": "boundary"
+      },
+      "baseline": {
+        "score": 0.0,
+        "passed_count": 0,
+        "failed_count": 2,
+        "checks": [
+          {
+            "id": "reference-evidence",
+            "description": "Uses ProjectContext as the technical entry point.",
+            "weight": 1.0,
+            "failure_type": "shallow_reference",
+            "passed": false,
+            "missing": [
+              "ProjectContext",
+              "manifests",
+              "scripts",
+              "CI",
+              "adopted",
+              "adjusted",
+              "rejected"
+            ],
+            "present_forbidden": []
+          },
+          {
+            "id": "business-boundary",
+            "description": "Excludes the reference project's business implementation.",
+            "weight": 1.0,
+            "failure_type": "business_copy",
+            "passed": false,
+            "missing": [
+              "Do not copy Harvis business"
+            ],
+            "present_forbidden": [
+              "Copy the Harvis repository"
+            ]
+          }
+        ],
+        "failed": [
+          {
+            "id": "reference-evidence",
+            "description": "Uses ProjectContext as the technical entry point.",
+            "weight": 1.0,
+            "failure_type": "shallow_reference",
+            "passed": false,
+            "missing": [
+              "ProjectContext",
+              "manifests",
+              "scripts",
+              "CI",
+              "adopted",
+              "adjusted",
+              "rejected"
+            ],
+            "present_forbidden": []
+          },
+          {
+            "id": "business-boundary",
+            "description": "Excludes the reference project's business implementation.",
+            "weight": 1.0,
+            "failure_type": "business_copy",
+            "passed": false,
+            "missing": [
+              "Do not copy Harvis business"
+            ],
+            "present_forbidden": [
+              "Copy the Harvis repository"
+            ]
+          }
+        ]
+      },
+      "with_skill": {
+        "score": 100.0,
+        "passed_count": 2,
+        "failed_count": 0,
+        "checks": [
+          {
+            "id": "reference-evidence",
+            "description": "Uses ProjectContext as the technical entry point.",
+            "weight": 1.0,
+            "failure_type": "shallow_reference",
+            "passed": true,
+            "missing": [],
+            "present_forbidden": []
+          },
+          {
+            "id": "business-boundary",
+            "description": "Excludes the reference project's business implementation.",
+            "weight": 1.0,
+            "failure_type": "business_copy",
+            "passed": true,
+            "missing": [],
+            "present_forbidden": []
+          }
+        ],
+        "failed": []
+      },
+      "delta": 100.0,
+      "winner": "with_skill",
+      "failure_taxonomy": []
+    },
+    {
+      "id": "dependency-separation",
+      "prompt": "Implement image upload; the existing project has no image-processing dependency.",
+      "input_files": [],
+      "metadata": {
+        "case_type": "near_neighbor"
+      },
+      "baseline": {
+        "score": 0.0,
+        "passed_count": 0,
+        "failed_count": 1,
+        "checks": [
+          {
+            "id": "owner",
+            "description": "Keeps direct dependency work in Setup.",
+            "weight": 1.0,
+            "failure_type": "mixed_dependency_feature",
+            "passed": false,
+            "missing": [
+              "Pause feature implementation",
+              "separate Setup delivery",
+              "Setup PR merges",
+              "Resume the Implement delivery"
+            ],
+            "present_forbidden": [
+              "one pull request"
+            ]
+          }
+        ],
+        "failed": [
+          {
+            "id": "owner",
+            "description": "Keeps direct dependency work in Setup.",
+            "weight": 1.0,
+            "failure_type": "mixed_dependency_feature",
+            "passed": false,
+            "missing": [
+              "Pause feature implementation",
+              "separate Setup delivery",
+              "Setup PR merges",
+              "Resume the Implement delivery"
+            ],
+            "present_forbidden": [
+              "one pull request"
+            ]
+          }
+        ]
+      },
+      "with_skill": {
+        "score": 100.0,
+        "passed_count": 1,
+        "failed_count": 0,
+        "checks": [
+          {
+            "id": "owner",
+            "description": "Keeps direct dependency work in Setup.",
+            "weight": 1.0,
+            "failure_type": "mixed_dependency_feature",
+            "passed": true,
+            "missing": [],
+            "present_forbidden": []
+          }
+        ],
+        "failed": []
+      },
+      "delta": 100.0,
+      "winner": "with_skill",
+      "failure_taxonomy": []
+    },
+    {
+      "id": "version-update-transaction",
+      "prompt": "Upgrade the ORM major version; its API and migration format changed.",
+      "input_files": [],
+      "metadata": {
+        "case_type": "update"
+      },
+      "baseline": {
+        "score": 0.0,
+        "passed_count": 0,
+        "failed_count": 2,
+        "checks": [
+          {
+            "id": "transaction",
+            "description": "Carries the full update-caused compatibility closure.",
+            "weight": 1.0,
+            "failure_type": "incomplete_update",
+            "passed": false,
+            "missing": [
+              "one Setup PR",
+              "API/configuration/migration compatibility",
+              "preserve existing behavior",
+              "ProjectContext",
+              "rollback boundary",
+              "declared gates"
+            ],
+            "present_forbidden": [
+              "Leave compilation errors"
+            ]
+          },
+          {
+            "id": "data-boundary",
+            "description": "Does not change product meaning or real data without authority.",
+            "weight": 1.0,
+            "failure_type": "unsafe_migration",
+            "passed": false,
+            "missing": [
+              "before changing product semantics",
+              "real data"
+            ],
+            "present_forbidden": []
+          }
+        ],
+        "failed": [
+          {
+            "id": "transaction",
+            "description": "Carries the full update-caused compatibility closure.",
+            "weight": 1.0,
+            "failure_type": "incomplete_update",
+            "passed": false,
+            "missing": [
+              "one Setup PR",
+              "API/configuration/migration compatibility",
+              "preserve existing behavior",
+              "ProjectContext",
+              "rollback boundary",
+              "declared gates"
+            ],
+            "present_forbidden": [
+              "Leave compilation errors"
+            ]
+          },
+          {
+            "id": "data-boundary",
+            "description": "Does not change product meaning or real data without authority.",
+            "weight": 1.0,
+            "failure_type": "unsafe_migration",
+            "passed": false,
+            "missing": [
+              "before changing product semantics",
+              "real data"
+            ],
+            "present_forbidden": []
+          }
+        ]
+      },
+      "with_skill": {
+        "score": 100.0,
+        "passed_count": 2,
+        "failed_count": 0,
+        "checks": [
+          {
+            "id": "transaction",
+            "description": "Carries the full update-caused compatibility closure.",
+            "weight": 1.0,
+            "failure_type": "incomplete_update",
+            "passed": true,
+            "missing": [],
+            "present_forbidden": []
+          },
+          {
+            "id": "data-boundary",
+            "description": "Does not change product meaning or real data without authority.",
+            "weight": 1.0,
+            "failure_type": "unsafe_migration",
+            "passed": true,
+            "missing": [],
+            "present_forbidden": []
+          }
+        ],
+        "failed": []
+      },
+      "delta": 100.0,
+      "winner": "with_skill",
+      "failure_taxonomy": []
+    }
+  ],
+  "failures": [],
+  "blind_review": {
+    "pack": "plugins/alex-coding/skills/setup/reports/output_blind_review_pack.json",
+    "answer_key": "plugins/alex-coding/skills/setup/reports/output_blind_answer_key.json",
+    "pair_count": 4
+  },
+  "artifacts": {
+    "json": "plugins/alex-coding/skills/setup/reports/output_quality_scorecard.json",
+    "markdown": "plugins/alex-coding/skills/setup/reports/output_quality_scorecard.md",
+    "blind_review_pack_json": "plugins/alex-coding/skills/setup/reports/output_blind_review_pack.json",
+    "blind_review_pack_md": "plugins/alex-coding/skills/setup/reports/output_blind_review_pack.md",
+    "blind_answer_key_json": "plugins/alex-coding/skills/setup/reports/output_blind_answer_key.json"
+  }
+}

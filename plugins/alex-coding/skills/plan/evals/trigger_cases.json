@@ -29,6 +29,14 @@
     {
       "family": "should_not_trigger-3",
       "text": "Translate the README without changing requirements."
+    },
+    {
+      "family": "should_not_trigger-4",
+      "text": "Create or align this repository's runnable technical baseline."
+    },
+    {
+      "family": "should_not_trigger-5",
+      "text": "Upgrade this dependency and carry its required compatibility changes."
     }
   ]
 }

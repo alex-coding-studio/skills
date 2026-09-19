@@ -1,0 +1,27 @@
+{
+  "should_trigger": [
+    {"family": "create", "text": "Create a new Node web project, choose the missing stable dependencies, and deliver a runnable baseline."},
+    {"family": "align", "text": "Align this existing repository: add ProjectContext, CI, declared commands, and a reproducible development baseline without changing product behavior."},
+    {"family": "reference", "text": "Set up this new home website using Harvis as a reference for the technical stack and development workflow only."},
+    {"family": "dependency-add", "text": "Before implementing uploads, add and verify the new image-processing dependency as a separate setup change."},
+    {"family": "dependency-add-short", "text": "Add the Axios dependency."},
+    {"family": "dependency-remove-short", "text": "Remove the Kingfisher package."},
+    {"family": "dependency-update-zh", "text": "更新这个依赖，并把升级导致的兼容代码一起修好。"},
+    {"family": "dependency-update", "text": "Upgrade Next.js and fix every compatibility change caused by that version bump in the same pull request."},
+    {"family": "new-layer", "text": "Add a PostgreSQL data layer and migration tooling to this frontend-only project, then update its project context."}
+  ],
+  "should_not_trigger": [
+    {"family": "plan", "text": "Plan the product behavior and acceptance criteria for a new sharing feature."},
+    {"family": "implement", "text": "Implement the accepted sharing feature using the repository's existing dependencies and architecture."},
+    {"family": "feature-create", "text": "Create a new sharing flow using the existing project foundation."},
+    {"family": "feature-export", "text": "Create the export feature using existing dependencies."},
+    {"family": "feature-package-noun", "text": "Create a package tracking feature using the existing stack."},
+    {"family": "feature-upgrade-word", "text": "Upgrade the billing page layout without changing dependencies."},
+    {"family": "discussion-update", "text": "Review whether we should upgrade the framework, but do not make changes."},
+    {"family": "discussion-package", "text": "Should we add Alamofire? Do not change anything yet."},
+    {"family": "review", "text": "Only review this pull request; do not change the project."},
+    {"family": "discussion", "text": "Help me think through whether this should be a website or a native app; do not create anything yet."},
+    {"family": "narrower-platform", "text": "Use the installed iOS project setup capability to generate this XcodeGen app with my standard App/Core/Kit layout."},
+    {"family": "deploy", "text": "Deploy the existing tested website to its already configured hosting provider."}
+  ]
+}
