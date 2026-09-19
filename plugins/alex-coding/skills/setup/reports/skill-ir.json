@@ -101,7 +101,7 @@
   },
   "governance": {
     "owner": "Alex Coding Studio",
-    "maturity": "production",
+    "maturity": "scaffold",
     "review_cadence": "per-release",
     "review_due": ""
   },

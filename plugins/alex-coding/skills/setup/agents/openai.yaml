@@ -2,4 +2,3 @@ interface:
   display_name: "Setup"
   short_description: "Create or update a runnable technical baseline"
   default_prompt: "Use alex-coding:setup to create, align, or update this project's technical baseline."
-

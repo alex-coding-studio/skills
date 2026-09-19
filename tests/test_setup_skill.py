@@ -66,6 +66,7 @@ class SetupSkillTests(unittest.TestCase):
         policy = (ROOT / "plugins/alex-coding/references/delivery-policy.md").read_text()
         self.assertIn("exactly one direct default-branch push", policy)
         self.assertIn("subsequent changes use the normal PR lifecycle", policy)
+        self.assertIn("does not itself grant that exception", policy)
         setup_delivery = (SETUP / "references/delivery.md").read_text()
         self.assertIn("empty-tree-to-commit patch", setup_delivery)
         self.assertIn("This is not the bundled PR-only Review workflow", setup_delivery)

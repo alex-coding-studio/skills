@@ -7,7 +7,7 @@ Before writing, resolve from the conversation and current repository evidence:
 - project name, purpose, and target form such as Web app, service, CLI, library, or native App;
 - primary runtime environment and any user-fixed technology/version constraints;
 - local destination and whether it is empty, an existing project, or an assigned worktree;
-- Git choice and, for GitHub delivery, owner, repository name, visibility, default-branch exception, and public-repository license;
+- Git choice and, for GitHub delivery, owner, repository name, visibility, explicit one-time default-branch exception, and public-repository license;
 - optional reference project and any external service, account, paid resource, data-export, or deployment requirement.
 
 Do not require a complete product specification. If the purpose and target form are clear, choose unspecified technical details using stable compatibility, official guidance, the runtime environment, and relevant reference evidence. Summarize the choices after execution. Pre-confirm only material external state, machine-wide changes, irreversible migrations, product behavior, or supplier lock-in.

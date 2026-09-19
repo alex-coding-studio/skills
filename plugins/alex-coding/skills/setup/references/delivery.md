@@ -6,7 +6,7 @@ Complete the verified baseline in the user-selected location. Do not create a re
 
 ## New GitHub repository
 
-Before generation, resolve once whether Git is wanted and, for GitHub delivery, the local path, owner, repository name, visibility, and public license. That confirmed delivery mode authorizes repository creation and the initial push after the complete local baseline passes.
+Before generation, resolve once whether Git is wanted and, for GitHub delivery, the local path, owner, repository name, visibility, and public license. Separately obtain the user's explicit authorization for the one-time direct default-branch push of the complete reviewed initial baseline in this repository/task. Choosing GitHub delivery, asking to create a repository, or asking to push does not by itself waive the PR policy.
 
 The ready-to-deliver initial baseline includes the generated technical shell, manifests and lockfiles, source/configuration, `.gitignore`, README, ProjectContext, Agent instructions, detailed engineering docs, declared checks, CI, and foundation smoke. Exclude caches, build products, secrets, local databases, private planning stores, and unrelated reference-project content.
 

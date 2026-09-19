@@ -11,4 +11,3 @@ Semantic routing judgments beyond the deterministic phrase/concept smoke:
 - `Create a package tracking feature using the existing stack.` → not Setup.
 
 The reviewer also confirmed the Create/Align/Update boundary, dependency ownership, reference-project fallback, ProjectContext/Agent assets, exact-local-commit initial review contract, later PR Monitor/Review lifecycle, and Plan/Implement/Reviewer handoffs. This was an independent model review of the package, not a blind A/B adjudication or recorded provider output-eval run.
-

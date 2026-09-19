@@ -12,4 +12,4 @@ Three separate holdout fixtures cover preserving an existing authored context, m
 
 An independent model forward review separately checked bare package/framework shorthand and unseen feature near-neighbors; see `model_forward_review.md`.
 
-The scorecard and blind A/B pack are generated from recorded fixtures. Their `gate_pass` value means only that the recorded with-skill fixture satisfies its assertions without regressions. They are not provider-backed model execution or completed human blind review. Those remain missing evidence for later promotion beyond production maturity.
+The scorecard and blind A/B pack are generated from recorded fixtures. Their `gate_pass` value means only that the recorded with-skill fixture satisfies its assertions without regressions. They are not provider-backed model execution or completed human blind review. Those remain missing evidence for promotion beyond experimental scaffold maturity.
