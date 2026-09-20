@@ -1,15 +1,15 @@
-# Output Evaluation Evidence
+# Lightweight Evaluation Evidence
 
-Four static with-skill versus baseline cases cover new-project creation, technical-only reference reuse, dependency separation, and a version-update transaction.
+The Setup skill uses Yao selectively as a low-cost second opinion, not as a release framework or maturity certification.
 
+Four visible with-skill versus baseline cases cover new-project creation, technical-only reference reuse, dependency separation, and a version-update transaction. Three holdout cases cover preserving authored context, machine/external authority, and a first-CI failure after the one authorized initial push.
+
+- Visible cases: `4`
+- Holdout cases: `3`
 - Baseline assertion pass rate: `0%`
 - With-skill assertion pass rate: `100%`
 - Regressions: `0`
-- Boundary cases: `1`
-- Near-neighbor cases: `1`
 
-Three separate holdout fixtures cover preserving an existing authored context, machine/external authority, and a first-CI failure after the one authorized initial push. Their with-skill assertion pass rate is recorded separately in `output_holdout_scorecard.md`.
+The deterministic trigger smoke separately covers nine positive and twelve negative or near-neighbor requests with no false positive or false negative. An independent model forward review checked unseen package shorthand, feature near-neighbors, Create/Align/Update boundaries, and the initial-delivery contract.
 
-An independent model forward review separately checked bare package/framework shorthand and unseen feature near-neighbors; see `model_forward_review.md`.
-
-The scorecard and blind A/B pack are generated from recorded fixtures. Their `gate_pass` value means only that the recorded with-skill fixture satisfies its assertions without regressions. They are not provider-backed model execution or completed human blind review. Those remain missing evidence for promotion beyond experimental scaffold maturity.
+These are lightweight fixture and review results. They do not claim provider-backed output execution, human blind adjudication, telemetry maturity, registry certification, or a Yao production tier.

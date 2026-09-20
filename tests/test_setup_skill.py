@@ -48,7 +48,10 @@ class SetupSkillTests(unittest.TestCase):
             "evals/trigger_cases.json",
             "evals/semantic_config.json",
             "evals/output/cases.jsonl",
-            "manifest.json",
+            "evals/output/holdout_cases.jsonl",
+            "reports/trigger_eval.md",
+            "reports/output_eval_evidence.md",
+            "reports/model_forward_review.md",
         ]:
             self.assertTrue((SETUP / relative).is_file(), relative)
 
