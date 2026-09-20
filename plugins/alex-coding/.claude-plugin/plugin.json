@@ -1,7 +1,7 @@
 {
   "name": "alex-coding",
-  "version": "0.7.1",
-  "description": "Project-context-driven planning, implementation and PR review/feedback monitoring",
+  "version": "0.8.0",
+  "description": "Project-context-driven setup, planning, implementation and PR review/feedback monitoring",
   "author": {
     "name": "Alex Coding Studio"
   }

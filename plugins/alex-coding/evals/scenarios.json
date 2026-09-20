@@ -1,5 +1,20 @@
 [
   {
+    "id": "setup-create",
+    "input": "The product shape is settled. Create its runnable technical project baseline and GitHub repository.",
+    "expected": "Use Setup, choose unspecified stable technical details, verify the complete baseline, and follow the authorized initial-delivery contract; do not route to Plan or business implementation."
+  },
+  {
+    "id": "setup-dependency-update",
+    "input": "Upgrade the framework and resolve every compatibility change caused by that update.",
+    "expected": "Use one Setup delivery for the version, lockfile, required compatibility code/tests/migrations and ProjectContext update; exclude unrelated features and refactors."
+  },
+  {
+    "id": "setup-narrower-capability",
+    "input": "A narrower installed platform setup skill exactly matches the requested native project shell.",
+    "expected": "Prefer the narrower capability; do not impose a generic platform profile or require both skills."
+  },
+  {
     "id": "context-present",
     "input": "ProjectContext identifies a backend and its migration checks.",
     "expected": "Read the relevant context and project gates; do not invoke iOS-specific tools."

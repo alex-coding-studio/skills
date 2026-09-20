@@ -1,19 +1,20 @@
 {
   "name": "alex-coding",
-  "version": "0.7.1+codex.20260918004645",
-  "description": "Project-context-driven planning, implementation and PR review/feedback monitoring",
+  "version": "0.8.0+codex.20260919182437",
+  "description": "Project-context-driven setup, planning, implementation and PR review/feedback monitoring",
   "author": {
     "name": "Alex Coding Studio"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Alex Coding",
-    "shortDescription": "Plan contracts and implement accepted work.",
-    "longDescription": "Use project context to plan and publish a delivery contract, then implement its merged revision through the project review workflow.",
+    "shortDescription": "Set up, plan and implement repository work.",
+    "longDescription": "Establish a runnable technical baseline, plan accepted changes, implement them, and carry pull requests through the project review workflow.",
     "developerName": "Alex Coding Studio",
     "category": "Developer Tools",
     "capabilities": [],
     "defaultPrompt": [
+      "Use alex-coding:setup to create or update this project's technical baseline.",
       "Use alex-coding:plan to plan this repository change.",
       "Use alex-coding:implement to deliver this accepted contract."
     ]

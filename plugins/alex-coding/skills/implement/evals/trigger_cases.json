@@ -29,6 +29,14 @@
     {
       "family": "should_not_trigger-3",
       "text": "Create the technical project scaffold."
+    },
+    {
+      "family": "should_not_trigger-4",
+      "text": "Add and lock this new direct dependency before feature implementation resumes."
+    },
+    {
+      "family": "should_not_trigger-5",
+      "text": "Upgrade the framework and fix every compatibility change caused by the version bump."
     }
   ]
 }

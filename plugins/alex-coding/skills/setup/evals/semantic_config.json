@@ -1,0 +1,25 @@
+{
+  "fallback_positive_concepts": ["setup_action", "foundation_object"],
+  "positive_concepts": {
+    "setup_action": {
+      "weight": 1,
+      "phrases": ["setup", "set up", "scaffold", "initialize", "create", "align", "add", "remove", "replace", "update", "upgrade", "switch", "bump", "创建", "初始化", "添加", "删除", "替换", "更新", "升级", "切换"]
+    },
+    "foundation_object": {
+      "weight": 1,
+      "phrases": ["project", "repository", "website", "technical stack", "baseline", "project context", "dependency", "dependencies", "package", "packages", "version", "version bump", "framework", "runtime", "database", "data layer", "migration tooling", "package manager", "toolchain", "项目", "技术栈", "技术基线", "依赖", "包", "版本", "框架", "运行时", "数据库", "包管理"]
+    }
+  },
+  "negative_concepts": {
+    "business_feature": {
+      "weight": 1,
+      "exclusive": true,
+      "phrases": ["plan the product", "feature", "screen", "sharing flow", "billing page", "page layout", "business workflow"]
+    },
+    "non_execution": {
+      "weight": 1,
+      "exclusive": true,
+      "phrases": ["only review", "explain this", "do not create", "deploy the existing", "iOS project setup capability", "review whether", "should we", "do not make changes", "do not change anything"]
+    }
+  }
+}

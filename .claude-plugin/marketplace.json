@@ -7,7 +7,7 @@
     {
       "name": "alex-coding",
       "source": "./plugins/alex-coding",
-      "description": "Project-context-driven planning and implementation through GitHub pull requests"
+      "description": "Project-context-driven setup, planning and implementation through GitHub pull requests"
     }
   ]
 }
