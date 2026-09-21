@@ -25,8 +25,6 @@ class Runtime:
     marker = 'From Codex 🤖'
     delivery_name = 'queue'
     state_keys = ('thread', 'pr')
-    requires_ack = False
-
     def __init__(self, thread, script, executable=None, delivery='queued', remote=None):
         if delivery not in ('queued', 'session'):
             raise ValueError('Codex author delivery uses the host queue; idle probing is no longer supported')
