@@ -21,7 +21,6 @@ THREAD = '12345678-1234-1234-1234-123456789abc'
 
 
 class QueueRuntime(FakeRuntime):
-    requires_ack = False
     foreground_cleanup = True
     delivery_name = 'queued'
 
@@ -100,35 +99,42 @@ class QueueReceiptTests(unittest.TestCase):
             self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'pending')
             self.assertFalse(subject.read()['target']['stopped'])
 
-    def test_runner_stays_alive_until_explicit_recovery_delivers_new_feedback(self):
+    def test_runner_stays_alive_until_cleanup_and_queued_feedback_are_settled(self):
         runtime = codex.Runtime(THREAD, '/monitor.py')
         partial = {'status': 'partial', 'retryable': False}
         with store(runtime=runtime) as subject:
             self.disposable_store(subject)
-            snapshots = [result(ending(), terminal='merged'), result(notice(1), ending(), terminal='merged'), result(notice(1), ending(), terminal='merged')]
+            snapshots = [result(ending(), terminal='merged'),
+                         result(notice(1), ending(), terminal='merged'),
+                         result(notice(1), ending(), terminal='merged'),
+                         result(notice(1), ending(), terminal='merged')]
             cycles = 0
 
-            def recover_after_first_poll(_):
+            def recover_then_ack(_):
                 nonlocal cycles
                 cycles += 1
-                self.assertEqual(cycles, 1)
-                self.assertFalse(subject.read()['target']['stopped'])
-                self.assertEqual(subject.complete()['status'], 'cleaned')
+                if cycles == 1:
+                    self.assertFalse(subject.read()['target']['stopped'])
+                    self.assertEqual(subject.complete()['status'], 'cleaned')
+                elif cycles in (2, 3):
+                    subject.acknowledge(subject.read()['batch']['token'])
+                else:
+                    self.fail('runner did not settle after acknowledgement')
 
             previous = os.getcwd()
             try:
                 with patch.object(core, 'gh_command', return_value=['gh']), \
                      patch.object(core, 'snapshot', side_effect=snapshots), \
                      patch.object(core, 'cleanup_target', side_effect=[partial, {'status': 'cleaned'}]), \
-                     patch.object(core.time, 'sleep', side_effect=recover_after_first_poll), \
+                     patch.object(core.time, 'sleep', side_effect=recover_then_ack), \
                      patch.object(runtime, 'deliver', return_value=True) as deliver:
                     core.run(subject, 0, False)
             finally:
                 os.chdir(previous)
-            self.assertEqual(cycles, 1)
+            self.assertEqual(cycles, 3)
             self.assertEqual(deliver.call_count, 2)
             self.assertTrue(subject.read()['target']['stopped'])
-            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['disposition'], 'queue-accepted')
+            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'handled')
             self.assertFalse((subject.root / 'run.pid').exists())
 
     def test_disposal_does_not_wait_for_or_erase_a_claude_feedback_claim(self):
@@ -156,19 +162,49 @@ class QueueReceiptTests(unittest.TestCase):
             self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'pending')
             with patch.object(runtime, 'deliver', return_value=True):
                 self.assertTrue(subject.deliver())
+            self.assertFalse(subject.read()['target']['stopped'])
+            subject.acknowledge(subject.read()['batch']['token'])
             self.assertTrue(subject.read()['target']['stopped'])
 
-    def test_CQ_02_later_batches_enqueue_without_waiting_for_agent_ack(self):
+    def test_QD_02_feedback_behind_the_active_batch_is_aggregated_until_acknowledgement(self):
+        runtime = QueueRuntime()
+        with store(runtime=runtime) as subject:
+            enrol(subject).apply(result(notice(1)))
+            self.assertTrue(subject.deliver())
+            first = subject.read()['batch']['token']
+            subject.apply(result(notice(1), notice(2), notice(3)))
+            self.assertFalse(subject.deliver())
+            self.assertEqual(len(runtime.delivered), 1)
+            subject.acknowledge(first)
+            self.assertTrue(subject.deliver())
+            self.assertEqual(subject.read()['batch']['events'], [notice(2)['key'], notice(3)['key']])
+            self.assertEqual(len(runtime.delivered), 2)
+
+    def test_QD_01_one_codex_batch_blocks_later_queue_submissions_until_acknowledged(self):
         runtime = QueueRuntime()
         with store(runtime=runtime) as subject:
             enrol(subject).apply(result(notice(1)))
             self.assertTrue(subject.deliver())
             subject.apply(result(notice(1), notice(2)))
+            self.assertFalse(subject.deliver())
+            self.assertEqual(len(runtime.delivered), 1)
+            batch = subject.read()['batch']
+            self.assertIsNotNone(batch)
+            self.assertEqual(subject.read()['target']['events'][notice(2)['key']]['status'], 'pending')
+            subject.acknowledge(batch['token'])
             self.assertTrue(subject.deliver())
             self.assertEqual(len(runtime.delivered), 2)
-            self.assertIsNone(subject.read()['batch'])
-            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['disposition'], 'queue-accepted')
-            self.assertNotIn('ack --token', runtime.delivered[0])
+
+    def test_QD_01_acknowledged_event_version_never_requeues(self):
+        runtime = QueueRuntime()
+        with store(runtime=runtime) as subject:
+            enrol(subject).apply(result(notice(1)))
+            self.assertTrue(subject.deliver())
+            self.assertIn('ack --token', runtime.delivered[0])
+            subject.acknowledge(subject.read()['batch']['token'])
+            subject.apply(result(notice(1)))
+            self.assertFalse(subject.deliver())
+            self.assertEqual(len(runtime.delivered), 1)
 
     def test_CQ_03_failed_submission_retries_and_acceptance_survives_restart(self):
         runtime = QueueRuntime()
@@ -182,7 +218,10 @@ class QueueReceiptTests(unittest.TestCase):
             resumed = core.Store(subject.root, subject.identity, subject.name, runtime)
             resumed.apply(result(notice(1)))
             self.assertFalse(resumed.deliver())
+            token = resumed.read()['batch']['token']
             resumed.apply(result(notice(1), core.event('conversation', 1, 'edited', 'https://example/comment')))
+            self.assertFalse(resumed.deliver())
+            resumed.acknowledge(token)
             self.assertTrue(resumed.deliver())
 
     def test_CQ_04_terminal_receipt_stops_without_background_cleanup(self):
@@ -193,14 +232,16 @@ class QueueReceiptTests(unittest.TestCase):
                 subject.apply(result(ending(), terminal='merged'))
                 self.assertTrue(subject.deliver())
             cleanup.assert_not_called()
-            self.assertTrue(subject.read()['target']['stopped'])
-            self.assertIsNone(subject.read()['batch'])
+            self.assertFalse(subject.read()['target']['stopped'])
+            self.assertIsNotNone(subject.read()['batch'])
             self.assertIn('complete', runtime.delivered[0])
+            subject.acknowledge(subject.read()['batch']['token'])
+            self.assertTrue(subject.read()['target']['stopped'])
 
-    def test_CQ_04_foreground_completion_has_no_new_agent_ack_gate(self):
+    def test_QD_05_disposable_completion_has_no_new_agent_ack_gate(self):
         runtime = QueueRuntime()
         with store(runtime=runtime) as subject:
-            enrol(subject, checkout='/work')
+            self.disposable_store(subject)
             with subject.locked() as data:
                 data['target']['foreground_cleanup'] = True
             with patch.object(core, 'snapshot', return_value=result(notice(1), ending(), terminal='merged')), \
@@ -208,26 +249,29 @@ class QueueReceiptTests(unittest.TestCase):
                 self.assertEqual(subject.complete()['status'], 'cleaned')
             cleanup.assert_called_once()
 
-    def test_CQ_05_old_inflight_batch_is_preserved_while_new_events_can_enqueue(self):
+    def test_CQ_05_old_inflight_batch_blocks_new_events_until_it_is_acknowledged(self):
         runtime = QueueRuntime()
         with store(runtime=runtime) as subject:
             enrol(subject).apply(result(notice(1)))
             token = subject.claim([notice(1)['key']])
             subject.apply(result(notice(1), notice(2)))
-            self.assertTrue(subject.deliver())
+            self.assertFalse(subject.deliver())
             self.assertEqual(subject.read()['batch']['token'], token)
             self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'delivered')
             subject.acknowledge(token)
-            self.assertIsNone(subject.read()['batch'])
+            self.assertTrue(subject.deliver())
 
-    def test_CQ_02_more_than_one_batch_reaches_queue_before_terminal_stop(self):
+    def test_QD_02_batches_over_the_limit_wait_for_acknowledgement(self):
         runtime = QueueRuntime()
         with store(runtime=runtime) as subject:
             enrol(subject).apply(result(*(notice(i) for i in range(core.BATCH_LIMIT + 1)),
                                         ending('closed'), terminal='closed'))
             self.assertTrue(subject.deliver())
             self.assertFalse(subject.read()['target']['stopped'])
+            self.assertFalse(subject.deliver())
+            subject.acknowledge(subject.read()['batch']['token'])
             self.assertTrue(subject.deliver())
+            subject.acknowledge(subject.read()['batch']['token'])
             self.assertTrue(subject.read()['target']['stopped'])
             self.assertEqual(len(runtime.delivered), 2)
 

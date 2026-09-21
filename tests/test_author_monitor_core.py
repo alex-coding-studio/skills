@@ -291,6 +291,86 @@ class IdentityTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 subject.register(author='someone-else')
 
+    def test_QD_03_author_inline_reply_and_empty_review_shell_are_both_self_echoes(self):
+        pr = {
+            'user': {'login': 'bot'},
+            'head': {'sha': 'head'},
+            'state': 'open',
+            'html_url': 'https://example/pr',
+        }
+        inline = [{
+            'id': 11,
+            'user': {'login': 'bot'},
+            'body': 'handled\n\nFrom Codex 🤖',
+            'pull_request_review_id': 21,
+            'updated_at': 'now',
+            'html_url': 'https://example/reply',
+        }]
+        reviews = [{
+            'id': 21,
+            'user': {'login': 'bot'},
+            'body': '',
+            'state': 'COMMENTED',
+            'submitted_at': 'now',
+            'html_url': 'https://example/review',
+        }]
+
+        def github(endpoint, role=None, paginate=False):
+            if endpoint.endswith('/pulls/1'):
+                return pr
+            if '/issues/1/comments' in endpoint:
+                return []
+            if '/pulls/1/comments' in endpoint:
+                return inline
+            if '/pulls/1/reviews' in endpoint:
+                return reviews
+            raise AssertionError(endpoint)
+
+        detail = type('Result', (), {'stdout': json.dumps({'headRefOid': 'head', 'statusCheckRollup': []})})()
+        with patch.object(core, 'gh_json', side_effect=github), patch.object(core.subprocess, 'run', return_value=detail):
+            current = core.snapshot({'repository': 'owner/repo', 'number': 1, 'author': 'bot'}, 'bot')
+        self.assertEqual(current['events'], [])
+
+    def test_QD_04_same_account_unmarked_inline_reply_and_review_shell_remain_actionable(self):
+        pr = {
+            'user': {'login': 'bot'},
+            'head': {'sha': 'head'},
+            'state': 'open',
+            'html_url': 'https://example/pr',
+        }
+        inline = [{
+            'id': 12,
+            'user': {'login': 'bot'},
+            'body': 'human reply',
+            'pull_request_review_id': 22,
+            'updated_at': 'now',
+            'html_url': 'https://example/reply',
+        }]
+        reviews = [{
+            'id': 22,
+            'user': {'login': 'bot'},
+            'body': '',
+            'state': 'COMMENTED',
+            'submitted_at': 'now',
+            'html_url': 'https://example/review',
+        }]
+
+        def github(endpoint, role=None, paginate=False):
+            if endpoint.endswith('/pulls/1'):
+                return pr
+            if '/issues/1/comments' in endpoint:
+                return []
+            if '/pulls/1/comments' in endpoint:
+                return inline
+            if '/pulls/1/reviews' in endpoint:
+                return reviews
+            raise AssertionError(endpoint)
+
+        detail = type('Result', (), {'stdout': json.dumps({'headRefOid': 'head', 'statusCheckRollup': []})})()
+        with patch.object(core, 'gh_json', side_effect=github), patch.object(core.subprocess, 'run', return_value=detail):
+            current = core.snapshot({'repository': 'owner/repo', 'number': 1, 'author': 'bot'}, 'bot')
+        self.assertEqual([(item['kind'], item['id']) for item in current['events']], [('inline', 12), ('review', 22)])
+
 
 class ContinuousIntegrationTests(unittest.TestCase):
     def test_first_all_green_result_is_quiet_but_a_failure_is_an_event(self):
