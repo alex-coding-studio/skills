@@ -61,7 +61,7 @@ def settle(state, current, phase, seen):
 
 def checkpoint(state, token):
     keys = ('schema', 'pr', 'reviewer', 'author', 'phase', 'rounds', 'round_limit',
-            'head', 'base', 'ci', 'ci_key', 'ci_seen', 'seen', 'review_phase', 'complexity')
+            'head', 'base', 'ci', 'ci_key', 'ci_seen', 'seen', 'review_phase', 'complexity', 'model')
     return {**{key: state.get(key) for key in keys}, 'token': token}
 
 
@@ -88,6 +88,12 @@ def restore(state, record):
     if complexity not in {'deterministic', 'low', 'medium', 'high'}:
         raise ValueError('invalid checkpoint review complexity')
     state['complexity'] = complexity
+    if record.get('model') is None:
+        state.pop('model', None)
+    else:
+        if not isinstance(record['model'], str):
+            raise ValueError('invalid checkpoint review model')
+        state['model'] = record['model']
 
 
 def encode_checkpoint(record):

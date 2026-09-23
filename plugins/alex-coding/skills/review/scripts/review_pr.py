@@ -274,9 +274,11 @@ def register(args, root, pr):
     state = core.initial_state(pr, args.reviewer, author, args.runtime, args.max_rounds)
     state.update(executable=executable, acceptance=args.acceptance_file.read_text(), interval=args.interval,
                  worker_timeout=args.worker_timeout, complexity=args.complexity or 'high')
+    state['model'] = runtime.review_settings(state['runtime'], state['complexity'])['model']
     found = github.latest_checkpoint(github.history())
     if found:
         core.restore(state, found[0])
+        runtime.settings_for(state)
         if args.complexity and state['complexity'] != args.complexity:
             raise ValueError('checkpoint complexity differs; use explicit continuation to change it')
         state['last_review_url'] = found[1].get('html_url')
@@ -344,6 +346,7 @@ def continue_review(args, root, pr):
                      head=None, base=None, review_phase=None, last_review_url=None,
                      previous_review=archive, round_limit=limit, runtime=selected_runtime,
                      executable=executable, complexity=args.complexity or previous.get('complexity', 'high'))
+        state['model'] = runtime.review_settings(state['runtime'], state['complexity'])['model']
         for key in ('last_error', 'last_transport_error', 'worker_pid', 'pid', 'started_at', 'next_session'):
             state.pop(key, None)
         save(root, state)
@@ -403,7 +406,7 @@ def main():
     print(json.dumps({key: state.get(key) for key in ('pr', 'phase', 'runtime', 'rounds', 'round_limit',
                                                     'session', 'pid', 'started_at', 'last_review_url',
                                                     'last_transport_error', 'last_usage', 'complexity')} | {
-                                                        'review_settings': runtime.review_settings(state['runtime'], state.get('complexity', 'high')),
+                                                        'review_settings': runtime.settings_for(state),
                                                         'active': running(root), 'state_directory': str(root)}, indent=2))
 
 

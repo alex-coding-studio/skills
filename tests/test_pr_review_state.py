@@ -52,6 +52,13 @@ class PRReviewStateTests(unittest.TestCase):
         self.assertIsNone(core.next_event(restored, snapshot(head='c' * 40)))
         self.assertIsNone(restored['session'])
 
+    def test_checkpoint_restores_the_selected_model_for_a_new_process(self):
+        state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
+        state['model'] = 'gpt-6-sol'
+        restored = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
+        core.restore(restored, core.checkpoint(state, 'model-pin'))
+        self.assertEqual(restored['model'], 'gpt-6-sol')
+
     def test_PRL_04_settling_a_snapshot_preserves_later_feedback(self):
         state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
         core.settle(state, snapshot(), 'changes-requested', ['old'])

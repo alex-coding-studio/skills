@@ -8,15 +8,28 @@ import time
 import uuid
 
 
+MODELS = {'codex': ('gpt-6-sol', 'gpt-6-luna'),
+          'claude': ('claude-opus-5-5', 'claude-sonnet-5')}
+LEGACY_MODELS = {'codex': ('gpt-5.6-sol', 'gpt-5.6-luna'),
+                 'claude': ('claude-opus-5', 'claude-sonnet-5')}
+
+
 def review_settings(runtime, complexity='high'):
     if complexity not in {'deterministic', 'low', 'medium', 'high'}:
         raise ValueError('review complexity must be deterministic, low, medium or high')
     if runtime not in {'codex', 'claude'}:
         raise ValueError('unsupported review runtime')
-    models = {'codex': ('gpt-5.6-sol', 'gpt-5.6-luna'),
-              'claude': ('claude-opus-5', 'claude-sonnet-5')}
     cheap = complexity == 'deterministic'
-    return {'model': models[runtime][int(cheap)], 'effort': 'max' if cheap else complexity}
+    return {'model': MODELS[runtime][int(cheap)], 'effort': 'max' if cheap else complexity}
+
+
+def settings_for(state):
+    settings = review_settings(state['runtime'], state.get('complexity', 'high'))
+    cheap = state.get('complexity', 'high') == 'deterministic'
+    model = state.get('model', LEGACY_MODELS[state['runtime']][int(cheap)])
+    if model not in {MODELS[state['runtime']][int(cheap)], LEGACY_MODELS[state['runtime']][int(cheap)]}:
+        raise ValueError('review model does not match its runtime and complexity')
+    return {**settings, 'model': model}
 
 
 class PRFinished(Exception):
@@ -53,7 +66,7 @@ def preflight(runtime, executable=None):
 
 def command(state, root, output):
     executable, session = state['executable'], state['session']
-    settings = review_settings(state['runtime'], state.get('complexity', 'high'))
+    settings = settings_for(state)
     if state['runtime'] == 'codex':
         arguments = [executable, 'exec']
         if session:
