@@ -280,21 +280,31 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(command[command.index('--effort') + 1], 'high')
 
     def test_new_sessions_use_the_same_review_models_as_resumes(self):
+        for name, model in [('codex', 'gpt-6-sol'), ('claude', 'claude-opus-5-5')]:
+            state = {'runtime': name, 'executable': '/' + name, 'session': None, 'next_session': 'new',
+                     'model': model}
+            initial = runtime.command(state, Path('/state'), Path('/state/result'))
+            state['session'] = 'same-session'
+            resumed = runtime.command(state, Path('/state'), Path('/state/result'))
+            self.assertEqual(initial[initial.index('--model') + 1], model)
+            self.assertEqual(resumed[resumed.index('--model') + 1], model)
+
+    def test_existing_review_without_a_model_pin_keeps_the_previous_policy(self):
         for name, model in [('codex', 'gpt-5.6-sol'), ('claude', 'claude-opus-5')]:
-            state = {'runtime': name, 'executable': '/' + name, 'session': None, 'next_session': 'new'}
+            state = {'runtime': name, 'executable': '/' + name, 'session': 'old-session'}
             command = runtime.command(state, Path('/state'), Path('/state/result'))
             self.assertEqual(command[command.index('--model') + 1], model)
 
     def test_deterministic_reviews_use_lower_models_with_explicit_max_exception(self):
-        for name, model in [('codex', 'gpt-5.6-luna'), ('claude', 'claude-sonnet-5')]:
+        for name, model in [('codex', 'gpt-6-luna'), ('claude', 'claude-sonnet-5')]:
             state = {'runtime': name, 'executable': '/' + name, 'session': 'existing',
-                     'complexity': 'deterministic'}
+                     'complexity': 'deterministic', 'model': model}
             command = runtime.command(state, Path('/state'), Path('/state/result'))
             self.assertEqual(command[command.index('--model') + 1], model)
             self.assertIn('model_reasoning_effort="max"' if name == 'codex' else 'max', command)
 
     def test_regular_review_effort_is_bounded_at_high(self):
-        for name, model in [('codex', 'gpt-5.6-sol'), ('claude', 'claude-opus-5')]:
+        for name, model in [('codex', 'gpt-6-sol'), ('claude', 'claude-opus-5-5')]:
             for effort in ['low', 'medium', 'high']:
                 self.assertEqual(runtime.review_settings(name, effort), {'model': model, 'effort': effort})
             with self.assertRaises(ValueError):

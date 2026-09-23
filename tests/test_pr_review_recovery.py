@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -16,6 +17,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'plugins/alex-coding/skills/revi
 sys.path.insert(0, str(SCRIPTS))
 import review_pr as runner
 import pr_review_github as remote
+import pr_review_runtime as runtime
 import pr_review_state as core
 
 
@@ -23,6 +25,37 @@ def snapshot():
     return {'head': 'a' * 40, 'base': 'b' * 40, 'ci': 'none', 'ci_key': 'none',
             'events': [], 'terminal': None, 'draft': False, 'checks': [], 'history': [],
             'pr': {'title': 'Example', 'body': 'Acceptance'}}
+
+
+class RegistrationModelTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        acceptance = self.root / 'acceptance.md'
+        acceptance.write_text('Review the accepted behavior.')
+        self.args = SimpleNamespace(reviewer='reviewer', runtime='codex', executable=None,
+                                    max_rounds=2, acceptance_file=acceptance, interval=45,
+                                    worker_timeout=1800, complexity='high', completed_rounds=None)
+        self.github = Mock()
+        self.github.pull.return_value = {'state': 'open', 'merged': False, 'user': {'login': 'author'}}
+        self.github.history.return_value = []
+        self.github.latest_checkpoint.return_value = None
+        self.addCleanup(patch.stopall)
+        patch.object(runner.remote, 'GitHub', return_value=self.github).start()
+        patch.object(runner.runtime, 'preflight', return_value='/codex').start()
+
+    def test_new_registration_pins_the_current_model(self):
+        state = runner.register(self.args, self.root, 'owner/repo#1')
+        self.assertEqual(state['model'], 'gpt-6-sol')
+        self.assertEqual(runner.read(self.root, 'owner/repo#1')['model'], 'gpt-6-sol')
+
+    def test_recovered_legacy_checkpoint_keeps_the_previous_model(self):
+        prior = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
+        self.github.latest_checkpoint.return_value = (core.checkpoint(prior, 'prior'), {})
+        state = runner.register(self.args, self.root, 'owner/repo#1')
+        self.assertEqual(runtime.settings_for(state)['model'], 'gpt-5.6-sol')
+        self.assertNotIn('model', state)
 
 
 class FreshReviewTests(unittest.TestCase):
@@ -81,6 +114,13 @@ class FreshReviewTests(unittest.TestCase):
         self.assertEqual(state['rounds'], 2)
         self.assertNotEqual(state['pending']['token'], 'old-token')
         self.assertEqual(state['pending']['result']['outcome'], 'changes-requested')
+
+    def test_explicit_continuation_moves_an_old_session_to_the_current_model(self):
+        state = self.continue_review('--additional-rounds', '0')
+        self.assertEqual(state['model'], 'gpt-6-sol')
+        self.assertEqual(runtime.settings_for(state)['model'], 'gpt-6-sol')
+        previous = json.loads((self.root / state['previous_review']).read_text())
+        self.assertNotIn('model', previous)
 
     def test_fresh_request_preserves_interrupted_execution_without_replaying_it(self):
         self.state.update(phase='reviewing', pending={'stage': 'execution', 'token': 'interrupted',
