@@ -117,7 +117,8 @@ def prompt_for(root, state, current, reason):
 
 def make_pending(state, current, result, token):
     core.validate_result(result)
-    phase = core.disposition(result['outcome'], state['rounds'], state['round_limit'])
+    phase = core.ci_gated_phase(core.disposition(result['outcome'], state['rounds'], state['round_limit']),
+                                current['ci'])
     settled = dict(state)
     core.settle(settled, current, phase, [event['key'] for event in current['events']])
     return {'stage': 'publication', 'token': token, 'snapshot': current, 'result': result,

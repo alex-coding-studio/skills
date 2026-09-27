@@ -58,6 +58,24 @@ class DeliveryTests(unittest.TestCase):
         snapshot['ci'] = 'none'
         delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
 
+    def test_waiting_ci_recorded_without_any_checks_merges_like_an_approval(self):
+        state, snapshot = self.evidence()
+        state.update(phase='waiting-ci', ci='none')
+        snapshot['ci'] = 'none'
+        delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
+        for ci in ('pending', 'fail'):
+            snapshot['ci'] = ci
+            with self.subTest(ci=ci), self.assertRaises(ValueError):
+                delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
+
+    def test_waiting_ci_recorded_with_observed_checks_still_requires_passing_checks(self):
+        state, snapshot = self.evidence()
+        for recorded in ('pending', 'fail'):
+            state.update(phase='waiting-ci', ci=recorded)
+            snapshot['ci'] = 'none'
+            with self.subTest(recorded=recorded), self.assertRaises(ValueError):
+                delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
+
     def test_claude_start_requires_native_monitor_without_launching_shell_listener(self):
         with tempfile.TemporaryDirectory() as directory:
             args = delivery.parser().parse_args(['start', '--runtime', 'claude', '--session', 'existing',
