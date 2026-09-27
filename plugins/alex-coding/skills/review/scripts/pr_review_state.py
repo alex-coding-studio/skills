@@ -49,6 +49,10 @@ def disposition(outcome, rounds, limit):
     return outcome
 
 
+def ci_gated_phase(phase, observed_ci):
+    return 'approved' if phase == 'waiting-ci' and observed_ci == 'none' else phase
+
+
 def settle(state, current, phase, seen):
     if phase not in PHASES:
         raise ValueError('invalid review phase')

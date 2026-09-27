@@ -93,6 +93,31 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(self.state['ci'], 'pass')
         self.assertIsNone(self.state['pending'])
 
+    def test_waiting_ci_without_any_reported_checks_is_recorded_as_approved(self):
+        self.github.current = current(ci='none')
+        self.execute = lambda state, root, prompt, persist: result('waiting-ci')
+        self.step()
+        self.step()
+        self.assertEqual(self.github.published[0]['checkpoint']['phase'], 'approved')
+        self.assertEqual(self.state['phase'], 'approved')
+        self.assertEqual(self.state['review_phase'], 'approved')
+        self.assertEqual(self.state['ci'], 'none')
+
+    def test_checks_appearing_after_a_no_check_approval_still_wake_the_reviewer_on_failure(self):
+        self.github.current = current(ci='none')
+        self.step()
+        self.step()
+        self.github.current = current(ci='fail')
+        self.step()
+        self.assertEqual(len(self.calls), 2)
+
+    def test_waiting_ci_with_observed_pending_checks_keeps_its_ci_gate(self):
+        self.execute = lambda state, root, prompt, persist: result('waiting-ci')
+        self.step()
+        self.step()
+        self.assertEqual(self.github.published[0]['checkpoint']['phase'], 'waiting-ci')
+        self.assertEqual(self.state['phase'], 'waiting-ci')
+
     def test_failed_ci_still_reaches_independent_reviewer(self):
         self.step()
         self.step()
