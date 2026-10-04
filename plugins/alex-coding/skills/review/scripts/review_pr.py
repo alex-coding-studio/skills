@@ -176,6 +176,10 @@ def step(root, state, github, execute=None):
         core.settle(state, current, 'approved', state['seen'])
         save(root, state)
         return True
+    if reason == 'ci' and state.get('review_phase') == 'changes-requested':
+        core.settle(state, current, 'changes-requested', state['seen'])
+        save(root, state)
+        return True
     token = uuid.uuid4().hex
     code_review = reason == 'head' or (
         reason == 'feedback' and (state.get('review_phase') or state['phase']) == 'changes-requested')
