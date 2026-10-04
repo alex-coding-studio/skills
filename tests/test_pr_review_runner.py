@@ -230,8 +230,39 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(self.state['phase'], 'needs-user-attention')
         self.assertEqual(self.state['rounds'], 2)
 
+    def test_check_results_on_a_head_with_requested_changes_do_not_repeat_the_review(self):
+        self.execute = lambda state, root, prompt, persist: (self.calls.append(1), result('changes-requested'))[1]
+        self.step()
+        self.step()
+        self.github.current = current(ci='fail')
+        self.github.current['ci_events'] = ['merge-workflow-run']
+        self.step()
+        self.github.current = current(ci='pass')
+        self.github.current['ci_events'] = ['merge-workflow-run', 'tests-rerun']
+        self.step()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.github.published), 1)
+        self.assertEqual(self.state['phase'], 'changes-requested')
+        self.assertEqual(self.state['rounds'], 1)
+        self.assertEqual(self.state['ci'], 'pass')
+        self.assertIsNone(self.state['pending'])
+        self.github.current = current(head='c' * 40, ci='pass')
+        self.step()
+        self.assertEqual(len(self.calls), 2)
+
 
 class PublicationTests(unittest.TestCase):
+    def test_skipped_workflow_runs_are_not_check_results_for_the_reviewer(self):
+        tests = {'__typename': 'CheckRun', 'name': 'tests', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}
+        merge = {'__typename': 'CheckRun', 'name': 'merge', 'status': 'COMPLETED', 'conclusion': 'SKIPPED'}
+        state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
+        def snapshot(checks):
+            return {**current(), **remote.check_summary(checks)}
+        core.settle(state, snapshot([tests]), 'approved', [])
+        self.assertIsNone(core.next_event(state, snapshot([tests, merge, {**merge, 'startedAt': 'later'}])))
+        self.assertEqual(snapshot([merge])['ci'], 'none')
+        self.assertEqual(snapshot([merge, tests])['ci'], 'pass')
+
     def test_PRL_02_failed_check_with_pending_churn_does_not_change_terminal_fingerprint(self):
         failed = {'__typename': 'CheckRun', 'name': 'tests', 'status': 'COMPLETED', 'conclusion': 'FAILURE'}
         queued = {'__typename': 'CheckRun', 'name': 'build', 'status': 'QUEUED', 'conclusion': None}

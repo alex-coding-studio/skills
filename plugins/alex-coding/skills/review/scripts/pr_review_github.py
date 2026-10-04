@@ -28,6 +28,13 @@ def terminal_check_key(checks):
     return state_core.digest(terminal_check_events(checks))
 
 
+def check_summary(checks):
+    relevant = [check for check in checks if check.get('__typename') == 'StatusContext'
+                or check.get('conclusion') != 'SKIPPED']
+    return {'ci': shared.checks_state(relevant), 'ci_key': terminal_check_key(relevant),
+            'ci_events': terminal_check_events(relevant)}
+
+
 def inline_locations(patch):
     locations = set()
     paths = {}
@@ -126,9 +133,7 @@ class GitHub:
             events.append({'key': key, 'kind': row['kind'], 'id': row['id'], 'url': row.get('html_url')})
         return {'head': pr['head']['sha'], 'base': pr['base']['sha'], 'draft': pr['draft'],
                 'terminal': 'merged' if pr.get('merged') else 'closed' if pr['state'] == 'closed' else None,
-                'ci': shared.checks_state(checks), 'ci_key': terminal_check_key(checks),
-                'ci_events': terminal_check_events(checks),
-                'checks': checks, 'events': events, 'history': history, 'pr': pr}
+                **check_summary(checks), 'checks': checks, 'events': events, 'history': history, 'pr': pr}
 
     def post(self, endpoint, payload, state, current):
         fresh = self.pull()
