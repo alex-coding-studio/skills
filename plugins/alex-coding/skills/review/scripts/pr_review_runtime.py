@@ -8,10 +8,12 @@ import time
 import uuid
 
 
-MODELS = {'codex': ('gpt-6-sol', 'gpt-6-luna'),
+MODELS = {'codex': ('gpt-6.1-sol', 'gpt-6-luna'),
           'claude': ('claude-opus-5-5', 'claude-sonnet-5-5')}
 LEGACY_MODELS = {'codex': ('gpt-5.6-sol', 'gpt-5.6-luna'),
                  'claude': ('claude-opus-5', 'claude-sonnet-5')}
+PINNED_MODELS = {'codex': (('gpt-6-sol',), ()),
+                 'claude': ((), ())}
 
 
 def review_settings(runtime, complexity='high'):
@@ -27,7 +29,8 @@ def settings_for(state):
     settings = review_settings(state['runtime'], state.get('complexity', 'high'))
     cheap = state.get('complexity', 'high') == 'deterministic'
     model = state.get('model', LEGACY_MODELS[state['runtime']][int(cheap)])
-    if model not in {MODELS[state['runtime']][int(cheap)], LEGACY_MODELS[state['runtime']][int(cheap)]}:
+    if model not in {MODELS[state['runtime']][int(cheap)], LEGACY_MODELS[state['runtime']][int(cheap)],
+                     *PINNED_MODELS[state['runtime']][int(cheap)]}:
         raise ValueError('review model does not match its runtime and complexity')
     return {**settings, 'model': model}
 
