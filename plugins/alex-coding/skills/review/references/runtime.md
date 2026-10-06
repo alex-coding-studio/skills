@@ -12,7 +12,7 @@ Select `--complexity` from the actual review risk and uncertainty, and record th
 
 | Complexity | Codex | Claude | Use |
 | --- | --- | --- | --- |
-| `deterministic` | `gpt-6-luna`, max | `claude-sonnet-5`, max | Diagnosis verified, bounded behavior, known dependencies and meaningful coverage; no material security, persistence, migration, concurrency or interface uncertainty. |
+| `deterministic` | `gpt-6-luna`, max | `claude-sonnet-5-5`, max | Diagnosis verified, bounded behavior, known dependencies and meaningful coverage; no material security, persistence, migration, concurrency or interface uncertainty. |
 | `low` | `gpt-6-sol`, low | `claude-opus-5-5`, low | Straightforward review with a small amount of independent interpretation. |
 | `medium` | `gpt-6-sol`, medium | `claude-opus-5-5`, medium | Several interacting behaviors or boundary cases with understood scope. |
 | `high` | `gpt-6-sol`, high | `claude-opus-5-5`, high | Authentication/permissions/session safety, destructive persistence, migrations, concurrency, public interface changes or unclear impact. Also the fallback when unclassified. |
