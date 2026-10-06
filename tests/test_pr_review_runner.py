@@ -352,12 +352,19 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(command[command.index('--model') + 1], model)
 
     def test_deterministic_reviews_use_lower_models_with_explicit_max_exception(self):
-        for name, model in [('codex', 'gpt-6-luna'), ('claude', 'claude-sonnet-5')]:
+        for name, model in [('codex', 'gpt-6-luna'), ('claude', 'claude-sonnet-5-5')]:
+            self.assertEqual(runtime.review_settings(name, 'deterministic'), {'model': model, 'effort': 'max'})
             state = {'runtime': name, 'executable': '/' + name, 'session': 'existing',
                      'complexity': 'deterministic', 'model': model}
             command = runtime.command(state, Path('/state'), Path('/state/result'))
             self.assertEqual(command[command.index('--model') + 1], model)
             self.assertIn('model_reasoning_effort="max"' if name == 'codex' else 'max', command)
+
+    def test_deterministic_claude_review_pinned_before_upgrade_keeps_its_model(self):
+        state = {'runtime': 'claude', 'executable': '/claude', 'session': 'existing',
+                 'complexity': 'deterministic', 'model': 'claude-sonnet-5'}
+        command = runtime.command(state, Path('/state'), Path('/state/result'))
+        self.assertEqual(command[command.index('--model') + 1], 'claude-sonnet-5')
 
     def test_regular_review_effort_is_bounded_at_high(self):
         for name, model in [('codex', 'gpt-6-sol'), ('claude', 'claude-opus-5-5')]:

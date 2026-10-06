@@ -9,7 +9,7 @@ import uuid
 
 
 MODELS = {'codex': ('gpt-6-sol', 'gpt-6-luna'),
-          'claude': ('claude-opus-5-5', 'claude-sonnet-5')}
+          'claude': ('claude-opus-5-5', 'claude-sonnet-5-5')}
 LEGACY_MODELS = {'codex': ('gpt-5.6-sol', 'gpt-5.6-luna'),
                  'claude': ('claude-opus-5', 'claude-sonnet-5')}
 
