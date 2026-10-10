@@ -29,7 +29,7 @@ Monitor verifies the merged PR targets the registered default branch and the wor
 The script performs two independent operations:
 
 1. Fetch and reset the primary default checkout to the fetched remote commit. This is overwrite synchronization, not rebase; local default commits, tracked edits and obstructing files do not need merging.
-2. Run `git worktree remove --force` on the exact registered task path, then remove its final-head branch reference. No file classification or process-cwd scan gates disposal.
+2. Run `git worktree remove --force` on the exact registered task path, then remove its final-head branch reference. No file classification or process-cwd scan gates disposal. Then delete the Xcode DerivedData folders whose recorded workspace lies inside that path, together with those of sibling worktrees whose directory under the same parent no longer exists; this is best-effort and never changes the disposal result.
 
 The receipt contains separate `sync` and `cleanup` results. A synchronization error must not prevent deletion, and a deletion error must not undo successful synchronization. Only both succeeding is `cleaned`. Partial/interrupted disposable operations can be retried after fresh identity checks; an already absent directory/branch is normal on retry. The model-free listener retries partial operations. The author may also invoke the existing per-PR `complete` command immediately after its own merge, from outside the task directory.
 

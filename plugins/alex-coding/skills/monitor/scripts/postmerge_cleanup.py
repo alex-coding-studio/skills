@@ -2,7 +2,9 @@ import fcntl
 import importlib.util
 import json
 import os
+import plistlib
 import re
+import shutil
 import sys
 from pathlib import Path
 import subprocess
@@ -63,6 +65,34 @@ def _clean(path):
 
 def _owned_dirty(checkout, primary):
     return _dirty(checkout, tracked_only=checkout == primary)
+
+
+def _derived_data_root():
+    return Path.home() / 'Library/Developer/Xcode/DerivedData'
+
+
+def _discard_derived_data(checkout, actions):
+    try:
+        entries = list(_derived_data_root().iterdir())
+    except OSError:
+        return
+    removed = 0
+    for entry in entries:
+        try:
+            with (entry / 'info.plist').open('rb') as handle:
+                workspace = Path(plistlib.load(handle)['WorkspacePath']).resolve()
+            inside = workspace == checkout or checkout in workspace.parents
+            orphaned_sibling = (checkout.parent in workspace.parents
+                                and not (checkout.parent / workspace.relative_to(checkout.parent).parts[0]).exists())
+            if not (inside or orphaned_sibling):
+                continue
+            shutil.rmtree(entry, ignore_errors=True)
+            if not entry.exists():
+                removed += 1
+        except Exception:
+            continue
+    if removed:
+        actions.append(f'Removed {removed} Xcode DerivedData folder(s) of the disposed and other removed worktrees')
 
 
 def cleanup_target(target, snapshot):
@@ -176,6 +206,7 @@ def _disposable(checkout, primary, common, branch, default, remote, head, action
         if exists:
             _git(primary, 'update-ref', '-d', reference, head)
             actions.append('Deleted the final merged task branch')
+        _discard_derived_data(checkout, actions)
         disposal = dict(status='cleaned')
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         disposal = dict(status='failed', reason=str(error))
@@ -277,6 +308,7 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
             return _result('preserved', occupied, actions)
         _git(primary, 'worktree', 'remove', str(checkout))
         actions.append('Removed owned clean worktree')
+        _discard_derived_data(checkout, actions)
     if exists:
         if _git(primary, 'rev-parse', f'refs/heads/{branch}') != head:
             return _result('preserved', 'Owned branch changed before deletion', actions)

@@ -39,6 +39,10 @@ class CleanupTests(unittest.TestCase):
         self.git(self.repo, 'config', 'url.' + str(self.remote) + '.insteadOf', 'https://github.com/example/repo.git')
         self.pr = {'merged': True, 'head': {'sha': self.head, 'ref': 'feature', 'repo': {'full_name': 'example/repo'}}, 'base': {'repo': {'full_name': 'example/repo'}}}
         self.target = {'repository': 'example/repo', 'number': 1, 'checkout': str(self.checkout), 'head_branch': 'feature', 'head_repository': 'example/repo', 'cleanup': {'owned': True, 'head_protected': False, 'common_dir': str(self.repo / '.git'), 'remote': 'origin', 'remote_url': str(self.remote), 'default_branch': 'main', 'default_checkout': str(self.repo)}}
+        self.derived_data = self.root / 'DerivedData'
+        derived_data_patch = patch.object(cleanup, '_derived_data_root', return_value=self.derived_data)
+        derived_data_patch.start()
+        self.addCleanup(derived_data_patch.stop)
         cwd_patch = patch.object(cleanup, '_process_cwds', return_value=[(123, self.root)])
         cwd_patch.start()
         self.addCleanup(cwd_patch.stop)
