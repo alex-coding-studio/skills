@@ -3,6 +3,7 @@ import subprocess
 import sys
 import time
 import fcntl
+import plistlib
 import unittest
 from unittest.mock import patch
 
@@ -36,6 +37,25 @@ class DisposableWorktreeTests(unittest.TestCase):
         self.assertFalse(self.checkout.exists())
         self.assertEqual(self.git(self.repo, 'rev-parse', 'origin/main'), self.head)
         self.assertNotIn('feature', self.git(self.repo, 'branch', '--format=%(refname:short)').split())
+
+    def derived_data_for(self, name, workspace):
+        folder = self.derived_data / name
+        folder.mkdir(parents=True)
+        with (folder / 'info.plist').open('wb') as handle:
+            plistlib.dump({'WorkspacePath': str(workspace)}, handle)
+        return folder
+
+    def test_merged_worktree_takes_its_derived_data_and_that_of_removed_sibling_worktrees(self):
+        own = self.derived_data_for('App-own', self.checkout / 'App.xcodeproj')
+        removed_sibling = self.derived_data_for('App-removed', self.root / 'earlier task' / 'App.xcodeproj')
+        live_sibling = self.derived_data_for('App-primary', self.repo / 'App.xcodeproj')
+        elsewhere = self.derived_data_for('Other-gone', self.root.parent / 'missing-elsewhere' / 'Other.xcodeproj')
+        result = self.clean()
+        self.assertEqual(result['status'], 'cleaned', result)
+        self.assertFalse(own.exists())
+        self.assertFalse(removed_sibling.exists())
+        self.assertTrue(live_sibling.exists())
+        self.assertTrue(elsewhere.exists())
 
     def test_default_sync_overwrites_local_changes_and_collisions(self):
         tip = self.advance_remote()
