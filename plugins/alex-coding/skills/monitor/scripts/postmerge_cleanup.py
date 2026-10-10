@@ -80,20 +80,17 @@ def _discard_derived_data(checkout, actions):
     for entry in entries:
         try:
             with (entry / 'info.plist').open('rb') as handle:
-                workspace = plistlib.load(handle).get('WorkspacePath')
-        except (OSError, ValueError, plistlib.InvalidFileException):
+                workspace = Path(plistlib.load(handle)['WorkspacePath']).resolve()
+            inside = workspace == checkout or checkout in workspace.parents
+            orphaned_sibling = (checkout.parent in workspace.parents
+                                and not (checkout.parent / workspace.relative_to(checkout.parent).parts[0]).exists())
+            if not (inside or orphaned_sibling):
+                continue
+            shutil.rmtree(entry, ignore_errors=True)
+            if not entry.exists():
+                removed += 1
+        except Exception:
             continue
-        if not isinstance(workspace, str):
-            continue
-        workspace = Path(workspace).resolve()
-        inside = workspace == checkout or checkout in workspace.parents
-        orphaned_sibling = (checkout.parent in workspace.parents
-                            and not (checkout.parent / workspace.relative_to(checkout.parent).parts[0]).exists())
-        if not (inside or orphaned_sibling):
-            continue
-        shutil.rmtree(entry, ignore_errors=True)
-        if not entry.exists():
-            removed += 1
     if removed:
         actions.append(f'Removed {removed} Xcode DerivedData folder(s) of the disposed and other removed worktrees')
 

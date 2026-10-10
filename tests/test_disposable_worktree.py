@@ -57,6 +57,17 @@ class DisposableWorktreeTests(unittest.TestCase):
         self.assertTrue(live_sibling.exists())
         self.assertTrue(elsewhere.exists())
 
+    def test_unreadable_derived_data_never_changes_the_disposal_result(self):
+        own = self.derived_data_for('App-own', self.checkout / 'App.xcodeproj')
+        for name, content in (('Truncated', b'<?xml version="1.0"?><plist><dict><key>Work'), ('NotDict', plistlib.dumps(['list root']))):
+            folder = self.derived_data / name
+            folder.mkdir()
+            (folder / 'info.plist').write_bytes(content)
+        result = self.clean()
+        self.assertEqual(result['status'], 'cleaned', result)
+        self.assertFalse(self.checkout.exists())
+        self.assertFalse(own.exists())
+
     def test_default_sync_overwrites_local_changes_and_collisions(self):
         tip = self.advance_remote()
         (self.repo / 'new-file').mkdir()
