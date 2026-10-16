@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -52,6 +53,21 @@ def running(root):
 def git(checkout, *arguments):
     return subprocess.run(['git', '-C', str(checkout), *arguments], capture_output=True,
                           text=True, timeout=120, check=True).stdout
+
+
+def discard_checkout(root):
+    checkout = root / 'checkout'
+    if checkout.is_symlink():
+        checkout.unlink()
+    elif checkout.exists():
+        shutil.rmtree(checkout)
+
+
+def finish(root, state, phase):
+    state.update(phase=phase, pending=None)
+    save(root, state)
+    if phase in {'merged', 'closed'}:
+        discard_checkout(root)
 
 
 def prepare_checkout(root, current, repository):
@@ -136,9 +152,7 @@ def attention_result(reason):
 def step(root, state, github, execute=None):
     current = github.snapshot(state['author'])
     if current['terminal']:
-        state['phase'] = current['terminal']
-        state['pending'] = None
-        save(root, state)
+        finish(root, state, current['terminal'])
         return False
     pending = state.get('pending')
     if pending and pending['stage'] == 'execution':
@@ -203,8 +217,7 @@ def step(root, state, github, execute=None):
             result = execute(state, root, prompt, lambda value: save(root, value))
         result = core.validate_result(result)
     except runtime.PRFinished as finished:
-        state.update(phase=finished.phase, pending=None)
-        save(root, state)
+        finish(root, state, finished.phase)
         return False
     except Exception as error:
         state['last_error'] = type(error).__name__

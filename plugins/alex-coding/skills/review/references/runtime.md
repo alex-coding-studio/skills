@@ -47,7 +47,7 @@ Check `active`, PR identity, PID, startup log and eventual session/publication e
 
 State defaults to `${XDG_STATE_HOME:-~/.local/state}/alex-coding/review/<PR-hash>`. Its key is canonical PR identity, independent of runtime/session. `--state-base` selects an explicit alternative; use it on every command and never change it to bypass ownership. Launch and lifetime locks prevent duplicate local workers. They are not a distributed lock: reuse established ownership and coordinate an explicit handoff before moving between hosts. `start` and `retry` preserve pending publication, session and rounds; explicit `continue` creates a fresh session with retained history. No credentials are stored.
 
-The runner creates its own detached Git repository in the PR state directory and verifies exact head/base. Dirty, ignored or unrecognized local work is preserved. It never checks out or cleans the author's working copy. Review snapshots, patches and logs stay local for recovery; do not commit them. Author post-merge cleanup remains with Monitor. Retained review artifacts follow the user's normal cache policy.
+The runner creates its own detached Git repository in the PR state directory and verifies exact head/base. Dirty, ignored or unrecognized local work is preserved. It never checks out or cleans the author's working copy. Review snapshots, patches and logs stay local for recovery; do not commit them. When the PR is verified merged or closed, the runner deletes its generated checkout and keeps the small state, patch and log files so status and rounds survive a reopen; a reopened PR fetches a fresh checkout. Author post-merge cleanup remains with Monitor.
 
 ## Events and stopping
 
