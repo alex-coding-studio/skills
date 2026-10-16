@@ -83,6 +83,14 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(self.state['phase'], 'merged')
         self.assertEqual(len(self.calls), 2)
 
+    def test_merged_pr_discards_its_review_checkout_and_keeps_state(self):
+        self.step()
+        (self.root / 'checkout/.git').mkdir(parents=True)
+        self.github.current['terminal'] = 'merged'
+        self.assertFalse(self.step())
+        self.assertFalse((self.root / 'checkout').exists())
+        self.assertEqual(json.loads((self.root / 'state.json').read_text())['phase'], 'merged')
+
     def test_successful_ci_reuses_published_review_without_model_or_publication(self):
         self.step()
         self.step()
