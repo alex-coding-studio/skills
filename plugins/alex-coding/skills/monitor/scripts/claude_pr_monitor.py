@@ -111,6 +111,23 @@ def bind_session_route(store, owner_root, remote):
                 target['session_remote'] = remote
 
 
+def configure_delivery(store, owner, args, parser):
+    target = store.read()['target']
+    if target is None:
+        parser.error('register this pull request before running')
+    remote = target.get('session_remote')
+    delivery = getattr(args, 'delivery', None) or ('session' if remote else 'stdout')
+    if remote and delivery != 'session':
+        parser.error('a bound session must use its owning endpoint, not stdout delivery')
+    if delivery == 'session':
+        if not remote:
+            parser.error('register --session-remote before using session delivery')
+        route = owner / 'session-route.json'
+        if not route.exists() or json.loads(route.read_text()) != dict(session=args.session, remote=remote):
+            parser.error('session owner binding is missing or changed; refusing delivery')
+    store.runtime = Runtime(args.session, store.runtime.script, delivery, remote)
+
+
 def main():
     parser = argparse.ArgumentParser(description='One named PR author feedback listener per pull request, delivered to a Claude Code session through stdout')
     parser.add_argument('--session', required=True)
@@ -159,26 +176,15 @@ def main():
     elif args.command == 'reopen':
         store.reopen()
     elif args.command == 'ack':
+        if (store.read()['target'] or {}).get('terminal'):
+            configure_delivery(store, owner, args, parser)
         store.acknowledge(args.token)
     elif args.command == 'claim':
         print(store.claim(args.events))
     else:
         if args.interval < 10:
             parser.error('interval must be at least 10 seconds')
-        target = store.read()['target']
-        if target is None:
-            parser.error('register this pull request before running')
-        remote = target.get('session_remote')
-        delivery = args.delivery or ('session' if remote else 'stdout')
-        if remote and delivery != 'session':
-            parser.error('a bound session must use its owning endpoint, not stdout delivery')
-        if delivery == 'session':
-            if not remote:
-                parser.error('register --session-remote before using session delivery')
-            route = owner / 'session-route.json'
-            if not route.exists() or json.loads(route.read_text()) != dict(session=args.session, remote=remote):
-                parser.error('session owner binding is missing or changed; refusing delivery')
-        store.runtime = Runtime(args.session, __file__, delivery, remote)
+        configure_delivery(store, owner, args, parser)
         core.run(store, args.interval, args.once)
 
 

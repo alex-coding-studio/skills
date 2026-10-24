@@ -64,7 +64,7 @@ After the author verifies its own merge, or processes a merged notification, inv
 python3 <monitor>/scripts/codex_pr_monitor.py --thread <uuid> --pr 'owner/repo#123' complete
 ```
 
-Run from outside the owned checkout. Completion freshly verifies PR identity, the merged head and default branch, then uses the [disposable lifecycle](../../../references/worktree-lifecycle.md) for a disposable registration. All remaining task files are discarded; primary default changes are overwritten by the fetched commit. Synchronization and disposal have separate receipts, and repeating completion retries a partial or interrupted disposable operation. Disposable cleanup does not wait for a feedback acknowledgement, but the listener retains the active batch and does not settle until its exact acknowledgement. Legacy registrations retain their existing foreground and preservation behavior. See [feedback and completion](feedback-and-completion.md).
+Run from outside the owned checkout. Completion freshly verifies PR identity, the merged head and default branch, then uses the [disposable lifecycle](../../../references/worktree-lifecycle.md) for a disposable registration. All remaining task files are discarded; primary default changes are overwritten by the fetched commit. Synchronization and disposal have separate receipts, and repeating completion retries a partial or interrupted disposable operation. Disposable cleanup does not wait for a feedback acknowledgement, but the event ledger retains the active batch until its exact acknowledgement; the listener can exit after delivery. Legacy registrations retain their existing foreground and preservation behavior. See [feedback and completion](feedback-and-completion.md).
 
 ## Existing ledgers and messages
 
@@ -91,3 +91,9 @@ python3 <monitor>/scripts/reply.py owner/repo 123 \
 ```
 
 Use the project's per-command identity selector and never change global accounts to satisfy the helper. A failed identity check is not permission to post under another account. Reply publication does not serve as a transport acknowledgement or authorize merge.
+
+## Terminal polling boundary
+
+After a verified merge or closure, receipt handling uses the saved event ledger instead of fetching another GitHub snapshot. Automatic cleanup retries still require fresh remote evidence; partial, interrupted or error cleanup results keep their existing protection. A completed or preserved cleanup result does not require another snapshot merely to wait for an acknowledgement.
+
+Once final pending events have been accepted for delivery, the listener exits even when the batch has not yet been acknowledged. The batch token and pending events remain unchanged. A terminal acknowledgement immediately attempts delivery of the next saved batch, so draining does not require a running listener. Failed delivery retains pending events for retry; restart the same listener to retry without refetching a completed PR. Explicit `reopen` is required to resume watching a terminal PR that has been reopened.

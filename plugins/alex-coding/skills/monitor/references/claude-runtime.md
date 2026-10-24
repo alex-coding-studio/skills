@@ -79,9 +79,9 @@ A restart preserves delivered claims, so it does not reprint unacknowledged work
 
 ## Terminal handling
 
-Closed-unmerged targets are preserved. They stop only after the terminal feedback batch is acknowledged and a final successful snapshot has no unhandled events. Other PRs have their own listeners and are unaffected. A reopened PR requires an explicit `reopen` and a running listener; old event history stays intact.
+Closed-unmerged targets are preserved. Their listener stops after the terminal feedback is accepted for delivery, retaining unacknowledged events in the ledger. Other PRs have their own listeners and are unaffected. A reopened PR requires an explicit `reopen` and a running listener; old event history stays intact.
 
-For merged targets, newly registered linked worktrees use the [disposable lifecycle](../../../references/worktree-lifecycle.md) through the shared completion helper. The listener synchronizes the default checkout and force-removes the task worktree independently, without waiting for a feedback acknowledgement. Existing delivered claims are retained verbatim and still require their real acknowledgement before listener settlement; disposal never marks their feedback handled. Residual files and process cwd do not veto removal. Partial/interrupted disposable operations retry without a model call; successful completion settles and stops only this PR. Legacy registrations retain their original conservative synchronization/removal rules and one-attempt exception handling. Never silently migrate ownership or acknowledgement state.
+For merged targets, newly registered linked worktrees use the [disposable lifecycle](../../../references/worktree-lifecycle.md) through the shared completion helper. The listener synchronizes the default checkout and force-removes the task worktree independently, without waiting for a feedback acknowledgement. Existing delivered claims are retained verbatim and still require their real acknowledgement before ledger settlement; disposal never marks their feedback handled. The listener can exit before that acknowledgement. Residual files and process cwd do not veto removal. Partial/interrupted disposable operations retry without a model call; successful completion settles and stops only this PR. Legacy registrations retain their original conservative synchronization/removal rules and one-attempt exception handling. Never silently migrate ownership or acknowledgement state.
 
 The process exits once its PR is stopped and no batch remains, which ends that `Monitor` watch and leaves every other PR's listener running. To stop earlier, use `TaskStop` on that exact monitor task; never use a user-wide process kill and never delete its event ledger. Resume with the same session and PR identity and state path.
 
@@ -113,3 +113,9 @@ It reads the registered identity and fresh PR state, rejects a non-merged PR (an
 ## Validation
 
 Run `python3 -m unittest discover -s tests -p test_author_adapters.py -v` from the public skills repository.
+
+## Terminal polling boundary
+
+After a verified merge or closure, receipt handling uses the saved event ledger instead of fetching another GitHub snapshot. Automatic cleanup retries still require fresh remote evidence; partial, interrupted or error cleanup results keep their existing protection. A completed or preserved cleanup result does not require another snapshot merely to wait for an acknowledgement.
+
+Once final pending events have been accepted for delivery, the listener exits even when the batch has not yet been acknowledged. The batch token and pending events remain unchanged. A terminal acknowledgement immediately attempts delivery of the next saved batch, so draining does not require a running listener. Failed delivery retains pending events for retry; restart the same listener to retry without refetching a completed PR. Explicit `reopen` is required to resume watching a terminal PR that has been reopened.
