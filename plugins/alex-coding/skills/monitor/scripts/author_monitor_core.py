@@ -324,6 +324,9 @@ class Store:
                 target['events'][key]['status'] = 'handled'
             data['batch'] = None
             self._stop_when_settled(target)
+            terminal = target['terminal']
+        if terminal:
+            self.deliver()
 
     def claim(self, keys):
         with self.locked() as data:
@@ -397,13 +400,29 @@ def note(root, message):
         log.write(time.strftime('%Y-%m-%dT%H:%M:%S%z ') + message + '\n')
 
 
+def needs_snapshot(store, current):
+    target = current['target']
+    return not target['terminal'] or retryable_cleanup(target) or (
+        target['terminal'] == 'merged' and target.get('cleanup_result') is None
+        and store.runtime.may_clean(target)
+        and (current['batch'] is None or disposable_target(target)))
+
+
+def runner_done(store, current):
+    target = current['target']
+    return bool(target and target['terminal'] and not needs_snapshot(store, current)
+                and (target.get('cleanup_result') or {}).get('status') not in ('partial', 'interrupted', 'error')
+                and (current['batch'] is not None
+                     or all(e['status'] in ('handled', 'settled') for e in target['events'].values())))
+
+
 def poll(store):
     failures = []
     current = store.read()
     target = current['target']
     if target is None:
         raise ValueError('register this pull request before running')
-    if not target['stopped']:
+    if not target['stopped'] and needs_snapshot(store, current):
         try:
             store.apply(snapshot(target, store.role))
         except Exception as error:
@@ -414,7 +433,7 @@ def poll(store):
         failures.append(f'{store.name}: delivery failed ({type(error).__name__}); retry without acknowledging')
     store.runtime.report(store.root, failures)
     final = store.read()
-    return bool(final['target']) and final['target']['stopped'] and final['batch'] is None
+    return runner_done(store, final)
 
 
 @contextmanager
@@ -453,8 +472,8 @@ def run(store, interval, once=False):
                 break
             if done:
                 with store.locked() as current:
-                    if current['target'] and current['target']['stopped'] and current['batch'] is None:
-                        print(f'{store.name} reached a terminal state; the monitor stops.', flush=True)
+                    if runner_done(store, current):
+                        print(f'{store.name} reached a terminal state; the monitor stops with pending receipts preserved.', flush=True)
                         (store.root / 'run.pid').unlink(missing_ok=True)
                         fcntl.flock(runner, fcntl.LOCK_UN)
                         break

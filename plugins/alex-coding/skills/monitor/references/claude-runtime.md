@@ -113,3 +113,9 @@ It reads the registered identity and fresh PR state, rejects a non-merged PR (an
 ## Validation
 
 Run `python3 -m unittest discover -s tests -p test_author_adapters.py -v` from the public skills repository.
+
+## Terminal polling boundary
+
+After a verified merge or closure, receipt handling uses the saved event ledger instead of fetching another GitHub snapshot. Automatic cleanup retries still require fresh remote evidence; partial, interrupted or error cleanup results keep their existing protection. A completed or preserved cleanup result does not require another snapshot merely to wait for an acknowledgement.
+
+Once final pending events have been accepted for delivery, the listener exits even when the batch has not yet been acknowledged. The batch token and pending events remain unchanged. A terminal acknowledgement immediately attempts delivery of the next saved batch, so draining does not require a running listener. Failed delivery retains pending events for retry; restart the same listener to retry without refetching a completed PR. Explicit `reopen` is required to resume watching a terminal PR that has been reopened.

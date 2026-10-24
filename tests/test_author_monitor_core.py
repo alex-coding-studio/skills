@@ -71,6 +71,37 @@ def enrol(subject, checkout=None):
 
 
 class DecisionTests(unittest.TestCase):
+    def test_terminal_poll_does_not_fetch_while_waiting_for_receipt(self):
+        with store() as subject:
+            enrol(subject).apply(result(notice(1), ending('closed'), terminal='closed'))
+            subject.deliver()
+            before = subject.read()['batch']
+            with patch.object(core, 'snapshot') as snapshot:
+                self.assertTrue(core.poll(subject))
+            snapshot.assert_not_called()
+            self.assertEqual(subject.read()['batch'], before)
+
+    def test_terminal_delivery_retries_without_fetching(self):
+        runtime = FakeRuntime(accept=False)
+        with store(runtime=runtime) as subject:
+            enrol(subject).apply(result(ending('closed'), terminal='closed'))
+            with patch.object(core, 'snapshot') as snapshot:
+                self.assertFalse(core.poll(subject))
+                runtime.accept = True
+                self.assertTrue(core.poll(subject))
+            snapshot.assert_not_called()
+
+    def test_terminal_ack_delivers_the_next_preserved_batch(self):
+        with store() as subject:
+            enrol(subject).apply(result(notice(1)))
+            subject.deliver()
+            token = subject.read()['batch']['token']
+            subject.apply(result(notice(1), notice(2), ending('closed'), terminal='closed'))
+            subject.acknowledge(token)
+            self.assertIsNotNone(subject.read()['batch'])
+            self.assertNotEqual(subject.read()['batch']['token'], token)
+            self.assertEqual(len(subject.runtime.delivered), 2)
+
     def test_a_acknowledging_the_last_terminal_event_stops_the_monitor(self):
         with store() as subject:
             enrol(subject).apply(result(notice(1), ending('closed'), terminal='closed'))
@@ -430,10 +461,10 @@ class QueuedCompletionDrainTests(unittest.TestCase):
             self.assertNotIn('run the protected foreground completion', runtime.delivered[0])
             subject.acknowledge(subject.read()['batch']['token'])
             with patch.object(core, 'snapshot', return_value=current), patch.object(core, 'cleanup_target') as cleanup:
-                outcome = subject.complete()
-            self.assertEqual(outcome['status'], 'pending-feedback')
+                with self.assertRaises(ValueError):
+                    subject.complete()
             cleanup.assert_not_called()
-            self.assertTrue(subject.deliver())
+            self.assertFalse(subject.deliver())
             self.assertIn('run the protected foreground completion', runtime.delivered[-1])
 
     def test_MQ_02_new_feedback_found_at_completion_is_retained(self):

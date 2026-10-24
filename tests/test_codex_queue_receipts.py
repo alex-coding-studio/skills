@@ -99,42 +99,24 @@ class QueueReceiptTests(unittest.TestCase):
             self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'pending')
             self.assertFalse(subject.read()['target']['stopped'])
 
-    def test_runner_stays_alive_until_cleanup_and_queued_feedback_are_settled(self):
+    def test_runner_exits_after_cleanup_without_erasing_the_queued_receipt(self):
         runtime = codex.Runtime(THREAD, '/monitor.py')
-        partial = {'status': 'partial', 'retryable': False}
         with store(runtime=runtime) as subject:
             self.disposable_store(subject)
-            snapshots = [result(ending(), terminal='merged'),
-                         result(notice(1), ending(), terminal='merged'),
-                         result(notice(1), ending(), terminal='merged'),
-                         result(notice(1), ending(), terminal='merged')]
-            cycles = 0
-
-            def recover_then_ack(_):
-                nonlocal cycles
-                cycles += 1
-                if cycles == 1:
-                    self.assertFalse(subject.read()['target']['stopped'])
-                    self.assertEqual(subject.complete()['status'], 'cleaned')
-                elif cycles in (2, 3):
-                    subject.acknowledge(subject.read()['batch']['token'])
-                else:
-                    self.fail('runner did not settle after acknowledgement')
-
             previous = os.getcwd()
             try:
                 with patch.object(core, 'gh_command', return_value=['gh']), \
-                     patch.object(core, 'snapshot', side_effect=snapshots), \
-                     patch.object(core, 'cleanup_target', side_effect=[partial, {'status': 'cleaned'}]), \
-                     patch.object(core.time, 'sleep', side_effect=recover_then_ack), \
-                     patch.object(runtime, 'deliver', return_value=True) as deliver:
+                     patch.object(core, 'snapshot', return_value=result(notice(1), ending(), terminal='merged')) as snapshot, \
+                     patch.object(core, 'cleanup_target', return_value={'status': 'cleaned'}), \
+                     patch.object(core.time, 'sleep') as sleep, \
+                     patch.object(runtime, 'deliver', return_value=True):
                     core.run(subject, 0, False)
             finally:
                 os.chdir(previous)
-            self.assertEqual(cycles, 3)
-            self.assertEqual(deliver.call_count, 2)
-            self.assertTrue(subject.read()['target']['stopped'])
-            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'handled')
+            snapshot.assert_called_once()
+            sleep.assert_not_called()
+            self.assertIsNotNone(subject.read()['batch'])
+            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'delivered')
             self.assertFalse((subject.root / 'run.pid').exists())
 
     def test_disposal_does_not_wait_for_or_erase_a_claude_feedback_claim(self):
@@ -270,7 +252,7 @@ class QueueReceiptTests(unittest.TestCase):
             self.assertFalse(subject.read()['target']['stopped'])
             self.assertFalse(subject.deliver())
             subject.acknowledge(subject.read()['batch']['token'])
-            self.assertTrue(subject.deliver())
+            self.assertFalse(subject.deliver())
             subject.acknowledge(subject.read()['batch']['token'])
             self.assertTrue(subject.read()['target']['stopped'])
             self.assertEqual(len(runtime.delivered), 2)
