@@ -400,19 +400,23 @@ def note(root, message):
         log.write(time.strftime('%Y-%m-%dT%H:%M:%S%z ') + message + '\n')
 
 
+def awaiting_cleanup(store, current):
+    target = current['target']
+    return (target['terminal'] == 'merged' or (target['terminal'] == 'closed' and target.get('pool_slot'))) \
+        and target.get('cleanup_result') is None and store.runtime.may_clean(target)
+
+
 def needs_snapshot(store, current):
     target = current['target']
     return not target['terminal'] or retryable_cleanup(target) or (
-        target['terminal'] == 'merged' and target.get('cleanup_result') is None
-        and store.runtime.may_clean(target)
+        awaiting_cleanup(store, current)
         and (current['batch'] is None or disposable_target(target)))
 
 
 def runner_done(store, current):
     target = current['target']
     return bool(target and target['terminal'] and not needs_snapshot(store, current)
-                and not (target['terminal'] == 'merged' and target.get('cleanup_result') is None
-                         and store.runtime.may_clean(target))
+                and not awaiting_cleanup(store, current)
                 and (target.get('cleanup_result') or {}).get('status') not in ('partial', 'interrupted', 'error')
                 and (current['batch'] is not None
                      or all(e['status'] in ('handled', 'settled') for e in target['events'].values())))
