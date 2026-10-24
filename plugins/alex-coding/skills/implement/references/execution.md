@@ -18,6 +18,8 @@ A PR may add no tests. Before adding one, identify the plausible defect, its use
 
 Reuse or strengthen an existing scenario first. Add the smallest independent behavior check for an uncovered concrete regression or meaningful risk, such as nontrivial decisions, transformations, state transitions, failure recovery, persistence, security or concurrency. Do not waive validation at trust boundaries or protection against data loss merely to reduce tests. Simple property assignments, constant/default restatements, transparent forwarding and unchanged code moves normally need no new runtime tests; compiler checks and inspection can suffice. Exercise multiple types or inputs only when they expose distinct failure mechanisms, not merely because the API accepts them. Assert observable outcomes rather than copying the implementation's steps or deriving expectations through the same logic.
 
+Do not assert exact frames, sizes, insets, spacing, corner radii, colors, fonts or design-token values; physical-device acceptance owns visual values. Add a layout test only for an observed layout defect, asserting the relationship that failed, such as overlap, clipping, truncation or leaving the safe area. When a change breaks an existing test that only restates a value or the implementation, delete that test instead of updating its expectation.
+
 ## Test and implement
 
 For a justified new unit test, prefer writing meaningful scenario assertions and recording their natural failure before the smallest implementation change, then return Green. Existing correct behavior can begin Green. Never retroactively manufacture Red if implementation already exists; report the observed starting state honestly. Avoid duplicate tests merely to create another numbered artifact.
