@@ -326,7 +326,7 @@ class Store:
             self._stop_when_settled(target)
             terminal = target['terminal']
         if terminal:
-            self.deliver()
+            poll(self)
 
     def claim(self, keys):
         with self.locked() as data:
@@ -411,6 +411,8 @@ def needs_snapshot(store, current):
 def runner_done(store, current):
     target = current['target']
     return bool(target and target['terminal'] and not needs_snapshot(store, current)
+                and not (target['terminal'] == 'merged' and target.get('cleanup_result') is None
+                         and store.runtime.may_clean(target))
                 and (target.get('cleanup_result') or {}).get('status') not in ('partial', 'interrupted', 'error')
                 and (current['batch'] is not None
                      or all(e['status'] in ('handled', 'settled') for e in target['events'].values())))

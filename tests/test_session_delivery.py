@@ -55,6 +55,41 @@ def owning_endpoint(reply):
 
 
 class SessionDeliveryTests(unittest.TestCase):
+    def test_terminal_ack_restores_bound_delivery_in_a_new_cli_runtime(self):
+        for module, identity, flag, env_key in [
+            (monitor, THREAD, '--thread', 'CODEX_HOME'),
+            (claude, SESSION, '--session', 'CLAUDE_CONFIG_DIR'),
+        ]:
+            with self.subTest(runtime=module.__name__), tempfile.TemporaryDirectory() as directory:
+                owner = Path(directory) / 'state' / 'author-pr-monitor' / identity
+                runtime = module.Runtime(identity, '/m.py')
+                subject = module.core.Store(owner / 'pr', identity, 'owner/repo#1', runtime)
+                with subject.locked() as data:
+                    data['target'] = dict(repository='owner/repo', number=1, author='bot',
+                        stopped=False, terminal='merged', cleanup_result={'status': 'cleaned'},
+                        events={'first': dict(status='delivered', kind='review', id=1, url='https://example/1'),
+                                'second': dict(status='pending', kind='review', id=2, url='https://example/2')})
+                remote = 'unix:///tmp/owner.sock'
+                module.bind_session_route(subject, owner, remote)
+                with subject.locked() as data:
+                    data['batch'] = dict(token='first-token', events=['first'])
+                argv = ['m.py', flag, identity, '--pr', 'owner/repo#1', '--state-dir', str(subject.root),
+                        'ack', '--token', 'first-token']
+                with patch.dict(module.os.environ, {env_key: directory}), patch.object(sys, 'argv', argv), \
+                     patch.object(module.core, 'snapshot', side_effect=AssertionError('remote fetched')):
+                    if module is monitor:
+                        with patch.object(module.shutil, 'which', return_value='/codex'), \
+                             patch.object(module.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '--remote')) as run:
+                            module.main()
+                        command = run.call_args.args[0]
+                        self.assertEqual(command[:7], ['/codex', 'queue', '--remote', remote, '--thread', THREAD, '--message'])
+                    else:
+                        with patch.object(module, 'deliver_to_session', return_value=True) as deliver:
+                            module.main()
+                        self.assertEqual(deliver.call_args.args[0], remote)
+                self.assertEqual(subject.read()['target']['events']['first']['status'], 'handled')
+                self.assertEqual(subject.read()['batch']['events'], ['second'])
+
     def test_SESSION_05_bound_startup_selects_session_and_refuses_desktop_override(self):
         with tempfile.TemporaryDirectory() as directory:
             owner = Path(directory) / 'state' / 'author-pr-monitor' / THREAD

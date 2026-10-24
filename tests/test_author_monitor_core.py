@@ -71,6 +71,23 @@ def enrol(subject, checkout=None):
 
 
 class DecisionTests(unittest.TestCase):
+    def test_legacy_cleanup_waits_locally_then_resumes_after_terminal_ack(self):
+        with store() as subject:
+            enrol(subject, checkout='/legacy').apply(result(notice(1)))
+            subject.deliver()
+            token = subject.read()['batch']['token']
+            subject.apply(result(notice(1), ending(), terminal='merged'))
+            with patch.object(core, 'snapshot') as snapshot:
+                self.assertFalse(core.poll(subject))
+            snapshot.assert_not_called()
+            with patch.object(core, 'snapshot', return_value=result(notice(1), ending(), terminal='merged')) as snapshot, \
+                 patch.object(core, 'cleanup_target', return_value={'status': 'cleaned'}) as cleanup:
+                subject.acknowledge(token)
+            snapshot.assert_called_once()
+            cleanup.assert_called_once()
+            self.assertEqual(subject.read()['target']['cleanup_result']['status'], 'cleaned')
+            self.assertTrue(subject.read()['target']['stopped'])
+
     def test_terminal_poll_does_not_fetch_while_waiting_for_receipt(self):
         with store() as subject:
             enrol(subject).apply(result(notice(1), ending('closed'), terminal='closed'))

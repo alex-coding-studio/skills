@@ -136,6 +136,35 @@ def migrate_legacy(store, source):
                 data['target'] = target
 
 
+def configure_delivery(store, owner, args, parser):
+    target = store.read()['target']
+    executable = getattr(args, 'codex', None) or (target or {}).get('codex_executable') or 'codex'
+    runtime = store.runtime
+    runtime.executable = shutil.which(executable)
+    if not runtime.executable or getattr(args, 'interval', 10) < 10:
+        parser.error('verified Codex executable and interval >= 10 seconds required')
+    target = store.read()['target']
+    if target is None:
+        parser.error('register or migrate this PR before starting its runner')
+    remote = target.get('session_remote')
+    delivery = getattr(args, 'delivery', None) or ('session' if remote else 'queued')
+    if remote and delivery != 'session':
+        parser.error('a bound session must use its owning endpoint, not desktop delivery')
+    if delivery == 'session':
+        if not remote:
+            parser.error('register --session-remote before using session delivery')
+        route = owner / 'session-route.json'
+        if not route.exists() or json.loads(route.read_text()) != dict(thread=args.thread, remote=remote):
+            parser.error('session owner binding is missing or changed; refusing delivery')
+    runtime = Runtime(args.thread, __file__, runtime.executable, delivery, remote)
+    store.runtime = runtime
+    capability = subprocess.run([runtime.executable, 'queue', '--help'], capture_output=True, text=True, timeout=10, check=True)
+    if delivery == 'session' and '--remote' not in capability.stdout:
+        parser.error('this Codex executable does not support session queue --remote')
+    with store.locked() as data:
+        data['target']['codex_executable'] = runtime.executable
+
+
 def main():
     parser = argparse.ArgumentParser(description='One named PR author feedback listener per pull request, delivered to an existing Codex task')
     parser.add_argument('--thread', required=True)
@@ -193,31 +222,13 @@ def main():
     elif args.command == 'reopen':
         store.reopen()
     elif args.command == 'ack':
+        if (store.read()['target'] or {}).get('terminal'):
+            configure_delivery(store, legacy, args, parser)
         store.acknowledge(args.token)
     elif args.command == 'claim':
         print(store.claim(args.events))
     else:
-        runtime.executable = shutil.which(args.codex)
-        if not runtime.executable or args.interval < 10:
-            parser.error('verified Codex executable and interval >= 10 seconds required')
-        target = store.read()['target']
-        if target is None:
-            parser.error('register or migrate this PR before starting its runner')
-        remote = target.get('session_remote')
-        delivery = args.delivery or ('session' if remote else 'queued')
-        if remote and delivery != 'session':
-            parser.error('a bound session must use its owning endpoint, not desktop delivery')
-        if delivery == 'session':
-            if not remote:
-                parser.error('register --session-remote before using session delivery')
-            route = legacy / 'session-route.json'
-            if not route.exists() or json.loads(route.read_text()) != dict(thread=args.thread, remote=remote):
-                parser.error('session owner binding is missing or changed; refusing delivery')
-        runtime = Runtime(args.thread, __file__, runtime.executable, delivery, remote)
-        store.runtime = runtime
-        capability = subprocess.run([runtime.executable, 'queue', '--help'], capture_output=True, text=True, timeout=10, check=True)
-        if delivery == 'session' and '--remote' not in capability.stdout:
-            parser.error('this Codex executable does not support session queue --remote')
+        configure_delivery(store, legacy, args, parser)
         core.run(store, args.interval, args.once)
 
 
