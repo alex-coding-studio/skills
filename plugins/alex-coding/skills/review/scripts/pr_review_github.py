@@ -174,6 +174,4 @@ class GitHub:
             review = self.post(f'{self.base}/pulls/{self.number}/reviews',
                                {'commit_id': record['head'], 'event': event, 'body': body, 'comments': comments},
                                state, pending['snapshot'])
-        if record['phase'] == 'needs-user-attention' and not any(row['kind'] == 'conversation' for row in matches):
-            self.post(f'{self.base}/issues/{self.number}/comments', {'body': body}, state, pending['snapshot'])
         return review['html_url']

@@ -292,7 +292,7 @@ class PublicationTests(unittest.TestCase):
         self.assertIsNone(core.next_event(state, snapshot([failed, {**status, 'state': 'PENDING'}])))
         self.assertEqual(core.next_event(state, snapshot([failed, {**status, 'state': 'SUCCESS'}])), 'ci')
 
-    def test_PRL_04_recovery_finds_posted_review_and_only_posts_missing_handoff(self):
+    def test_PRL_04_recovery_reuses_posted_attention_review_without_reposting(self):
         state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
         state['rounds'] = 2
         pending = runner.make_pending(state, current(), result('changes-requested'), 'batch')
@@ -301,8 +301,7 @@ class PublicationTests(unittest.TestCase):
         github = remote.GitHub('owner/repo#1', 'reviewer')
         with patch.object(github, 'history', return_value=[existing]), patch.object(github, 'post') as post:
             self.assertEqual(github.publish(state, pending), 'review-url')
-        self.assertEqual(post.call_count, 1)
-        self.assertTrue(post.call_args.args[0].endswith('/issues/1/comments'))
+        post.assert_not_called()
 
     def test_PRL_04_identity_or_permission_failure_prevents_publication(self):
         github = remote.GitHub('owner/repo#1', 'reviewer')
