@@ -317,8 +317,10 @@ class Store:
     def acknowledge(self, token):
         with self.locked() as data:
             batch = data['batch']
+            if not batch and (data.get('attempt') or {}).get('token') == token:
+                batch, data['attempt'] = data['attempt'], None
             if not batch or batch['token'] != token:
-                raise ValueError('stale or unknown batch token')
+                raise ValueError('stale or unknown batch token; a repeated delivery of an acknowledged batch needs no action')
             target = self.require(data)
             for key in batch['events']:
                 target['events'][key]['status'] = 'handled'
@@ -380,17 +382,30 @@ class Store:
             if target['stopped'] or (target['terminal'] == 'merged' and target.get('cleanup_result') is None
                                      and not getattr(self.runtime, 'foreground_cleanup', False)):
                 return False
-            pending = [k for k, e in target['events'].items()
-                       if e['status'] == 'pending' and not (e['kind'] == 'terminal' and retryable_cleanup(target))][:BATCH_LIMIT]
-            if not pending:
+            attempt = data.get('attempt')
+            if attempt and all((target['events'].get(k) or {}).get('status') == 'pending' for k in attempt['events']):
+                pending, token = attempt['events'], attempt['token']
+            else:
+                pending = [k for k, e in target['events'].items()
+                           if e['status'] == 'pending' and not (e['kind'] == 'terminal' and retryable_cleanup(target))][:BATCH_LIMIT]
+                if not pending:
+                    return False
+                token = uuid.uuid4().hex
+                data['attempt'] = dict(token=token, events=pending)
+                if getattr(self.runtime, 'foreground_cleanup', False):
+                    target['foreground_cleanup'] = True
+                self.persist(data)
+            try:
+                accepted = self.runtime.deliver(self.build_message(target, pending, token))
+            except Exception as error:
+                note(self.root, f'{self.name}: delivery token={token} events={len(pending)} uncertain ({type(error).__name__})')
+                raise
+            if not accepted:
                 return False
-            token = uuid.uuid4().hex
-            if not self.runtime.deliver(self.build_message(target, pending, token)):
-                return False
-            if getattr(self.runtime, 'foreground_cleanup', False):
-                target['foreground_cleanup'] = True
+            note(self.root, f'{self.name}: delivery token={token} events={len(pending)} accepted')
             for key in pending:
                 target['events'][key]['status'] = 'delivered'
+            data['attempt'] = None
             data['batch'] = dict(token=token, events=pending, delivery=self.runtime.delivery_name)
             return True
 

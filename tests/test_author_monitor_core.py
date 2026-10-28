@@ -465,6 +465,32 @@ class ForegroundCompletionTests(unittest.TestCase):
             self.assertFalse(subject.deliver())
             self.assertEqual(len(runtime.delivered), 1)
 
+    def test_retry_after_an_uncertain_queue_call_reuses_the_token(self):
+        runtime = FakeRuntime()
+        with store(runtime=runtime) as subject:
+            enrol(subject).apply(result(notice(1)))
+            with patch.object(runtime, 'deliver', side_effect=TimeoutError('queue timed out')) as first:
+                with self.assertRaises(TimeoutError):
+                    subject.deliver()
+            token = first.call_args[0][0].split('--token ', 1)[1].split()[0]
+            subject.apply(result(notice(1), notice(2)))
+            self.assertTrue(subject.deliver())
+            self.assertIn('--token ' + token, runtime.delivered[0])
+            self.assertEqual(subject.read()['batch']['events'], [notice(1)['key']])
+            self.assertIn('token=' + token, (subject.root / 'monitor.log').read_text())
+
+    def test_acknowledging_an_uncertain_delivery_stops_its_retry(self):
+        runtime = FakeRuntime()
+        with store(runtime=runtime) as subject:
+            enrol(subject).apply(result(notice(1)))
+            with patch.object(runtime, 'deliver', side_effect=TimeoutError('queue timed out')):
+                with self.assertRaises(TimeoutError):
+                    subject.deliver()
+            subject.acknowledge(subject.read()['attempt']['token'])
+            self.assertFalse(subject.deliver())
+            self.assertEqual(runtime.delivered, [])
+            self.assertEqual(next(iter(subject.read()['target']['events'].values()))['status'], 'handled')
+
 
 class QueuedCompletionDrainTests(unittest.TestCase):
     def test_MQ_02_completion_waits_for_all_pending_feedback(self):
@@ -497,3 +523,17 @@ class QueuedCompletionDrainTests(unittest.TestCase):
             cleanup.assert_not_called()
             self.assertFalse(subject.read()['target']['stopped'])
             self.assertTrue(subject.deliver())
+
+    def test_new_feedback_at_completion_is_retained_after_acknowledging_an_uncertain_delivery(self):
+        runtime = FakeRuntime(clean=False)
+        runtime.foreground_cleanup = True
+        with store(runtime=runtime) as subject:
+            enrol(subject, checkout='/work').apply(result(ending(), terminal='merged'))
+            with patch.object(runtime, 'deliver', side_effect=TimeoutError('queue timed out')):
+                with self.assertRaises(TimeoutError):
+                    subject.deliver()
+            subject.acknowledge(subject.read()['attempt']['token'])
+            with patch.object(core, 'snapshot', return_value=result(ending(), notice(9), terminal='merged')), \
+                 patch.object(core, 'cleanup_target') as cleanup:
+                self.assertEqual(subject.complete()['status'], 'pending-feedback')
+            cleanup.assert_not_called()

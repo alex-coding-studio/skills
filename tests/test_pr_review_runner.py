@@ -146,6 +146,15 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertIn('continuation.patch', prompt)
         self.assertIn('current.patch', prompt)
 
+    def test_continuation_prompt_names_the_event_instead_of_repeating_instructions(self):
+        worker = (Path(runner.__file__).resolve().parents[1] / 'references/worker.md').read_text()
+        self.assertIn(worker, runner.prompt_for(self.root, self.state, current(), 'head'))
+        self.state.update(session='existing', head='a' * 40, base='b' * 40)
+        prompt = runner.prompt_for(self.root, self.state, current(ci='fail'), 'ci')
+        self.assertNotIn(worker, prompt)
+        self.assertIn('`ci` event', prompt)
+        self.assertIn('context.json', prompt)
+
     def test_base_change_uses_full_patch_on_continuation(self):
         self.state.update(session='existing', head='a' * 40, base='d' * 40)
         prompt = runner.prompt_for(self.root, self.state, current(head='c' * 40), 'head')
