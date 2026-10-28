@@ -392,6 +392,8 @@ class Store:
                     return False
                 token = uuid.uuid4().hex
                 data['attempt'] = dict(token=token, events=pending)
+                if getattr(self.runtime, 'foreground_cleanup', False):
+                    target['foreground_cleanup'] = True
                 self.persist(data)
             try:
                 accepted = self.runtime.deliver(self.build_message(target, pending, token))
@@ -401,8 +403,6 @@ class Store:
             if not accepted:
                 return False
             note(self.root, f'{self.name}: delivery token={token} events={len(pending)} accepted')
-            if getattr(self.runtime, 'foreground_cleanup', False):
-                target['foreground_cleanup'] = True
             for key in pending:
                 target['events'][key]['status'] = 'delivered'
             data['attempt'] = None

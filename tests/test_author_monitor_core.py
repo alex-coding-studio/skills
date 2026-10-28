@@ -523,3 +523,17 @@ class QueuedCompletionDrainTests(unittest.TestCase):
             cleanup.assert_not_called()
             self.assertFalse(subject.read()['target']['stopped'])
             self.assertTrue(subject.deliver())
+
+    def test_new_feedback_at_completion_is_retained_after_acknowledging_an_uncertain_delivery(self):
+        runtime = FakeRuntime(clean=False)
+        runtime.foreground_cleanup = True
+        with store(runtime=runtime) as subject:
+            enrol(subject, checkout='/work').apply(result(ending(), terminal='merged'))
+            with patch.object(runtime, 'deliver', side_effect=TimeoutError('queue timed out')):
+                with self.assertRaises(TimeoutError):
+                    subject.deliver()
+            subject.acknowledge(subject.read()['attempt']['token'])
+            with patch.object(core, 'snapshot', return_value=result(ending(), notice(9), terminal='merged')), \
+                 patch.object(core, 'cleanup_target') as cleanup:
+                self.assertEqual(subject.complete()['status'], 'pending-feedback')
+            cleanup.assert_not_called()
