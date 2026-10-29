@@ -10,7 +10,7 @@ After committed, pushed changes, passing unchanged repository gates and any requ
 python3 <implement>/scripts/delivery.py open --runtime codex --session <existing-task-uuid> \
   --repository owner/repo --checkout <owned-checkout> --title 'Concrete outcome' \
   --body-file <pr-body> --acceptance-file <accepted-scope> --reviewer <verified-admin-login> \
-  --complexity medium --max-rounds 2
+  --complexity medium --max-rounds 3
 ```
 
 `open` verifies the bot writer/push permission and committed remote work-branch head, creates a ready PR targeting the remote default, or reuses the matching existing bot-authored PR. If a write response is uncertain, reconcile the remote PR before retrying. `start` takes `--pr owner/repo#123` instead of repository/title/body and attaches to an already opened PR. Both register the owned checkout, reuse a verified monitor and start/reuse the exact independent reviewer. Pass the project's actual review-round limit.
