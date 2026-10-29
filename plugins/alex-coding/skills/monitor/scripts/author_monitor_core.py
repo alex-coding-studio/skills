@@ -14,6 +14,7 @@ import time
 import uuid
 
 BATCH_LIMIT = 40
+ACKNOWLEDGED_LIMIT = 50
 ROLE_TOOL = "gh_as"
 SCHEMA = 2
 
@@ -316,6 +317,8 @@ class Store:
 
     def acknowledge(self, token):
         with self.locked() as data:
+            if token in data.get('acknowledged', []):
+                return 'batch already acknowledged; this repeated notification needs no action'
             batch = data['batch']
             if not batch and (data.get('attempt') or {}).get('token') == token:
                 batch, data['attempt'] = data['attempt'], None
@@ -325,10 +328,12 @@ class Store:
             for key in batch['events']:
                 target['events'][key]['status'] = 'handled'
             data['batch'] = None
+            data['acknowledged'] = (data.get('acknowledged', []) + [token])[-ACKNOWLEDGED_LIMIT:]
             self._stop_when_settled(target)
             terminal = target['terminal']
         if terminal:
             poll(self)
+        return 'acknowledged'
 
     def claim(self, keys):
         with self.locked() as data:

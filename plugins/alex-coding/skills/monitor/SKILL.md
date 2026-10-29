@@ -22,6 +22,10 @@ Bind GitHub's real PR author as the fixed source identity. For task-created PRs,
 
 Use the runtime's startup procedure and verify the stored target, process and log before reporting a running listener. Report queue acceptance when submission succeeds, without claiming the Agent already processed the events. Starting Codex monitoring does not require an Agent receipt or a busy/idle snapshot; handling an accepted batch still requires its exact acknowledgement.
 
+## Wait by ending the turn
+
+Once the listener is verified and any required reviewer has started, report and end the turn. Never wait inside a turn: no sleep loops and no repeated polling of PR, review, CI or monitor status to see whether something arrived. Codex holds queued notifications until the current turn ends, so an in-turn wait delays them and leaves stale notifications behind. If a batch was acknowledged before its queued notification arrives, acknowledging that notification again reports that it needs no action; do not reprocess it.
+
 ## Handle events and finish
 
 Read [feedback-and-completion.md](references/feedback-and-completion.md) when feedback arrives or this task verifies a merge. The author fetches current feedback, acts within accepted scope and publishes authorized replies. Codex and Claude retain one active exact batch per PR until its feedback receives a concrete disposition and matching acknowledgement. Later events stay pending. A new head alone does not resolve earlier feedback.
