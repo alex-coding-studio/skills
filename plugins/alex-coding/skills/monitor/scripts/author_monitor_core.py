@@ -121,10 +121,11 @@ def snapshot(target, role=None):
     pr = gh_json(f'{base}/pulls/{number}', role)
     if pr['user']['login'].casefold() != target['author'].casefold():
         raise ValueError('PR author differs from registered source identity')
+    reviews = gh_json(f'{base}/pulls/{number}/reviews?per_page=100', role, paginate=True)
     sources = {
         'conversation': gh_json(f'{base}/issues/{number}/comments?per_page=100', role, paginate=True),
         'inline': gh_json(f'{base}/pulls/{number}/comments?per_page=100', role, paginate=True),
-        'review': gh_json(f'{base}/pulls/{number}/reviews?per_page=100', role, paginate=True),
+        'review': reviews,
     }
     inline_by_review = {}
     for item in sources['inline']:
@@ -146,8 +147,10 @@ def snapshot(target, role=None):
     detail = json.loads(result.stdout)
     if detail['headRefOid'] != head:
         raise RuntimeError('PR head changed during snapshot; retry')
-    ci = checks_state(detail['statusCheckRollup'])
-    checks = sorted([json.dumps(c, sort_keys=True) for c in detail['statusCheckRollup']])
+    rollup = [check for check in detail['statusCheckRollup']
+              if check.get('__typename') == 'StatusContext' or check.get('conclusion') != 'SKIPPED']
+    ci = checks_state(rollup)
+    checks = sorted([json.dumps(c, sort_keys=True) for c in rollup])
     ci_version = hashlib.sha256(json.dumps([head, checks]).encode()).hexdigest()
     terminal = 'merged' if pr.get('merged') else 'closed' if pr['state'] == 'closed' else None
     if terminal:
