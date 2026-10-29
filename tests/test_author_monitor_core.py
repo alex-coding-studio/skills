@@ -420,6 +420,45 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual([(item['kind'], item['id']) for item in current['events']], [('inline', 12), ('review', 22)])
 
 
+    def test_review_shell_whose_reply_lands_mid_snapshot_is_still_a_self_echo(self):
+        pr = {'user': {'login': 'bot'}, 'head': {'sha': 'head'}, 'state': 'open', 'html_url': 'https://example/pr'}
+        reply = {'id': 13, 'user': {'login': 'bot'}, 'body': 'handled\n\nFrom Codex 🤖',
+                 'pull_request_review_id': 23, 'updated_at': 'now', 'html_url': 'https://example/reply'}
+        shell = {'id': 23, 'user': {'login': 'bot'}, 'body': '', 'state': 'COMMENTED',
+                 'submitted_at': 'now', 'html_url': 'https://example/review'}
+        posted = []
+
+        def github(endpoint, role=None, paginate=False):
+            if endpoint.endswith('/pulls/1'):
+                return pr
+            if '/issues/1/comments' in endpoint:
+                return []
+            if '/pulls/1/comments' in endpoint:
+                return [reply] if posted else []
+            if '/pulls/1/reviews' in endpoint:
+                posted.append(True)
+                return [shell]
+            raise AssertionError(endpoint)
+
+        detail = type('Result', (), {'stdout': json.dumps({'headRefOid': 'head', 'statusCheckRollup': []})})()
+        with patch.object(core, 'gh_json', side_effect=github), patch.object(core.subprocess, 'run', return_value=detail):
+            current = core.snapshot({'repository': 'owner/repo', 'number': 1, 'author': 'bot'}, 'bot')
+        self.assertEqual(current['events'], [])
+
+    def test_skipped_workflow_runs_are_not_a_ci_result(self):
+        pr = {'user': {'login': 'bot'}, 'head': {'sha': 'head'}, 'state': 'open', 'html_url': 'https://example/pr'}
+        merge = {'__typename': 'CheckRun', 'name': 'merge', 'status': 'COMPLETED', 'conclusion': 'SKIPPED'}
+        tests = {'__typename': 'CheckRun', 'name': 'tests', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}
+
+        def take(checks):
+            detail = type('Result', (), {'stdout': json.dumps({'headRefOid': 'head', 'statusCheckRollup': checks})})()
+            with patch.object(core, 'gh_json', side_effect=lambda endpoint, *a, **k: pr if endpoint.endswith('/pulls/1') else []), \
+                    patch.object(core.subprocess, 'run', return_value=detail):
+                return core.snapshot({'repository': 'owner/repo', 'number': 1, 'author': 'bot'}, 'bot')
+
+        self.assertEqual(take([merge])['ci'], 'none')
+        self.assertEqual(take([tests])['ci_version'], take([tests, merge])['ci_version'])
+
 class ContinuousIntegrationTests(unittest.TestCase):
     def test_first_all_green_result_is_quiet_but_a_failure_is_an_event(self):
         with store() as subject:
