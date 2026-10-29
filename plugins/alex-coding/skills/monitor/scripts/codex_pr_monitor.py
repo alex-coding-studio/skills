@@ -224,7 +224,7 @@ def main():
     elif args.command == 'ack':
         if (store.read()['target'] or {}).get('terminal'):
             configure_delivery(store, legacy, args, parser)
-        store.acknowledge(args.token)
+        print(store.acknowledge(args.token))
     elif args.command == 'claim':
         print(store.claim(args.events))
     else:

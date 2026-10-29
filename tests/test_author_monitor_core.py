@@ -479,6 +479,19 @@ class ForegroundCompletionTests(unittest.TestCase):
             self.assertEqual(subject.read()['batch']['events'], [notice(1)['key']])
             self.assertIn('token=' + token, (subject.root / 'monitor.log').read_text())
 
+    def test_a_late_notification_for_an_acknowledged_batch_is_a_quiet_no_op(self):
+        with store() as subject:
+            enrol(subject).apply(result(notice(1)))
+            subject.deliver()
+            token = subject.read()['batch']['token']
+            self.assertEqual(subject.acknowledge(token), 'acknowledged')
+            subject.apply(result(notice(1), notice(2)))
+            subject.deliver()
+            self.assertIn('needs no action', subject.acknowledge(token))
+            self.assertIsNotNone(subject.read()['batch'])
+            with self.assertRaises(ValueError):
+                subject.acknowledge('unknown')
+
     def test_acknowledging_an_uncertain_delivery_stops_its_retry(self):
         runtime = FakeRuntime()
         with store(runtime=runtime) as subject:
