@@ -386,7 +386,7 @@ def main():
     parser.add_argument('--reviewer')
     parser.add_argument('--acceptance-file', type=Path)
     parser.add_argument('--decision-file', type=Path)
-    parser.add_argument('--max-rounds', type=int, default=2)
+    parser.add_argument('--max-rounds', type=int, default=3)
     parser.add_argument('--completed-rounds', type=int)
     parser.add_argument('--additional-rounds', type=int, default=1)
     parser.add_argument('--interval', type=int, default=45)

@@ -29,12 +29,12 @@ CLI contracts: [Codex non-interactive mode](https://developers.openai.com/codex/
 
 After opening the PR and registering Author Monitor, prepare a local UTF-8 file with the settled acceptance and authoritative references. Include the frozen contract path/SHA when applicable, project gates, review-round limit and explicit human decisions. Do not include the author's private reasoning or suggested verdict. This file does not itself publish private source material.
 
-Use the installed script's absolute path, a verified reviewer distinct from the PR author, and the project's existing round limit (two if unspecified):
+Use the installed script's absolute path, a verified reviewer distinct from the PR author, and the project's existing round limit (three if unspecified; a fourth round needs the user's explicit word):
 
 ```sh
 python3 <review>/scripts/review_pr.py start --pr 'owner/repo#123' \
   --runtime codex --reviewer <verified-login> \
-  --acceptance-file <accepted-scope-file> --max-rounds 2
+  --acceptance-file <accepted-scope-file> --max-rounds 3
 ```
 
 Use `--runtime claude` for Claude. `--executable` optionally selects a verified CLI binary, not a model. The launcher detaches its own process with disconnected stdin and local logs, then verifies lock ownership and startup state. It actually invokes the reviewer CLI; it is not a substitute notification transport for an existing author session. Draft PRs wait without model invocation until Ready.

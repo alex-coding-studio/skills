@@ -213,7 +213,7 @@ def parser():
     result.add_argument('--acceptance-file', type=Path)
     result.add_argument('--reviewer')
     result.add_argument('--complexity', choices=['deterministic', 'low', 'medium', 'high'])
-    result.add_argument('--max-rounds', type=int, default=2)
+    result.add_argument('--max-rounds', type=int, default=3)
     result.add_argument('--session-remote')
     result.add_argument('--expected-head')
     result.add_argument('--merge-method', choices=['squash', 'merge', 'rebase'])
