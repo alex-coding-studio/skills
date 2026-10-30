@@ -56,11 +56,14 @@ class DeliveryTests(unittest.TestCase):
         self.assertTrue(delivery.exempt_kinds([{'filename': 'App.xcodeproj/project.pbxproj', 'status': 'modified',
                                             'patch': '@@ -1 +1 @@\n-\t\t\t\tMARKETING_VERSION = 1.4;\n'
                                                      '+\t\t\t\tMARKETING_VERSION = 1.4.1;'}]))
-        self.assertEqual(delivery.exempt_kinds([{'filename': 'docs/NEW.md', 'status': 'added'},
-                                                {'filename': 'README.txt', 'status': 'removed'}]), {'text'})
-        self.assertEqual(delivery.exempt_kinds([resolved, {'filename': 'docs/NEW.md', 'status': 'added'}]),
-                         {'pin', 'text'})
+        added = {'filename': 'docs/NEW.md', 'status': 'added', 'patch': '@@ -0,0 +1 @@\n+# New'}
+        self.assertEqual(delivery.exempt_kinds([added, {'filename': 'README.txt', 'status': 'removed',
+                                                        'patch': '@@ -1 +0,0 @@\n-old'},
+                                                {'filename': 'docs/B.md', 'previous_filename': 'docs/A.md',
+                                                 'status': 'renamed', 'changes': 0}]), {'text'})
+        self.assertEqual(delivery.exempt_kinds([resolved, added]), {'pin', 'text'})
         for files in [[], [{**resolved, 'status': 'added'}],
+                      [{'filename': 'data.bin.txt', 'status': 'added', 'changes': 0}],
                       [{'filename': 'Sources/Notes.md', 'previous_filename': 'Sources/Notes.swift', 'status': 'renamed'}],
                       [{'filename': 'docs/acceptance.html', 'status': 'modified', 'patch': '@@ -1 +1 @@\n-a\n+b'}],
                       [{**version, 'patch': version['patch'] + '\n+    url: https://example.com/new'}],
@@ -74,7 +77,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(delivery.declared_exemptions('review_exempt=pin\n'), {'pin'})
         self.assertEqual(delivery.declared_exemptions('scheme=App\n'), set())
         resolved = {'filename': 'Package.resolved', 'status': 'modified', 'patch': ''}
-        doc = {'filename': 'docs/A.md', 'status': 'modified'}
+        doc = {'filename': 'docs/A.md', 'status': 'modified', 'patch': '@@ -1 +1 @@\n-a\n+b'}
         for files, config, expected in [
                 ([resolved], 'review_exempt=pin', 'review-exempt'),
                 ([resolved, doc], 'review_exempt=pin', 'review-required'),

@@ -185,6 +185,8 @@ def exempt_kinds(files):
     for row in files:
         if all(Path(name).suffix.lower() in TEXT_FILES
                for name in (row['filename'], row.get('previous_filename', row['filename']))):
+            if not row.get('patch') and not (row.get('status') == 'renamed' and row.get('changes') == 0):
+                return set()
             kinds.add('text')
             continue
         if row.get('status') != 'modified':
