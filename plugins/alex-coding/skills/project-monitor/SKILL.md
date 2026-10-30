@@ -49,7 +49,7 @@ python3 <skill>/scripts/project_pr_monitor.py --session <stable-session-id> --pr
 
 Run `complete` yourself right after merging your own PR.
 
-When project instructions waive review for version or pin bumps, run the Implement skill's `delivery.py pin-check` on the opened PR. Only a `pin-only` result skips Review; merge it with `delivery.py pin-merge` once checks pass, then run `complete`. See the Implement [delivery reference](../implement/references/delivery.md#version-or-pin-bumps-under-a-project-waiver).
+Before starting Review, run the Implement skill's `delivery.py pin-check --pr owner/repo#123`. A `review-exempt` result means the repository's `.shared-config` exemption covers the PR: skip Review, merge with `delivery.py pin-merge` once checks pass, then run `complete`. See the Implement [declared exemptions](../implement/references/delivery.md#declared-review-exemptions).
 
 ## Pool administration
 

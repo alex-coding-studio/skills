@@ -51,17 +51,51 @@ class DeliveryTests(unittest.TestCase):
                     'status': 'modified', 'patch': '@@ -1 +1 @@\n-"revision" : "a"\n+"revision" : "b"'}
         version = {'filename': 'project.yml', 'status': 'modified',
                    'patch': '@@ -3,3 +3,3 @@\n     settings:\n-    MARKETING_VERSION: "1.4"\n+    MARKETING_VERSION: "1.4.1"'}
-        self.assertTrue(delivery.pin_only([resolved]))
-        self.assertTrue(delivery.pin_only([resolved, version]))
-        self.assertTrue(delivery.pin_only([{'filename': 'App.xcodeproj/project.pbxproj', 'status': 'modified',
+        self.assertEqual(delivery.exempt_kinds([resolved]), {'pin'})
+        self.assertEqual(delivery.exempt_kinds([resolved, version]), {'pin'})
+        self.assertTrue(delivery.exempt_kinds([{'filename': 'App.xcodeproj/project.pbxproj', 'status': 'modified',
                                             'patch': '@@ -1 +1 @@\n-\t\t\t\tMARKETING_VERSION = 1.4;\n'
                                                      '+\t\t\t\tMARKETING_VERSION = 1.4.1;'}]))
+        added = {'filename': 'docs/NEW.md', 'status': 'added', 'patch': '@@ -0,0 +1 @@\n+# New'}
+        self.assertEqual(delivery.exempt_kinds([added, {'filename': 'README.txt', 'status': 'removed',
+                                                        'patch': '@@ -1 +0,0 @@\n-old'},
+                                                {'filename': 'docs/B.md', 'previous_filename': 'docs/A.md',
+                                                 'status': 'renamed', 'changes': 0}]), {'text'})
+        self.assertEqual(delivery.exempt_kinds([resolved, added]), {'pin', 'text'})
         for files in [[], [{**resolved, 'status': 'added'}],
+                      [{'filename': 'data.bin.txt', 'status': 'added', 'changes': 0}],
+                      [{'filename': 'Sources/Notes.md', 'previous_filename': 'Sources/Notes.swift', 'status': 'renamed'}],
+                      [{'filename': 'docs/acceptance.html', 'status': 'modified', 'patch': '@@ -1 +1 @@\n-a\n+b'}],
                       [{**version, 'patch': version['patch'] + '\n+    url: https://example.com/new'}],
                       [{**version, 'patch': None}],
                       [{'filename': 'Sources/App.swift', 'status': 'modified', 'patch': '@@ -1 +1 @@\n-    version = 1\n+    version = 2'}]]:
             with self.subTest(files=files):
-                self.assertFalse(delivery.pin_only(files))
+                self.assertEqual(delivery.exempt_kinds(files), set())
+
+    def test_exemption_needs_base_branch_declaration_covering_every_kind(self):
+        self.assertEqual(delivery.declared_exemptions('scheme=App\nreview_exempt="pin text"\n'), {'pin', 'text'})
+        self.assertEqual(delivery.declared_exemptions('review_exempt=pin\n'), {'pin'})
+        self.assertEqual(delivery.declared_exemptions('scheme=App\n'), set())
+        resolved = {'filename': 'Package.resolved', 'status': 'modified', 'patch': ''}
+        doc = {'filename': 'docs/A.md', 'status': 'modified', 'patch': '@@ -1 +1 @@\n-a\n+b'}
+        for files, config, expected in [
+                ([resolved], 'review_exempt=pin', 'review-exempt'),
+                ([resolved, doc], 'review_exempt=pin', 'review-required'),
+                ([doc], None, 'review-required')]:
+            github = SimpleNamespace(number=7, base='repos/o/r')
+            github.pull = lambda: {'head': {'sha': 'h'}, 'base': {'sha': 'b'}}
+
+            def respond(endpoint, paginate=False, files=files, config=config):
+                if paginate:
+                    return files
+                self.assertIn('ref=b', endpoint)
+                if config is None:
+                    raise delivery.subprocess.CalledProcessError(1, 'gh')
+                return {'content': delivery.base64.b64encode(config.encode()).decode()}
+            github.json = respond
+            with self.subTest(expected=expected, config=config), \
+                    patch.object(delivery.review.remote, 'GitHub', return_value=github):
+                self.assertEqual(delivery.pin_check(SimpleNamespace(pr='o/r#7'))['status'], expected)
 
     def test_pin_merge_refuses_without_push_permission(self):
         head = 'a' * 40
@@ -71,7 +105,7 @@ class DeliveryTests(unittest.TestCase):
         github.json = lambda endpoint, paginate=False: {'permissions': {'push': False}}
         args = SimpleNamespace(pr='o/r#7', expected_head=head, merge_method='merge')
         calls = []
-        with patch.object(delivery, 'pin_check', return_value={'status': 'pin-only', 'head': head}), \
+        with patch.object(delivery, 'pin_check', return_value={'status': 'review-exempt', 'head': head}), \
                 patch.object(delivery.review.remote, 'GitHub', return_value=github), \
                 patch.object(delivery.review.remote.shared, 'gh_command', return_value=['gh']), \
                 patch.object(delivery, 'invoke', side_effect=lambda command, cwd=None: calls.append(command) or
@@ -135,6 +169,7 @@ class DeliveryTests(unittest.TestCase):
             with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
                     patch.object(delivery, 'invoke', return_value={'active': True, 'phase': 'starting'}) as invoke, \
                     patch.object(delivery, 'monitor_live', side_effect=[False, True]), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
                     patch.object(delivery.subprocess, 'Popen') as popen:
                 result = delivery.start(args)
             self.assertEqual(result['status'], 'started')
@@ -163,12 +198,28 @@ class DeliveryTests(unittest.TestCase):
             with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
                     patch.object(delivery, 'invoke', return_value={'active': True, 'phase': 'starting'}) as invoke, \
                     patch.object(delivery, 'monitor_live', return_value=True), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
                     patch.object(delivery.subprocess, 'Popen') as popen:
                 result = delivery.start(args)
             self.assertEqual(result['status'], 'started')
             self.assertTrue(result['reviewer_active'])
             self.assertEqual(invoke.call_count, 2)
             popen.assert_not_called()
+
+    def test_declared_exemption_registers_monitor_without_starting_reviewer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = delivery.parser().parse_args(['start', '--runtime', 'codex',
+                '--session', '00000000-0000-0000-0000-000000000001', '--pr', 'owner/repo#1',
+                '--checkout', directory, '--acceptance-file', __file__, '--reviewer', 'reviewer'])
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'invoke', return_value={}) as invoke, \
+                    patch.object(delivery, 'monitor_live', return_value=True), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-exempt', 'head': 'h'}):
+                result = delivery.start(args)
+            self.assertEqual(result['status'], 'review-exempt')
+            self.assertFalse(result['reviewer_active'])
+            self.assertEqual(invoke.call_count, 1)
+            self.assertNotIn('review_pr.py', ' '.join(map(str, invoke.call_args.args[0])))
 
     def test_finish_rechecks_base_and_uses_matching_head_before_protected_completion(self):
         state, snapshot = self.evidence()
