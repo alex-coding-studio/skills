@@ -46,6 +46,40 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             delivery.verify_merge(state, snapshot, 'a' * 40, 'reviewer')
 
+    def test_pin_only_accepts_lockfiles_and_version_lines_only(self):
+        resolved = {'filename': 'App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved',
+                    'status': 'modified', 'patch': '@@ -1 +1 @@\n-"revision" : "a"\n+"revision" : "b"'}
+        version = {'filename': 'project.yml', 'status': 'modified',
+                   'patch': '@@ -3,3 +3,3 @@\n     settings:\n-    MARKETING_VERSION: "1.4"\n+    MARKETING_VERSION: "1.4.1"'}
+        self.assertTrue(delivery.pin_only([resolved]))
+        self.assertTrue(delivery.pin_only([resolved, version]))
+        self.assertTrue(delivery.pin_only([{'filename': 'App.xcodeproj/project.pbxproj', 'status': 'modified',
+                                            'patch': '@@ -1 +1 @@\n-\t\t\t\tMARKETING_VERSION = 1.4;\n'
+                                                     '+\t\t\t\tMARKETING_VERSION = 1.4.1;'}]))
+        for files in [[], [{**resolved, 'status': 'added'}],
+                      [{**version, 'patch': version['patch'] + '\n+    url: https://example.com/new'}],
+                      [{**version, 'patch': None}],
+                      [{'filename': 'Sources/App.swift', 'status': 'modified', 'patch': '@@ -1 +1 @@\n-    version = 1\n+    version = 2'}]]:
+            with self.subTest(files=files):
+                self.assertFalse(delivery.pin_only(files))
+
+    def test_pin_merge_refuses_without_push_permission(self):
+        head = 'a' * 40
+        github = SimpleNamespace(number=7, repository='o/r', base='repos/o/r')
+        github.pull = lambda: {'state': 'open', 'draft': False, 'head': {'sha': head},
+                               'mergeable': True, 'mergeable_state': 'clean'}
+        github.json = lambda endpoint, paginate=False: {'permissions': {'push': False}}
+        args = SimpleNamespace(pr='o/r#7', expected_head=head, merge_method='merge')
+        calls = []
+        with patch.object(delivery, 'pin_check', return_value={'status': 'pin-only', 'head': head}), \
+                patch.object(delivery.review.remote, 'GitHub', return_value=github), \
+                patch.object(delivery.review.remote.shared, 'gh_command', return_value=['gh']), \
+                patch.object(delivery, 'invoke', side_effect=lambda command, cwd=None: calls.append(command) or
+                             {'headRefOid': head, 'statusCheckRollup': []}):
+            with self.assertRaises(PermissionError):
+                delivery.pin_merge(args)
+        self.assertFalse(any('merge' in command for command in calls))
+
     def test_waiting_ci_requires_positive_check_evidence(self):
         state, snapshot = self.evidence()
         state['phase'] = 'waiting-ci'
