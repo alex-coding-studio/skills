@@ -19,7 +19,7 @@ Fill the `assets/` templates only with verified facts. Preserve authored files. 
 
 ## Deliver the setup
 
-Read [delivery](references/delivery.md). New GitHub delivery uses a complete, independently reviewed initial commit and its one authorized default-branch push. Later Setup work uses a ready PR with author Monitor and one independent reviewer through merge or handoff.
+Read [delivery](references/delivery.md). New GitHub delivery uses a complete, independently reviewed initial commit and its one authorized default-branch push. Later Setup work uses a ready PR with author Monitor and one independent reviewer through merge or handoff. A version or pin bump in a repository that declares the `pin` review exemption skips the reviewer; see Implement's [declared exemptions](../implement/references/delivery.md#declared-review-exemptions).
 
 Run declared install, lint, test, build, CI-equivalent and foundation-smoke entry points. Report selections, reference adoption, exact evidence, Git/CI state and limits. Generator success, caches, unrun checks or a document-only shell never establish completion.
 

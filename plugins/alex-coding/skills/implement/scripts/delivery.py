@@ -1,4 +1,5 @@
 import argparse
+import base64
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ import review_pr as review
 
 LOCKFILES = {'Package.resolved', 'Podfile.lock', 'Cartfile.resolved', 'package-lock.json', 'yarn.lock',
              'pnpm-lock.yaml', 'Gemfile.lock', 'poetry.lock', 'uv.lock', 'Cargo.lock', 'go.sum'}
+TEXT_FILES = {'.md', '.markdown', '.txt', '.rst'}
 VERSION_FILES = {'.yml', '.yaml', '.xcconfig', '.toml', '.pbxproj'}
 VERSION_LINE = re.compile(r'\s*"?(MARKETING_VERSION|CURRENT_PROJECT_VERSION|exactVersion|revision|version)"?'
                           r'\s*[:=]\s*"?[\w.+-]+"?[,;]?\s*')
@@ -98,6 +100,10 @@ def start(args):
                 if process.poll() is not None or time.monotonic() >= deadline:
                     raise RuntimeError(f'monitor startup is unverified; inspect {root / "startup.log"}')
                 time.sleep(0.1)
+        exemption = pin_check(args)
+        if exemption['status'] == 'review-exempt':
+            return {**exemption, 'monitor_active': True, 'reviewer_active': False,
+                    'next': 'Merge with pin-merge at this head once checks pass.'}
         arguments = [sys.executable, str(PLUGIN / 'skills/review/scripts/review_pr.py'),
                      'start', '--pr', args.pr, '--runtime', args.runtime, '--reviewer', args.reviewer,
                      '--acceptance-file', str(args.acceptance_file.resolve()), '--max-rounds', str(args.max_rounds)]
@@ -174,36 +180,52 @@ def verify_merge(state, current, expected_head, author):
         raise ValueError('blocking review remains unresolved')
 
 
-def pin_only(files):
-    if not files:
-        return False
+def exempt_kinds(files):
+    kinds = set()
     for row in files:
+        if all(Path(name).suffix.lower() in TEXT_FILES
+               for name in (row['filename'], row.get('previous_filename', row['filename']))):
+            kinds.add('text')
+            continue
         if row.get('status') != 'modified':
-            return False
+            return set()
+        kinds.add('pin')
         if Path(row['filename']).name in LOCKFILES:
             continue
         if Path(row['filename']).suffix not in VERSION_FILES:
-            return False
+            return set()
         changed = [line[1:] for line in (row.get('patch') or '').splitlines() if line[:1] in '+-']
         if not changed or not all(VERSION_LINE.fullmatch(line) for line in changed):
-            return False
-    return True
+            return set()
+    return kinds
+
+
+def declared_exemptions(config):
+    match = re.search(r'^review_exempt=(["\']?)([^"\'\n]*)\1\s*$', config, re.M)
+    return set(match[2].split()) & {'pin', 'text'} if match else set()
 
 
 def pin_check(args):
     github = review.remote.GitHub(args.pr, '')
     pull = github.pull()
     files = github.json(f'{github.base}/pulls/{github.number}/files?per_page=100', True)
-    return {'status': 'pin-only' if pin_only(files) else 'review-required',
-            'pr': review.remote.shared.canonical(args.pr), 'head': pull['head']['sha'], 'files': [row['filename'] for row in files]}
+    try:
+        content = github.json(f"{github.base}/contents/.shared-config?ref={pull['base']['sha']}")['content']
+        declared = declared_exemptions(base64.b64decode(content).decode())
+    except (subprocess.CalledProcessError, KeyError, ValueError):
+        declared = set()
+    kinds = exempt_kinds(files)
+    return {'status': 'review-exempt' if kinds and kinds <= declared else 'review-required',
+            'pr': review.remote.shared.canonical(args.pr), 'head': pull['head']['sha'],
+            'kinds': sorted(kinds), 'declared': sorted(declared), 'files': [row['filename'] for row in files]}
 
 
 def pin_merge(args):
     if not args.expected_head or not args.merge_method:
         raise ValueError('pin-merge requires expected head and merge method')
     result = pin_check(args)
-    if result['status'] != 'pin-only':
-        raise ValueError('diff changes more than versions or dependency pins; independent review is required')
+    if result['status'] != 'review-exempt':
+        raise ValueError('the PR is not covered by a declared review exemption; independent review is required')
     github = review.remote.GitHub(args.pr, '')
     pull = github.pull()
     if pull['state'] != 'open' or pull['draft'] or {pull['head']['sha'], result['head']} != {args.expected_head}:
