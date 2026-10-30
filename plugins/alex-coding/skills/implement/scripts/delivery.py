@@ -19,7 +19,7 @@ LOCKFILES = {'Package.resolved', 'Podfile.lock', 'Cartfile.resolved', 'package-l
              'pnpm-lock.yaml', 'Gemfile.lock', 'poetry.lock', 'uv.lock', 'Cargo.lock', 'go.sum'}
 VERSION_FILES = {'.yml', '.yaml', '.xcconfig', '.toml', '.pbxproj'}
 VERSION_LINE = re.compile(r'\s*"?(MARKETING_VERSION|CURRENT_PROJECT_VERSION|exactVersion|revision|version)"?'
-                          r'\s*[:=]\s*"?[\w.+-]+"?,?\s*')
+                          r'\s*[:=]\s*"?[\w.+-]+"?[,;]?\s*')
 
 
 def invoke(arguments, cwd=None):
@@ -216,6 +216,8 @@ def pin_merge(args):
         raise ValueError('checks are not passing')
     if pull.get('mergeable') is not True or pull.get('mergeable_state') in {'blocked', 'dirty', 'unknown'}:
         raise ValueError('mergeability or required GitHub protection is unresolved')
+    if not github.json(github.base).get('permissions', {}).get('push'):
+        raise PermissionError('admin requires repository push permission')
     invoke([*review.remote.shared.gh_command('admin'), 'pr', 'merge', str(github.number), '--repo', github.repository,
             '--' + args.merge_method, '--match-head-commit', args.expected_head])
     if not github.pull().get('merged'):
