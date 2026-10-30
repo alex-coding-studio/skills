@@ -49,6 +49,8 @@ python3 <skill>/scripts/project_pr_monitor.py --session <stable-session-id> --pr
 
 Run `complete` yourself right after merging your own PR.
 
+When project instructions waive review for version or pin bumps, run the Implement skill's `delivery.py pin-check` on the opened PR. Only a `pin-only` result skips Review; merge it with `delivery.py pin-merge` once checks pass, then run `complete`. See the Implement [delivery reference](../implement/references/delivery.md#version-or-pin-bumps-under-a-project-waiver).
+
 ## Pool administration
 
 These commands belong to the pool owner, not to a task thread:

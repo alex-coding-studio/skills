@@ -15,6 +15,13 @@ sys.path.insert(0, str(PLUGIN / 'skills/review/scripts'))
 import review_pr as review
 
 
+LOCKFILES = {'Package.resolved', 'Podfile.lock', 'Cartfile.resolved', 'package-lock.json', 'yarn.lock',
+             'pnpm-lock.yaml', 'Gemfile.lock', 'poetry.lock', 'uv.lock', 'Cargo.lock', 'go.sum'}
+VERSION_FILES = {'.yml', '.yaml', '.xcconfig', '.toml', '.pbxproj'}
+VERSION_LINE = re.compile(r'\s*"?(MARKETING_VERSION|CURRENT_PROJECT_VERSION|exactVersion|revision|version)"?'
+                          r'\s*[:=]\s*"?[\w.+-]+"?,?\s*')
+
+
 def invoke(arguments, cwd=None):
     result = subprocess.run([str(item) for item in arguments], cwd=cwd, capture_output=True,
                             text=True, timeout=120, check=True)
@@ -167,6 +174,55 @@ def verify_merge(state, current, expected_head, author):
         raise ValueError('blocking review remains unresolved')
 
 
+def pin_only(files):
+    if not files:
+        return False
+    for row in files:
+        if row.get('status') != 'modified':
+            return False
+        if Path(row['filename']).name in LOCKFILES:
+            continue
+        if Path(row['filename']).suffix not in VERSION_FILES:
+            return False
+        changed = [line[1:] for line in (row.get('patch') or '').splitlines() if line[:1] in '+-']
+        if not changed or not all(VERSION_LINE.fullmatch(line) for line in changed):
+            return False
+    return True
+
+
+def pin_check(args):
+    github = review.remote.GitHub(args.pr, '')
+    pull = github.pull()
+    files = github.json(f'{github.base}/pulls/{github.number}/files?per_page=100', True)
+    return {'status': 'pin-only' if pin_only(files) else 'review-required',
+            'pr': review.remote.shared.canonical(args.pr), 'head': pull['head']['sha'], 'files': [row['filename'] for row in files]}
+
+
+def pin_merge(args):
+    if not args.expected_head or not args.merge_method:
+        raise ValueError('pin-merge requires expected head and merge method')
+    result = pin_check(args)
+    if result['status'] != 'pin-only':
+        raise ValueError('diff changes more than versions or dependency pins; independent review is required')
+    github = review.remote.GitHub(args.pr, '')
+    pull = github.pull()
+    if pull['state'] != 'open' or pull['draft'] or {pull['head']['sha'], result['head']} != {args.expected_head}:
+        raise ValueError('PR does not match the expected ready head')
+    detail = invoke([*review.remote.shared.gh_command('admin'), 'pr', 'view', str(github.number), '--repo',
+                     github.repository, '--json', 'headRefOid,statusCheckRollup'])
+    if detail['headRefOid'] != args.expected_head:
+        raise ValueError('head changed while reading checks')
+    if review.remote.check_summary(detail['statusCheckRollup'])['ci'] not in {'pass', 'none'}:
+        raise ValueError('checks are not passing')
+    if pull.get('mergeable') is not True or pull.get('mergeable_state') in {'blocked', 'dirty', 'unknown'}:
+        raise ValueError('mergeability or required GitHub protection is unresolved')
+    invoke([*review.remote.shared.gh_command('admin'), 'pr', 'merge', str(github.number), '--repo', github.repository,
+            '--' + args.merge_method, '--match-head-commit', args.expected_head])
+    if not github.pull().get('merged'):
+        raise RuntimeError('merge is not confirmed')
+    return {**result, 'status': 'merged'}
+
+
 def finish(args):
     if not args.expected_head or not args.merge_method or not args.feedback_settled:
         raise ValueError('finish requires expected head, authorized merge method and settled feedback')
@@ -202,9 +258,9 @@ def finish(args):
 
 def parser():
     result = argparse.ArgumentParser(description='Compose existing author Monitor and independent Review operations.')
-    result.add_argument('action', choices=['open', 'start', 'finish'])
-    result.add_argument('--runtime', choices=['codex', 'claude'], required=True)
-    result.add_argument('--session', required=True)
+    result.add_argument('action', choices=['open', 'start', 'finish', 'pin-check', 'pin-merge'])
+    result.add_argument('--runtime', choices=['codex', 'claude'])
+    result.add_argument('--session')
     result.add_argument('--pr')
     result.add_argument('--repository')
     result.add_argument('--title')
@@ -225,8 +281,11 @@ def main():
     args = parser().parse_args()
     try:
         if args.action != 'open' and not args.pr:
-            raise ValueError('start and finish require the exact PR')
-        result = {'open': open_pr, 'start': start, 'finish': finish}[args.action](args)
+            raise ValueError(f'{args.action} requires the exact PR')
+        if args.action in {'open', 'start', 'finish'} and not (args.runtime and args.session):
+            raise ValueError(f'{args.action} requires runtime and session')
+        result = {'open': open_pr, 'start': start, 'finish': finish,
+                  'pin-check': pin_check, 'pin-merge': pin_merge}[args.action](args)
     except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
         print(json.dumps({'status': 'error', 'reason': str(error)}))
         raise SystemExit(1)

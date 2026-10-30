@@ -46,6 +46,20 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             delivery.verify_merge(state, snapshot, 'a' * 40, 'reviewer')
 
+    def test_pin_only_accepts_lockfiles_and_version_lines_only(self):
+        resolved = {'filename': 'App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved',
+                    'status': 'modified', 'patch': '@@ -1 +1 @@\n-"revision" : "a"\n+"revision" : "b"'}
+        version = {'filename': 'project.yml', 'status': 'modified',
+                   'patch': '@@ -3,3 +3,3 @@\n     settings:\n-    MARKETING_VERSION: "1.4"\n+    MARKETING_VERSION: "1.4.1"'}
+        self.assertTrue(delivery.pin_only([resolved]))
+        self.assertTrue(delivery.pin_only([resolved, version]))
+        for files in [[], [{**resolved, 'status': 'added'}],
+                      [{**version, 'patch': version['patch'] + '\n+    url: https://example.com/new'}],
+                      [{**version, 'patch': None}],
+                      [{'filename': 'Sources/App.swift', 'status': 'modified', 'patch': '@@ -1 +1 @@\n-    version = 1\n+    version = 2'}]]:
+            with self.subTest(files=files):
+                self.assertFalse(delivery.pin_only(files))
+
     def test_waiting_ci_requires_positive_check_evidence(self):
         state, snapshot = self.evidence()
         state['phase'] = 'waiting-ci'

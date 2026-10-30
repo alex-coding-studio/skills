@@ -33,4 +33,23 @@ python3 <implement>/scripts/delivery.py finish --runtime codex --session <existi
 
 Select the project's authorized merge method. `--feedback-settled` records the author's actual disposition of feedback; it is not a new user approval request or permission to ignore comments. The helper freshly checks the unchanged reviewed head/base, current independent approval, new feedback, check results, blocking reviews, mergeability and actual admin writer/push permission. Current checks must be passing or absent; a waiting-ci review additionally requires passing checks unless it was recorded when the PR reported no checks. GitHub still enforces its own protections; the merge uses a matching-head guard and no admin bypass. It then verifies the merge and calls the existing per-PR Monitor `complete` from outside the checkout. Local gate evidence and human decisions remain author/reviewer responsibilities; an empty CI list does not prove them.
 
+## Version or pin bumps under a project waiver
+
+When project instructions waive independent review for PRs that only bump a version or dependency pin, classify the opened PR instead of judging the diff by eye:
+
+```sh
+python3 <implement>/scripts/delivery.py pin-check --pr owner/repo#123
+```
+
+`pin-only` means every changed file is an existing lockfile (`Package.resolved`, `Podfile.lock`, `package-lock.json` and similar) or a `.yml`, `.yaml`, `.xcconfig`, `.toml` or `.pbxproj` file whose every changed line sets a version or pin key (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `exactVersion`, `revision`, `version`). Added, removed or renamed files, any other line, or a patch GitHub omits yields `review-required`, and the normal reviewed path applies. Without a project waiver, `pin-only` changes nothing.
+
+For a `pin-only` PR, skip Review and merge once checks pass:
+
+```sh
+python3 <implement>/scripts/delivery.py pin-merge --pr owner/repo#123 \
+  --expected-head <full-head-sha> --merge-method merge
+```
+
+It reclassifies the current head, requires a ready open PR at that head, passing or absent checks and clean mergeability, and merges with a matching-head guard through the admin role. It does not run Monitor completion; run the registered Monitor's `complete` afterwards. Any new commit needs a fresh `pin-check`.
+
 If another actor already merged the PR, `finish` only verifies the registered target and invokes protected completion. Preserved/error cleanup stays an explicit exception and is never described as completed or blindly retried. Closed-unmerged PRs keep local work. Other PR listeners and ledgers remain untouched.
