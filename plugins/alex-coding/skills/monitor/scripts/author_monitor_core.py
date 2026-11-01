@@ -126,13 +126,14 @@ def latest_reviews(reviews, author):
 
 def unresolved_threads(repository, number, role=None):
     owner, name = repository.split('/')
-    query = ('query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){'
-             'pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved isOutdated path line '
-             'comments(first:1){nodes{url author{login}}}}}}}}')
-    result = subprocess.run([*gh_command(role), 'api', 'graphql', '-f', 'query=' + query, '-f', 'owner=' + owner,
-                             '-f', 'name=' + name, '-F', f'number={number}'],
-                            capture_output=True, text=True, timeout=30, check=True)
-    threads = json.loads(result.stdout)['data']['repository']['pullRequest']['reviewThreads']['nodes']
+    query = ('query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){'
+             'pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){nodes{isResolved isOutdated path line '
+             'comments(first:1){nodes{url author{login}}}} pageInfo{hasNextPage endCursor}}}}}')
+    result = subprocess.run([*gh_command(role), 'api', 'graphql', '--paginate', '--slurp', '-f', 'query=' + query,
+                             '-f', 'owner=' + owner, '-f', 'name=' + name, '-F', f'number={number}'],
+                            capture_output=True, text=True, timeout=60, check=True)
+    threads = [thread for page in json.loads(result.stdout)
+               for thread in page['data']['repository']['pullRequest']['reviewThreads']['nodes']]
     rows = []
     for thread in threads:
         first = (thread['comments']['nodes'] or [{}])[0]

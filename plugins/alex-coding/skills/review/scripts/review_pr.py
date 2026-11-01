@@ -218,7 +218,7 @@ def step(root, state, github, execute=None):
         current['fingerprint'] = own_diff_fingerprint(root, current)
         if current['fingerprint'] == state['approved_fingerprint']:
             if current['head'] == state['head']:
-                core.settle(state, current, state['review_phase'], state['seen'])
+                state['base'] = current['base']
             else:
                 state['pending'] = make_pending(state, current, reused_approval(state, current), token)
             save(root, state)

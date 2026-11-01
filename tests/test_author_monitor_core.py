@@ -472,8 +472,9 @@ class IdentityTests(unittest.TestCase):
 
         def run(command, **kwargs):
             if 'graphql' in command:
-                data = {'repository': {'pullRequest': {'reviewThreads': {'nodes': threads}}}}
-                return type('Result', (), {'stdout': json.dumps({'data': data})})()
+                pages = [{'data': {'repository': {'pullRequest': {'reviewThreads': {'nodes': [row]}}}}}
+                         for row in reversed(threads)]
+                return type('Result', (), {'stdout': json.dumps(pages)})()
             return type('Result', (), {'stdout': json.dumps({'headRefOid': 'head', 'statusCheckRollup': checks})})()
 
         github = lambda endpoint, *a, **k: pr if endpoint.endswith('/pulls/1') else reviews if '/reviews' in endpoint else []

@@ -135,6 +135,14 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(self.state['base'], 'd' * 40)
         self.assertIsNone(self.state['pending'])
 
+    def test_base_move_does_not_swallow_a_new_ci_failure(self):
+        self.approve_at_round_limit()
+        self.github.current = current(ci='fail')
+        self.github.current['base'] = 'd' * 40
+        self.step()
+        self.step()
+        self.assertEqual(len(self.calls), 2)
+
     def test_merged_pr_discards_its_review_checkout_and_keeps_state(self):
         self.step()
         (self.root / 'checkout/.git').mkdir(parents=True)
