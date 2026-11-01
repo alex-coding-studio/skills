@@ -2,7 +2,7 @@
 
 ## Ownership and capabilities
 
-`scripts/review_pr.py` creates one independent reviewer for one exact GitHub PR. It is an execution host: it invokes the selected CLI for relevant events and resumes that PR's exact session. It does not depend on a desktop thread, Semina, a notification socket or a Claude Monitor tool. Author Monitor keeps its existing runtime and responsibility.
+`scripts/review_pr.py` creates one independent reviewer for one exact GitHub PR. It is an execution host: it invokes the selected CLI for relevant events and resumes that PR's exact session. It does not depend on Semina. Started with an author session, the same process is the PR's only runner: it also delivers author feedback and completes post-merge cleanup, see [Author delivery](#author-delivery).
 
 Requires macOS/Linux Python 3.9+, Git, GitHub CLI with `gh_as admin`, repository read access for Git fetch, and an authenticated Codex or Claude CLI. Windows is unsupported because locks use `fcntl`. Required CLI flags are probed before launch. Unsupported execution is inactive review, not permission to substitute another runtime, account or service. Use the current host's runtime unless the user/project selects another. The runner passes the model and effort explicitly according to the policy below, independently of author settings, and never silently falls back.
 
@@ -48,6 +48,12 @@ Check `active`, PR identity, PID, startup log and eventual session/publication e
 State defaults to `${XDG_STATE_HOME:-~/.local/state}/alex-coding/review/<PR-hash>`. Its key is canonical PR identity, independent of runtime/session. `--state-base` selects an explicit alternative; use it on every command and never change it to bypass ownership. Launch and lifetime locks prevent duplicate local workers. They are not a distributed lock: reuse established ownership and coordinate an explicit handoff before moving between hosts. `start` and `retry` preserve pending publication, session and rounds; explicit `continue` creates a fresh session with retained history. No credentials are stored.
 
 The runner creates its own detached Git repository in the PR state directory and verifies exact head/base. Dirty, ignored or unrecognized local work is preserved. It never checks out or cleans the author's working copy. Review snapshots, patches and logs stay local for recovery; do not commit them. When the PR is verified merged or closed, the runner deletes its generated checkout and keeps the small state, patch and log files so status and rounds survive a reopen; a reopened PR fetches a fresh checkout. Author post-merge cleanup remains with Monitor.
+
+## Author delivery
+
+`start --author-runtime codex|claude --author-session <existing-session> --checkout <owned-checkout> [--session-remote <endpoint>] [--codex <executable>]` attaches author delivery to this runner. Implement's delivery helper passes these. The author ledger is Monitor's state-delivery ledger, kept in this PR's state directory under `author/`, read with `gh_as bot`; review reads and writes keep `gh_as admin`. Each poll runs the review step and then one author poll, which delivers the complete current PR state to the author session (Codex native queue or bound endpoint, Claude bound endpoint or stdout) and, after merge, synchronizes the default checkout and disposes of the owned checkout with Monitor's completion helper. The runner stops only when the review is finished and author delivery and cleanup are settled; a review handoff keeps author delivery running until merge or closure. Repeated review transport failures set `error` but keep author delivery alive.
+
+Claude without a bound endpoint delivers through stdout, so the runner is not detached: `start` returns `monitor_command`, which the author session starts through its `Monitor` tool, and the runner writes its own status lines to `monitor.log` so stdout carries only deliveries. The author registration is immutable: a different runtime, session or endpoint is refused. `continue` stops and replaces the whole runner; in stdout mode it returns `monitor_command` again.
 
 ## Events and stopping
 

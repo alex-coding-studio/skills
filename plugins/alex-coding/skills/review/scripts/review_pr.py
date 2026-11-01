@@ -1,9 +1,12 @@
 import argparse
 from contextlib import contextmanager
 import fcntl
+import importlib.util
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -14,6 +17,77 @@ import uuid
 import pr_review_github as remote
 import pr_review_runtime as runtime
 import pr_review_state as core
+
+
+MONITOR = Path(__file__).resolve().parents[2] / 'monitor/scripts'
+
+
+def author_adapter(runtime):
+    spec = importlib.util.spec_from_file_location(f'{runtime}_author_adapter', MONITOR / f'{runtime}_pr_monitor.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def author_owner(author):
+    if author['runtime'] == 'codex':
+        base = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
+    else:
+        base = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
+    return base / 'state/author-pr-monitor' / author['session']
+
+
+def author_store(root, state):
+    author = state['author_delivery']
+    module = author_adapter(author['runtime'])
+    script = str(MONITOR / f"{author['runtime']}_pr_monitor.py")
+    delivery = 'session' if author.get('remote') else 'queued' if author['runtime'] == 'codex' else 'stdout'
+    if author['runtime'] == 'codex':
+        runtime_adapter = module.Runtime(author['session'], script, author.get('executable'), delivery, author.get('remote'))
+    else:
+        runtime_adapter = module.Runtime(author['session'], script, delivery, author.get('remote'))
+    return module.core.Store(root / 'author', author['session'], state['pr'], runtime_adapter), module
+
+
+def author_poll(store, module):
+    return module.core.poll(store)
+
+
+def stdout_delivery(state):
+    author = state.get('author_delivery') or {}
+    return author.get('runtime') == 'claude' and not author.get('remote')
+
+
+def run_command(root, pr):
+    return shlex.join([sys.executable, str(Path(__file__).resolve()), 'run', '--pr', pr,
+                       '--state-base', str(root.parents[2])])
+
+
+def attach_author(args, root, state):
+    if args.author_runtime == 'codex':
+        session = str(uuid.UUID(args.author_session))
+    elif re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', args.author_session or ''):
+        session = args.author_session
+    else:
+        raise ValueError('invalid existing Claude session identity')
+    author = {'runtime': args.author_runtime, 'session': session, 'remote': args.session_remote}
+    existing = state.get('author_delivery')
+    if existing and any(existing.get(key) != author[key] for key in ('runtime', 'session', 'remote')):
+        raise ValueError('existing author delivery differs; refusing reroute')
+    if author['runtime'] == 'codex':
+        author['executable'] = shutil.which(args.codex)
+        if not author['executable']:
+            raise ValueError('verified Codex executable required for author delivery')
+        capability = subprocess.run([author['executable'], 'queue', '--help'], capture_output=True,
+                                    text=True, timeout=10, check=True)
+        if author['remote'] and '--remote' not in capability.stdout:
+            raise ValueError('this Codex executable does not support session queue --remote')
+    store, module = author_store(root, {**state, 'author_delivery': author})
+    store.register(checkout=str(args.checkout.resolve()) if args.checkout else None)
+    if author['remote']:
+        module.bind_session_route(store, author_owner(author), author['remote'])
+    state['author_delivery'] = author
+    save(root, state)
 
 
 def state_root(pr, base=None):
@@ -259,36 +333,55 @@ def step(root, state, github, execute=None):
 
 def run(root, pr, once=False):
     with lock(root, 'run.lock'):
+        os.chdir(root)
         state = read(root, pr)
         state['pid'] = os.getpid()
         state['started_at'] = time.time()
         save(root, state)
         github = remote.GitHub(pr, state['reviewer'])
-        print(f'Reviewer started for {pr}; {state["runtime"]}; session={state["session"]}; polling without model calls', flush=True)
+        author = author_store(root, state) if state.get('author_delivery') else None
+        if stdout_delivery(state):
+            def say(text):
+                remote.shared.note(root, text)
+        else:
+            def say(text):
+                print(text, flush=True)
+        say(f'Reviewer started for {pr}; {state["runtime"]}; session={state["session"]}; polling without model calls')
         failures = 0
         while True:
-            try:
-                continuing = step(root, state, github)
-                failures = 0
-                state.pop('last_transport_error', None)
-            except Exception as error:
-                failures += 1
-                state['last_transport_error'] = type(error).__name__
-                save(root, state)
-                print(f'{type(error).__name__}: retained current progress; no model replay', flush=True)
-                continuing = True
-                if failures >= 3:
-                    state['phase'] = 'error'
+            continuing = False
+            if state['phase'] not in {'merged', 'closed', 'error'}:
+                try:
+                    continuing = step(root, state, github)
+                    failures = 0
+                    state.pop('last_transport_error', None)
+                except Exception as error:
+                    failures += 1
+                    state['last_transport_error'] = type(error).__name__
                     save(root, state)
-                    raise RuntimeError('reviewer inactive after repeated transport/publication failure; retry retained state') from error
-            if not continuing or once:
+                    say(f'{type(error).__name__}: retained current progress; no model replay')
+                    continuing = True
+                    if failures >= 3:
+                        state['phase'] = 'error'
+                        save(root, state)
+                        if author is None:
+                            raise RuntimeError('reviewer inactive after repeated transport/publication failure; retry retained state') from error
+                        continuing = False
+            author_done = True
+            if author is not None:
+                try:
+                    author_done = author_poll(*author)
+                except Exception as error:
+                    say(f'{pr}: author delivery cycle failed ({type(error).__name__}); retained for retry')
+                    author_done = False
+            if once or (not continuing and author_done):
                 break
             time.sleep(1 if state.get('pending') else state['interval'])
-        print(f'Reviewer stopped for {pr}: {state["phase"]}', flush=True)
+        say(f'Reviewer stopped for {pr}: {state["phase"]}')
 
 
 def launch(root, pr):
-    if running(root):
+    if running(root) or stdout_delivery(read(root, pr)):
         return read(root, pr)
     with (root / 'monitor.log').open('a') as log:
         process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'run', '--pr', pr,
@@ -417,6 +510,11 @@ def main():
     parser.add_argument('--interval', type=int, default=45)
     parser.add_argument('--worker-timeout', type=int, default=1800)
     parser.add_argument('--once', action='store_true')
+    parser.add_argument('--author-runtime', choices=['codex', 'claude'])
+    parser.add_argument('--author-session')
+    parser.add_argument('--checkout', type=Path)
+    parser.add_argument('--session-remote')
+    parser.add_argument('--codex', default='codex')
     args = parser.parse_args()
     pr = remote.shared.canonical(args.pr)
     root = state_root(pr, args.state_base)
@@ -435,6 +533,8 @@ def main():
                 if not args.runtime or not args.reviewer or not args.acceptance_file:
                     parser.error('start requires --runtime, --reviewer and --acceptance-file')
                 state = register(args, root, pr)
+                if args.author_runtime:
+                    attach_author(args, root, state)
             elif args.action == 'continue':
                 if not args.decision_file or not args.decision_file.read_text().strip():
                     parser.error('continue requires the explicit user decision in --decision-file')
@@ -454,7 +554,10 @@ def main():
                                                     'session', 'pid', 'started_at', 'last_review_url',
                                                     'last_transport_error', 'last_usage', 'complexity')} | {
                                                         'review_settings': runtime.settings_for(state),
-                                                        'active': running(root), 'state_directory': str(root)}, indent=2))
+                                                        'active': running(root), 'state_directory': str(root),
+                                                        'author_delivery': (state.get('author_delivery') or {}).get('runtime')}
+          | ({'monitor_command': run_command(root, pr)}
+             if stdout_delivery(state) and not running(root) and state['phase'] not in core.TERMINAL else {}), indent=2))
 
 
 if __name__ == '__main__':

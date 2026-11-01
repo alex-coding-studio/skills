@@ -7,6 +7,8 @@ description: "Deliver author feedback on named PRs to their existing session. Re
 
 Keep this task responsible for each named PR it created or was explicitly asked to follow. Register automatically after PR creation under the task's existing authorization. `alex-coding:review` owns independent review of that PR; Implement or Plan starts it separately after registration. This Monitor never supplies the author's own approval.
 
+A PR opened through Implement's delivery helper gets author delivery from its single per-PR runner (`alex-coding:review`'s `review_pr.py`), which uses this skill's adapters and ledger; do not register a second listener for it. Use the standalone listener below for review-exempt PRs, PRs named explicitly without a reviewer, and registrations made before the single runner, which keep running until their PR ends.
+
 ## Select the runtime
 
 - **Codex:** read [runtime.md](references/runtime.md). Submit directly to the existing session's native queue, or its host-provided persistent endpoint. The host owns scheduling; do not inspect desktop busy/idle state. Never invent an endpoint, replacement executor or task.

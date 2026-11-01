@@ -1,4 +1,8 @@
+import contextlib
 import copy
+import io
+import os
+from types import SimpleNamespace
 import json
 from pathlib import Path
 import sys
@@ -467,6 +471,84 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(command[command.index('--add-dir') + 1], '/state')
 
 
+
+
+class OnePullRequestRunnerTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'alex-coding/review/pr'
+        self.root.mkdir(parents=True)
+        self.addCleanup(os.chdir, os.getcwd())
+        state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 3)
+        state.update(interval=10, acceptance='scope')
+        self.state = state
+        self.addCleanup(patch.stopall)
+        patch.object(runner.remote, 'GitHub').start()
+        patch.object(runner.time, 'sleep').start()
+
+    def author(self, runtime='claude', remote=None):
+        self.state['author_delivery'] = {'runtime': runtime, 'session': 'session-one', 'remote': remote}
+        runner.save(self.root, self.state)
+
+    def test_author_delivery_continues_after_review_ends_until_its_cleanup_finishes(self):
+        self.author(remote='unix:///tmp/owner.sock')
+        polls = []
+        with patch.object(runner, 'step', return_value=False) as step, \
+                patch.object(runner, 'author_poll', side_effect=lambda store, module: polls.append(1) or len(polls) == 3):
+            runner.run(self.root, 'owner/repo#1')
+        self.assertEqual(len(polls), 3)
+        self.assertEqual(step.call_count, 3)
+
+    def test_runner_without_author_delivery_stops_with_its_review(self):
+        runner.save(self.root, self.state)
+        with patch.object(runner, 'step', return_value=False), patch.object(runner, 'author_poll') as poll:
+            runner.run(self.root, 'owner/repo#1')
+        poll.assert_not_called()
+
+    def test_claude_stdout_delivery_keeps_runner_status_off_stdout(self):
+        self.author()
+        output = io.StringIO()
+        with patch.object(runner, 'step', return_value=False), \
+                patch.object(runner, 'author_poll', return_value=True), contextlib.redirect_stdout(output):
+            runner.run(self.root, 'owner/repo#1')
+        self.assertEqual(output.getvalue(), '')
+        self.assertIn('Reviewer started', (self.root / 'monitor.log').read_text())
+
+    def test_claude_stdout_delivery_is_not_detached(self):
+        self.author()
+        with patch.object(runner.subprocess, 'Popen') as popen:
+            state = runner.launch(self.root, 'owner/repo#1')
+        popen.assert_not_called()
+        self.assertIn("review_pr.py run --pr 'owner/repo#1' --state-base ", runner.run_command(self.root, state['pr']))
+
+    def test_author_ledger_lives_inside_the_pr_state_directory(self):
+        self.author(remote='unix:///tmp/owner.sock')
+        store, module = runner.author_store(self.root, self.state)
+        self.assertEqual(store.root, (self.root / 'author').resolve())
+        self.assertEqual(store.runtime.delivery_name, 'session')
+        self.assertTrue(store.runtime.state_delivery)
+
+    def test_author_delivery_is_registered_once_and_cannot_be_rerouted(self):
+        runner.save(self.root, self.state)
+        args = SimpleNamespace(author_runtime='claude', author_session='session-one', session_remote=None,
+                               checkout=Path(self.temp.name), codex='codex')
+        registered = []
+        real = runner.author_store
+
+        def author_store(root, state):
+            store, module = real(root, state)
+            store.register = lambda checkout=None: registered.append((store.root, checkout))
+            return store, module
+
+        with patch.object(runner, 'author_store', side_effect=author_store):
+            runner.attach_author(args, self.root, self.state)
+            runner.attach_author(args, self.root, self.state)
+            args.author_session = 'session-two'
+            with self.assertRaisesRegex(ValueError, 'refusing reroute'):
+                runner.attach_author(args, self.root, self.state)
+        self.assertEqual(registered[0], ((self.root / 'author').resolve(), str(Path(self.temp.name).resolve())))
+        self.assertEqual(runner.read(self.root, 'owner/repo#1')['author_delivery']['session'], 'session-one')
 
 class OwnDiffFingerprintTests(unittest.TestCase):
     def test_merging_the_base_keeps_the_fingerprint_until_own_files_change(self):

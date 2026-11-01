@@ -144,19 +144,40 @@ class DeliveryTests(unittest.TestCase):
             with self.subTest(recorded=recorded), self.assertRaises(ValueError):
                 delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
 
-    def test_claude_start_requires_native_monitor_without_launching_shell_listener(self):
+    def test_claude_stdout_delivery_returns_the_single_runner_for_the_monitor_tool(self):
         with tempfile.TemporaryDirectory() as directory:
             args = delivery.parser().parse_args(['start', '--runtime', 'claude', '--session', 'existing',
                 '--pr', 'owner/repo#1', '--checkout', directory, '--acceptance-file', __file__,
-                '--reviewer', 'reviewer'])
+                '--reviewer', 'reviewer', '--review-runtime', 'codex'])
+            runner = "python3 review_pr.py run --pr 'owner/repo#1' --state-base /state"
             with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
-                    patch.object(delivery, 'invoke', return_value={}), \
-                    patch.object(delivery, 'monitor_live', return_value=False), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
+                    patch.object(delivery, 'invoke', return_value={'active': False, 'monitor_command': runner}) as invoke, \
                     patch.object(delivery.subprocess, 'Popen') as popen:
                 result = delivery.start(args)
             self.assertEqual(result['status'], 'native-monitor-required')
-            self.assertFalse(result['reviewer_active'])
-            self.assertIn('claude_pr_monitor.py', result['monitor_command'])
+            self.assertEqual(result['monitor_command'], runner)
+            command = invoke.call_args.args[0]
+            self.assertIn('review_pr.py', command[1])
+            self.assertEqual(command[command.index('--runtime') + 1], 'codex')
+            self.assertEqual(command[command.index('--author-runtime') + 1], 'claude')
+            self.assertEqual(invoke.call_count, 1)
+            popen.assert_not_called()
+
+    def test_new_pr_starts_one_runner_that_also_delivers_author_feedback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = delivery.parser().parse_args(['start', '--runtime', 'codex',
+                '--session', '00000000-0000-0000-0000-000000000001', '--pr', 'owner/repo#1',
+                '--checkout', directory, '--acceptance-file', __file__, '--reviewer', 'reviewer'])
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
+                    patch.object(delivery, 'invoke', return_value={'active': True, 'phase': 'starting'}) as invoke, \
+                    patch.object(delivery.subprocess, 'Popen') as popen:
+                result = delivery.start(args)
+            self.assertEqual(result['status'], 'started')
+            self.assertTrue(result['monitor_active'])
+            self.assertEqual(invoke.call_count, 1)
+            self.assertIn('--author-session', invoke.call_args.args[0])
             popen.assert_not_called()
 
     def test_claude_start_launches_its_own_listener_once_a_session_endpoint_is_bound(self):
@@ -185,13 +206,15 @@ class DeliveryTests(unittest.TestCase):
                 '--pr', 'owner/repo#1', '--checkout', directory, '--acceptance-file', __file__,
                 '--reviewer', 'reviewer', '--session-remote', 'unix:///tmp/two/control.sock'])
             with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
                     patch.object(delivery, 'invoke', return_value={}), \
                     patch.object(delivery.subprocess, 'Popen'), \
                     self.assertRaisesRegex(ValueError, 'refusing reroute'):
                 delivery.start(args)
 
-    def test_existing_monitor_is_reused_before_starting_reviewer(self):
+    def test_legacy_registered_monitor_is_reused_before_starting_reviewer(self):
         with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / 'state.json').write_text(json.dumps({'target': {}}))
             args = delivery.parser().parse_args(['start', '--runtime', 'codex',
                 '--session', '00000000-0000-0000-0000-000000000001', '--pr', 'owner/repo#1',
                 '--checkout', directory, '--acceptance-file', __file__, '--reviewer', 'reviewer'])
