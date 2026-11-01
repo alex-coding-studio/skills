@@ -78,7 +78,9 @@ def start(args):
     if not args.acceptance_file.read_text().strip():
         raise ValueError('acceptance must be nonempty')
     exemption = pin_check(args)
-    if exemption['status'] == 'review-exempt' or (monitor_root(args) / 'state.json').exists():
+    reviewed = review.state_root(review.remote.shared.canonical(args.pr)) / 'state.json'
+    separate = reviewed.exists() and not json.loads(reviewed.read_text()).get('author_delivery')
+    if exemption['status'] == 'review-exempt' or separate or (monitor_root(args) / 'state.json').exists():
         return start_monitor(args, exemption)
     arguments = review_command(args) + ['--author-runtime', args.runtime, '--author-session', args.session,
                                         '--checkout', str(args.checkout.resolve())]

@@ -72,8 +72,12 @@ def attach_author(args, root, state):
         raise ValueError('invalid existing Claude session identity')
     author = {'runtime': args.author_runtime, 'session': session, 'remote': args.session_remote}
     existing = state.get('author_delivery')
-    if existing and any(existing.get(key) != author[key] for key in ('runtime', 'session', 'remote')):
-        raise ValueError('existing author delivery differs; refusing reroute')
+    if existing:
+        if any(existing.get(key) != author[key] for key in ('runtime', 'session', 'remote')):
+            raise ValueError('existing author delivery differs; refusing reroute')
+        return
+    if running(root):
+        raise ValueError('reviewer already running without author delivery; keep its standalone author Monitor')
     if author['runtime'] == 'codex':
         author['executable'] = shutil.which(args.codex)
         if not author['executable']:
@@ -541,7 +545,10 @@ def main():
                 state = continue_review(args, root, pr)
             else:
                 if running(root):
-                    raise RuntimeError('the existing reviewer is still running; do not replace its ownership')
+                    current = read(root, pr)
+                    if current['phase'] != 'error' or not current.get('author_delivery'):
+                        raise RuntimeError('the existing reviewer is still running; do not replace its ownership')
+                    stop_runner(root, pr)
                 state = read(root, pr)
                 if state['phase'] == 'error':
                     state['phase'] = 'starting'

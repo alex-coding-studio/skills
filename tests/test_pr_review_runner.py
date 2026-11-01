@@ -550,6 +550,28 @@ class OnePullRequestRunnerTests(unittest.TestCase):
         self.assertEqual(registered[0], ((self.root / 'author').resolve(), str(Path(self.temp.name).resolve())))
         self.assertEqual(runner.read(self.root, 'owner/repo#1')['author_delivery']['session'], 'session-one')
 
+    def test_repeated_start_with_the_same_author_keeps_the_running_reviewers_progress(self):
+        self.author()
+        stale = runner.read(self.root, 'owner/repo#1')
+        self.state['rounds'] = 2
+        runner.save(self.root, self.state)
+        args = SimpleNamespace(author_runtime='claude', author_session='session-one', session_remote=None,
+                               checkout=Path(self.temp.name), codex='codex')
+        with patch.object(runner, 'author_store') as store:
+            runner.attach_author(args, self.root, stale)
+        store.assert_not_called()
+        self.assertEqual(runner.read(self.root, 'owner/repo#1')['rounds'], 2)
+
+    def test_author_delivery_cannot_be_added_to_a_running_reviewer(self):
+        runner.save(self.root, self.state)
+        args = SimpleNamespace(author_runtime='claude', author_session='session-one', session_remote=None,
+                               checkout=Path(self.temp.name), codex='codex')
+        with patch.object(runner, 'running', return_value=True), patch.object(runner, 'author_store') as store, \
+                self.assertRaisesRegex(ValueError, 'already running'):
+            runner.attach_author(args, self.root, self.state)
+        store.assert_not_called()
+        self.assertNotIn('author_delivery', runner.read(self.root, 'owner/repo#1'))
+
 class OwnDiffFingerprintTests(unittest.TestCase):
     def test_merging_the_base_keeps_the_fingerprint_until_own_files_change(self):
         import subprocess

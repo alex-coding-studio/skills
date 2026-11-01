@@ -164,6 +164,23 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(invoke.call_count, 1)
             popen.assert_not_called()
 
+    def test_reviewer_started_without_author_delivery_keeps_the_standalone_monitor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = delivery.parser().parse_args(['start', '--runtime', 'codex',
+                '--session', '00000000-0000-0000-0000-000000000001', '--pr', 'owner/repo#1',
+                '--checkout', directory, '--acceptance-file', __file__, '--reviewer', 'reviewer'])
+            review_root = Path(directory) / 'review'
+            review_root.mkdir()
+            (review_root / 'state.json').write_text(json.dumps({'schema': 1, 'pr': 'owner/repo#1'}))
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory) / 'monitor'), \
+                    patch.object(delivery.review, 'state_root', return_value=review_root), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
+                    patch.object(delivery, 'start_monitor', return_value={'status': 'started'}) as legacy, \
+                    patch.object(delivery, 'invoke') as invoke:
+                delivery.start(args)
+            legacy.assert_called_once()
+            invoke.assert_not_called()
+
     def test_new_pr_starts_one_runner_that_also_delivers_author_feedback(self):
         with tempfile.TemporaryDirectory() as directory:
             args = delivery.parser().parse_args(['start', '--runtime', 'codex',
