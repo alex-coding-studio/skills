@@ -54,6 +54,9 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.calls = []
         self.addCleanup(patch.stopall)
         patch.object(runner, 'prepare_checkout').start()
+        self.fingerprints = {}
+        patch.object(runner, 'own_diff_fingerprint', side_effect=lambda root, value: self.fingerprints.get(
+            value['head'], 'e' * 39 + value['head'][0])).start()
 
     def execute(self, state, root, prompt, persist):
         self.calls.append(state['session'])
@@ -81,6 +84,63 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.github.current['terminal'] = 'merged'
         self.assertFalse(self.step())
         self.assertEqual(self.state['phase'], 'merged')
+        self.assertEqual(len(self.calls), 2)
+
+    def approve_at_round_limit(self):
+        self.state['rounds'] = 1
+        self.github.current = current(ci='pass')
+        self.fingerprints = {'a' * 40: '1' * 40, 'c' * 40: '1' * 40}
+        self.step()
+        self.step()
+        self.assertEqual(self.state['rounds'], 2)
+
+    def test_merging_main_without_changing_own_diff_reuses_approval_without_model_or_round(self):
+        self.approve_at_round_limit()
+        self.github.current = current(head='c' * 40, ci='pending')
+        self.step()
+        self.step()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.state['rounds'], 2)
+        reused = self.github.published[-1]
+        self.assertEqual(reused['checkpoint']['head'], 'c' * 40)
+        self.assertIn('a' * 40, reused['result']['body'])
+        self.assertEqual(self.state['review_phase'], 'waiting-ci')
+        restored = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
+        core.restore(restored, reused['checkpoint'])
+        self.assertEqual(restored['approved_fingerprint'], '1' * 40)
+
+    def test_changed_own_diff_after_approval_gets_an_independent_review(self):
+        self.approve_at_round_limit()
+        self.fingerprints['c' * 40] = '2' * 40
+        self.github.current = current(head='c' * 40, ci='pass')
+        self.step()
+        self.step()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.github.published[-1]['checkpoint']['phase'], 'needs-user-attention')
+
+    def test_new_feedback_with_an_unchanged_own_diff_is_still_reviewed(self):
+        self.approve_at_round_limit()
+        self.github.current = current(head='c' * 40, ci='pass')
+        self.github.current['events'] = [{'key': 'human', 'kind': 'conversation', 'id': 9, 'url': 'u'}]
+        self.step()
+        self.step()
+        self.assertEqual(self.github.published[-1]['checkpoint']['phase'], 'needs-user-attention')
+
+    def test_base_move_with_unchanged_own_diff_is_settled_without_publication(self):
+        self.approve_at_round_limit()
+        self.github.current = current(ci='pass')
+        self.github.current['base'] = 'd' * 40
+        self.step()
+        self.assertEqual(len(self.github.published), 1)
+        self.assertEqual(self.state['base'], 'd' * 40)
+        self.assertIsNone(self.state['pending'])
+
+    def test_base_move_does_not_swallow_a_new_ci_failure(self):
+        self.approve_at_round_limit()
+        self.github.current = current(ci='fail')
+        self.github.current['base'] = 'd' * 40
+        self.step()
+        self.step()
         self.assertEqual(len(self.calls), 2)
 
     def test_merged_pr_discards_its_review_checkout_and_keeps_state(self):
@@ -406,6 +466,39 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn('--add-dir', command)
         self.assertEqual(command[command.index('--add-dir') + 1], '/state')
 
+
+
+class OwnDiffFingerprintTests(unittest.TestCase):
+    def test_merging_the_base_keeps_the_fingerprint_until_own_files_change(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkout = root / 'checkout'
+            checkout.mkdir()
+
+            def git(*arguments):
+                return subprocess.run(['git', '-C', str(checkout), '-c', 'user.name=t', '-c', 'user.email=t@t',
+                                       *arguments], capture_output=True, text=True, check=True).stdout.strip()
+
+            def commit(name, text):
+                (checkout / name).write_text(text)
+                git('add', name)
+                git('commit', '-qm', name)
+                return git('rev-parse', 'HEAD')
+
+            git('init', '-q', '-b', 'main')
+            base = commit('shared.txt', 'one')
+            git('switch', '-qc', 'work')
+            approved = commit('own.txt', 'feature')
+            git('switch', '-q', 'main')
+            main = commit('other.txt', 'main moved')
+            git('switch', '-q', 'work')
+            git('merge', '-q', '--no-edit', 'main')
+            merged = git('rev-parse', 'HEAD')
+            first = runner.own_diff_fingerprint(root, {'base': base, 'head': approved})
+            self.assertEqual(runner.own_diff_fingerprint(root, {'base': main, 'head': merged}), first)
+            changed = commit('own.txt', 'feature v2')
+            self.assertNotEqual(runner.own_diff_fingerprint(root, {'base': main, 'head': changed}), first)
 
 if __name__ == '__main__':
     unittest.main()

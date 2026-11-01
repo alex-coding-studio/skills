@@ -24,6 +24,8 @@ pool = load('worktree_pool', HERE / 'worktree_pool.py')
 
 
 class ProjectStore(core.Store):
+    state_delivery = False
+
     def register_slot(self, slot, author=None):
         path = Path(slot).expanduser()
         if not path.is_absolute():

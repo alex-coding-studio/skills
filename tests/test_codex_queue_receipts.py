@@ -99,7 +99,7 @@ class QueueReceiptTests(unittest.TestCase):
             self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'pending')
             self.assertFalse(subject.read()['target']['stopped'])
 
-    def test_runner_exits_after_cleanup_without_erasing_the_queued_receipt(self):
+    def test_runner_exits_after_cleanup_once_remaining_feedback_is_delivered(self):
         runtime = codex.Runtime(THREAD, '/monitor.py')
         with store(runtime=runtime) as subject:
             self.disposable_store(subject)
@@ -115,8 +115,8 @@ class QueueReceiptTests(unittest.TestCase):
                 os.chdir(previous)
             snapshot.assert_called_once()
             sleep.assert_not_called()
-            self.assertIsNotNone(subject.read()['batch'])
-            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'delivered')
+            self.assertIsNone(subject.read()['batch'])
+            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'handled')
             self.assertFalse((subject.root / 'run.pid').exists())
 
     def test_disposal_does_not_wait_for_or_erase_a_claude_feedback_claim(self):
@@ -142,10 +142,11 @@ class QueueReceiptTests(unittest.TestCase):
             with patch.object(core, 'cleanup_target', return_value={'status': 'cleaned'}):
                 subject.apply(result(notice(1), ending(), terminal='merged'))
             self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'pending')
+            with patch.object(runtime, 'deliver', return_value=False):
+                self.assertFalse(subject.deliver())
+            self.assertFalse(subject.read()['target']['stopped'])
             with patch.object(runtime, 'deliver', return_value=True):
                 self.assertTrue(subject.deliver())
-            self.assertFalse(subject.read()['target']['stopped'])
-            subject.acknowledge(subject.read()['batch']['token'])
             self.assertTrue(subject.read()['target']['stopped'])
 
     def test_QD_02_feedback_behind_the_active_batch_is_aggregated_until_acknowledgement(self):

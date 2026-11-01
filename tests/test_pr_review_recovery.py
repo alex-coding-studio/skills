@@ -108,7 +108,7 @@ class FreshReviewTests(unittest.TestCase):
             previous = json.loads((root / state['previous_review']).read_text())
             self.assertEqual(previous, self.state)
             return {'outcome': 'changes-requested', 'body': 'The finding is still unresolved.', 'comments': []}
-        with patch.object(runner, 'prepare_checkout'):
+        with patch.object(runner, 'prepare_checkout'), patch.object(runner, 'own_diff_fingerprint', return_value='1' * 40):
             runner.step(self.root, state, github, execute)
         self.assertEqual(calls, [None])
         self.assertEqual(state['rounds'], 2)

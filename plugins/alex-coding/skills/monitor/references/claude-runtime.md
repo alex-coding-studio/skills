@@ -4,9 +4,9 @@
 
 Requires Python 3 on macOS/Linux and authorized `gh` read access through `gh_as bot`. The listener reads GitHub under the explicit bot role, never under whichever account happens to be active, and a missing `gh_as` fails at startup rather than falling back.
 
-Two delivery paths exist. Stdout delivery, described in the rest of this section, uses the Claude Code `Monitor` tool and suits an interactive session. [Session delivery](#session-delivery-to-the-owning-host) suits a session started by an execution host that keeps its input open across turns and supplies an explicit endpoint. The event ledger, the exact-batch acknowledgement contract, terminal handling and completion are identical on both paths; startup, framing and failure reporting are not, and each path states its own. Sections below that name the `Monitor` tool describe stdout delivery only.
+Two delivery paths exist. Stdout delivery, described in the rest of this section, uses the Claude Code `Monitor` tool and suits an interactive session. [Session delivery](#session-delivery-to-the-owning-host) suits a session started by an execution host that keeps its input open across turns and supplies an explicit endpoint. The event ledger, state delivery, terminal handling and completion are identical on both paths; startup, framing and failure reporting are not, and each path states its own. Sections below that name the `Monitor` tool describe stdout delivery only.
 
-The `Monitor` tool's documented framing is that stdout lines written within 200ms are batched into a single notification, so a multiline block emitted by one write arrives as one notification rather than one per line. This listener relies on that: `deliver` builds the whole batch as one string and issues exactly one `print`, which `test_the_whole_batch_is_written_by_one_stdout_call` pins. Observed on this installation: a batch of six events plus its header and instructions arrived as a single notification, three separate times. If a future runtime fragments a multiline write, that test still passes while delivery degrades, so re-check the tool contract before assuming the framing still holds. There is no desktop queue, no IPC snapshot adapter and no idle probe, because a `Monitor` notification arrives in the session's own conversation instead of being inserted into another task's input queue.
+The `Monitor` tool's documented framing is that stdout lines written within 200ms are batched into a single notification, so a multiline block emitted by one write arrives as one notification rather than one per line. This listener relies on that: `deliver` builds the whole delivery as one string and issues exactly one `print`, which `test_the_whole_batch_is_written_by_one_stdout_call` pins. Observed on this installation: a delivery of six events plus its header and instructions arrived as a single notification, three separate times. If a future runtime fragments a multiline write, that test still passes while delivery degrades, so re-check the tool contract before assuming the framing still holds. There is no desktop queue, no IPC snapshot adapter and no idle probe, because a `Monitor` notification arrives in the session's own conversation instead of being inserted into another task's input queue.
 
 Without a bound session endpoint, start the runner only through `Monitor` with `persistent: true`. Background Bash notifies once on process exit, which silently loses every event before that exit. Never substitute a Scheduled task. If `Monitor` is unavailable, report that automatic follow-up is inactive and say why.
 
@@ -20,23 +20,21 @@ python3 <monitor>/scripts/claude_pr_monitor.py --session <stable-session-id> \
   --session-remote unix:///absolute/path/control.sock
 ```
 
-The endpoint must be a normalized absolute `unix://` socket path with no credentials, query or fragment. Registration records it on the target and writes `session-route.json` under the session's state root. The binding is immutable: rebinding the same endpoint is idempotent, a different endpoint is refused, and an unacknowledged batch must be acknowledged first. A run whose stored binding is missing or changed refuses to deliver.
+The endpoint must be a normalized absolute `unix://` socket path with no credentials, query or fragment. Registration records it on the target and writes `session-route.json` under the session's state root. The binding is immutable: rebinding the same endpoint is idempotent, a different endpoint is refused, and a batch claimed by an older version must be acknowledged first. A run whose stored binding is missing or changed refuses to deliver.
 
 `run` then selects session delivery automatically; `--delivery stdout` against a bound target is refused, and `--delivery session` without a binding is refused. Because delivery no longer travels through stdout, this runner is started as a detached background process rather than through the `Monitor` tool. `scripts/delivery.py start --runtime claude --session-remote <endpoint>` performs registration, startup and startup verification.
 
-Each batch is written as one line:
+Each delivery is written as one line:
 
 ```json
-{"text": "<the whole batch, newlines included>"}
+{"text": "<the whole delivery, newlines included>"}
 ```
 
-The line is written as UTF-8, and non-ASCII characters are sent unescaped, so the host must decode it as UTF-8. The host decodes that line and delivers its text to the session as a single user message. It answers `{"ok": true}` on acceptance and `{"ok": false, "error": ...}` when it cannot deliver. A refusal, a closed connection or an unreachable socket leaves the batch pending and unclaimed, so the next poll retries it; the failure is written to `monitor.log` and to this runner's stdout log. Do not send raw multi-line text to the endpoint: the host reads line by line, so an unframed batch becomes one user turn per line.
-
-The exact-batch acknowledgement contract is unchanged. The batch carries its own `ack` command, and only that token settles it.
+The line is written as UTF-8, and non-ASCII characters are sent unescaped, so the host must decode it as UTF-8. The host decodes that line and delivers its text to the session as a single user message. It answers `{"ok": true}` on acceptance and `{"ok": false, "error": ...}` when it cannot deliver. A refusal, a closed connection or an unreachable socket leaves the events pending, so the next poll retries with the then-current state; the failure is written to `monitor.log` and to this runner's stdout log. Do not send raw multi-line text to the endpoint: the host reads line by line, so an unframed delivery becomes one user turn per line.
 
 ## One monitor per pull request
 
-Codex and Claude both run one listener per PR. Codex listeners use the same desktop task as their delivery destination without sharing batches. Claude uses a separate `Monitor` task with its own notification stream, description and `TaskStop`. Each PR gets its own listener, state directory, batch and acknowledgement token. Two PRs never share a batch, and finishing one does not wait for the other.
+Codex and Claude both run one listener per PR. Codex listeners use the same desktop task as their delivery destination without sharing event ledgers. Claude uses a separate `Monitor` task with its own notification stream, description and `TaskStop`. Each PR gets its own listener, state directory and event ledger. Two PRs never share a delivery, and finishing one does not wait for the other.
 
 Use the installed Skill's absolute script path. Every command takes `--session` and `--pr`. Run from the state directory, never from a checkout that cleanup may remove; the runner changes its own working directory to its state directory.
 
@@ -60,30 +58,27 @@ Give that `Monitor` task a description naming this exact PR. A description cover
 
 `run.lock` is held on that PR's own directory, so a second listener for the same PR exits immediately saying it is already followed, while a listener for a different PR starts normally. Never point two PRs at one `--state-dir` to work around this.
 
-`run` refuses to start before that PR is registered. `run --once` polls and can print a batch; it is not a dry run. Registration itself makes no GitHub writes and prints nothing. Initial polling includes all currently visible non-self feedback, not only feedback newer than registration.
+`run` refuses to start before that PR is registered. `run --once` polls and can print a delivery; it is not a dry run. Registration itself makes no GitHub writes and prints nothing. Initial polling includes all currently visible non-self feedback, not only feedback newer than registration.
 
-## Event and acknowledgement contract
+## Events and state delivery
 
 ```sh
 python3 <monitor>/scripts/claude_pr_monitor.py --session <id> --pr 'owner/repo#123' status
-python3 <monitor>/scripts/claude_pr_monitor.py --session <id> --pr 'owner/repo#123' ack --token <exact-batch-token>
-python3 <monitor>/scripts/claude_pr_monitor.py --session <id> --pr 'owner/repo#123' \
-  claim --events <explicit-pending-event-key> <another-key>
 ```
 
 Conversation comments, inline comments/replies and submitted reviews are paginated. Comment body/update revisions and formal review states produce distinct event versions; pending draft reviews are excluded. Initial all-green CI stays quiet; failures and later current-head CI terminal changes are meaningful events, including failure while another check still runs. Branch/local changes are not events. Filtering requires both the fixed author login and `🤖` anywhere in the body; the current reader identity and signature wording do not influence it.
 
-The ledger distinguishes pending, delivered, handled and terminal-settled events. One printed batch contains at most 40 compact events from that one PR, and the batch's own `ack` command line is printed directly under the header, before the event rows, so a truncated notification loses re-fetchable detail rather than the required action. While a batch is delivered or being handled, polling continues and accumulates later events without printing again. Only a matching token acknowledges that batch's delivered set. Stale tokens fail without changing state; a new commit never acknowledges feedback. Manual `claim` requires explicit pending keys, refuses an existing active batch and returns its own token.
+Whenever events are pending, one delivery is printed (or written to the session endpoint). It starts with the complete current state: head, CI result and failing check names, each reviewer's latest formal review, and every unresolved review thread (the first 40, then a count). It then lists at most 40 events new since the previous delivery; human comments are always among them. Accepted events are recorded as delivered and are not repeated. No acknowledgement is required: fix what you accept and push, reply with the reason only where you disagree, and let the next independent review decide. Because every delivery repeats the complete current state, a lost or restarted session recovers it from the next delivery or by refetching the PR.
 
-A restart preserves delivered claims, so it does not reprint unacknowledged work automatically. If a turn was interrupted, resume it and acknowledge its actual disposition. Because stdout delivery and acknowledgement are separate steps, a crash between printing and acknowledging leaves that batch delivered; inspect `status` and acknowledge its real disposition rather than assuming it was lost.
+A batch claimed by an older version keeps its original contract: its `ack --token` command still settles it, and it blocks further deliveries until then. `claim --events` remains for such manual recovery only.
 
 ## Terminal handling
 
-Closed-unmerged targets are preserved. Their listener stops after the terminal feedback is accepted for delivery, retaining unacknowledged events in the ledger. Other PRs have their own listeners and are unaffected. A reopened PR requires an explicit `reopen` and a running listener; old event history stays intact.
+Closed-unmerged targets are preserved. Their listener stops after the terminal feedback is accepted for delivery. Other PRs have their own listeners and are unaffected. A reopened PR requires an explicit `reopen` and a running listener; old event history stays intact.
 
-For merged targets, newly registered linked worktrees use the [disposable lifecycle](../../../references/worktree-lifecycle.md) through the shared completion helper. The listener synchronizes the default checkout and force-removes the task worktree independently, without waiting for a feedback acknowledgement. Existing delivered claims are retained verbatim and still require their real acknowledgement before ledger settlement; disposal never marks their feedback handled. The listener can exit before that acknowledgement. Residual files and process cwd do not veto removal. Partial/interrupted disposable operations retry without a model call; successful completion settles and stops only this PR. Legacy registrations retain their original conservative synchronization/removal rules and one-attempt exception handling. Never silently migrate ownership or acknowledgement state.
+For merged targets, newly registered linked worktrees use the [disposable lifecycle](../../../references/worktree-lifecycle.md) through the shared completion helper. The listener synchronizes the default checkout and force-removes the task worktree independently, without waiting for feedback delivery. A batch claimed by an older version is retained verbatim and still requires its real acknowledgement before ledger settlement; disposal never marks its feedback handled. Residual files and process cwd do not veto removal. Partial/interrupted disposable operations retry without a model call; successful completion settles and stops only this PR. Legacy registrations retain their original conservative synchronization/removal rules and one-attempt exception handling. Never silently migrate ownership or acknowledgement state.
 
-The process exits once its PR is stopped and no batch remains, which ends that `Monitor` watch and leaves every other PR's listener running. To stop earlier, use `TaskStop` on that exact monitor task; never use a user-wide process kill and never delete its event ledger. Resume with the same session and PR identity and state path.
+The process exits once its PR is stopped and its remaining events are delivered, which ends that `Monitor` watch and leaves every other PR's listener running. To stop earlier, use `TaskStop` on that exact monitor task; never use a user-wide process kill and never delete its event ledger. Resume with the same session and PR identity and state path.
 
 Repeated identical retries go to `monitor.log` in that PR's state directory. On stdout delivery, stdout carries only the first failure and the later recovery, so one outage wakes the session once rather than every interval. Session delivery has no such deduplication and no channel back to the session: every failing cycle is written to `monitor.log` and to the detached runner's own log, so a lastingly unreachable endpoint retries quietly until someone reads that log.
 
@@ -108,7 +103,7 @@ Run the end action immediately after verifying a successful merge, from a direct
 python3 <monitor>/scripts/claude_pr_monitor.py --session <id> --pr 'owner/repo#123' complete
 ```
 
-It reads the registered identity and fresh PR state, rejects a non-merged PR (and an unacknowledged batch for legacy cleanup), and enters the same completion helper used by background merge detection. Safe success settles only this PR; every other PR's listener remains active. A repeat reports success or retries a partial/interrupted disposable operation. Legacy failed or interrupted attempts retain their original exception handling. Report a preserved or error outcome honestly; it is not complete local synchronization.
+It reads the registered identity and fresh PR state, rejects a non-merged PR (and an older version's unacknowledged batch for legacy cleanup), and enters the same completion helper used by background merge detection. Safe success settles only this PR; every other PR's listener remains active. A repeat reports success or retries a partial/interrupted disposable operation. Legacy failed or interrupted attempts retain their original exception handling. Report a preserved or error outcome honestly; it is not complete local synchronization.
 
 ## Validation
 
@@ -116,6 +111,6 @@ Run `python3 -m unittest discover -s tests -p test_author_adapters.py -v` from t
 
 ## Terminal polling boundary
 
-After a verified merge or closure, receipt handling uses the saved event ledger instead of fetching another GitHub snapshot. Automatic cleanup retries still require fresh remote evidence; partial, interrupted or error cleanup results keep their existing protection. A completed or preserved cleanup result does not require another snapshot merely to wait for an acknowledgement.
+After a verified merge or closure, receipt handling uses the saved event ledger instead of fetching another GitHub snapshot. Automatic cleanup retries still require fresh remote evidence; partial, interrupted or error cleanup results keep their existing protection. A completed or preserved cleanup result does not require another snapshot.
 
-Once final pending events have been accepted for delivery, the listener exits even when the batch has not yet been acknowledged. The batch token and pending events remain unchanged. A terminal acknowledgement immediately attempts delivery of the next saved batch, so draining does not require a running listener. Failed delivery retains pending events for retry; restart the same listener to retry without refetching a completed PR. Explicit `reopen` is required to resume watching a terminal PR that has been reopened.
+Once final pending events have been accepted for delivery, the listener exits. A batch claimed by an older version stays unchanged; its terminal acknowledgement immediately attempts delivery of the remaining events, so draining does not require a running listener. Failed delivery retains pending events for retry; restart the same listener to retry without refetching a completed PR. Explicit `reopen` is required to resume watching a terminal PR that has been reopened.

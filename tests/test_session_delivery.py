@@ -55,7 +55,7 @@ def owning_endpoint(reply):
 
 
 class SessionDeliveryTests(unittest.TestCase):
-    def test_terminal_ack_restores_bound_delivery_in_a_new_cli_runtime(self):
+    def test_legacy_terminal_ack_hands_remaining_feedback_to_bound_state_delivery(self):
         for module, identity, flag, env_key in [
             (monitor, THREAD, '--thread', 'CODEX_HOME'),
             (claude, SESSION, '--session', 'CLAUDE_CONFIG_DIR'),
@@ -88,7 +88,8 @@ class SessionDeliveryTests(unittest.TestCase):
                             module.main()
                         self.assertEqual(deliver.call_args.args[0], remote)
                 self.assertEqual(subject.read()['target']['events']['first']['status'], 'handled')
-                self.assertEqual(subject.read()['batch']['events'], ['second'])
+                self.assertIsNone(subject.read()['batch'])
+                self.assertEqual(subject.read()['target']['events']['second']['status'], 'handled')
 
     def test_SESSION_05_bound_startup_selects_session_and_refuses_desktop_override(self):
         with tempfile.TemporaryDirectory() as directory:

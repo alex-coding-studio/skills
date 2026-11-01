@@ -19,7 +19,7 @@ The runner publishes formal reviews and inline findings against the exact review
 
 ## Continue and finish
 
-Approval retains the same reviewer through CI and subsequent heads until merge/closure. New code requires current-head review. CI-only events do not consume a code-review round; successful CI on an unchanged passing review needs no new model invocation. New feedback, failures and code/base changes remain actionable.
+Approval retains the same reviewer through CI and subsequent heads until merge/closure. New code requires current-head review; a head whose own diff is unchanged since approval, such as a default-branch merge, carries the approval forward without a model call or round. CI-only events do not consume a code-review round; successful CI on an unchanged passing review needs no new model invocation. New feedback, failures and code/base changes remain actionable.
 
 On continuation, use the existing session, checkpoint and new evidence first. Incremental patches are starting points; full acceptance, patch and history remain accessible. Preserve resolved findings and revisit supporting code when changes or contradictions warrant it.
 

@@ -22,6 +22,7 @@ _transport.loader.exec_module(transport)
 
 class Runtime:
     role = 'bot'
+    state_delivery = True
     marker = 'From Codex 🤖'
     delivery_name = 'queue'
     state_keys = ('thread', 'pr')
