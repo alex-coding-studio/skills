@@ -91,6 +91,31 @@ class FreshReviewTests(unittest.TestCase):
             runner.main()
         return runner.read(self.root, self.state['pr'])
 
+    def retry(self):
+        arguments = ['review_pr.py', 'retry', '--pr', self.state['pr'], '--state-base', str(self.base)]
+        with patch.object(sys, 'argv', arguments), contextlib.redirect_stdout(io.StringIO()):
+            runner.main()
+        return runner.read(self.root, self.state['pr'])
+
+    def test_retry_replaces_an_errored_runner_that_keeps_author_delivery_alive(self):
+        self.state['author_delivery'] = {'runtime': 'claude', 'session': 'one', 'remote': None}
+        runner.save(self.root, self.state)
+        self.running.return_value = True
+        with patch.object(runner, 'stop_runner') as stop:
+            state = self.retry()
+        stop.assert_called_once()
+        self.assertEqual(state['phase'], 'starting')
+        self.assertIsNotNone(state['pending'])
+        self.launch.assert_called_once()
+
+    def test_retry_still_refuses_a_running_reviewer_that_has_not_failed(self):
+        self.state.update(phase='reviewing', author_delivery={'runtime': 'claude', 'session': 'one', 'remote': None})
+        runner.save(self.root, self.state)
+        self.running.return_value = True
+        with patch.object(runner, 'stop_runner') as stop, self.assertRaises(RuntimeError):
+            self.retry()
+        stop.assert_not_called()
+
     def test_failed_publication_does_not_block_user_authorized_fresh_review(self):
         state = self.continue_review('--additional-rounds', '0')
         self.assertIsNone(state['pending'])

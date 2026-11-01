@@ -65,11 +65,37 @@ def monitor_live(root, command):
             and log.exists() and 'author PR monitor started' in log.read_text())
 
 
+def review_command(args):
+    arguments = [sys.executable, str(PLUGIN / 'skills/review/scripts/review_pr.py'),
+                 'start', '--pr', args.pr, '--runtime', args.review_runtime or args.runtime, '--reviewer', args.reviewer,
+                 '--acceptance-file', str(args.acceptance_file.resolve()), '--max-rounds', str(args.max_rounds)]
+    return arguments + (['--complexity', args.complexity] if args.complexity else [])
+
+
 def start(args):
     if not args.checkout or not args.acceptance_file or not args.reviewer:
         raise ValueError('start requires checkout, acceptance file and independent reviewer')
     if not args.acceptance_file.read_text().strip():
         raise ValueError('acceptance must be nonempty')
+    exemption = pin_check(args)
+    reviewed = review.state_root(review.remote.shared.canonical(args.pr)) / 'state.json'
+    separate = reviewed.exists() and not json.loads(reviewed.read_text()).get('author_delivery')
+    if exemption['status'] == 'review-exempt' or separate or (monitor_root(args) / 'state.json').exists():
+        return start_monitor(args, exemption)
+    arguments = review_command(args) + ['--author-runtime', args.runtime, '--author-session', args.session,
+                                        '--checkout', str(args.checkout.resolve())]
+    if args.session_remote:
+        arguments += ['--session-remote', args.session_remote]
+    result = invoke(arguments)
+    if result.get('monitor_command'):
+        return {'status': 'native-monitor-required', 'pr': args.pr, 'reviewer_active': False,
+                'monitor_command': result['monitor_command'], 'persistent': True,
+                'next': 'Start this command with the native Monitor tool, then repeat start.'}
+    return {'status': 'started' if result['active'] else 'reviewer-inactive', 'pr': args.pr,
+            'monitor_active': result['active'], 'reviewer_active': result['active'], 'reviewer': result}
+
+
+def start_monitor(args, exemption):
     command = monitor_command(args)
     root = monitor_root(args)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -100,16 +126,10 @@ def start(args):
                 if process.poll() is not None or time.monotonic() >= deadline:
                     raise RuntimeError(f'monitor startup is unverified; inspect {root / "startup.log"}')
                 time.sleep(0.1)
-        exemption = pin_check(args)
         if exemption['status'] == 'review-exempt':
             return {**exemption, 'monitor_active': True, 'reviewer_active': False,
                     'next': 'Merge with pin-merge at this head once checks pass.'}
-        arguments = [sys.executable, str(PLUGIN / 'skills/review/scripts/review_pr.py'),
-                     'start', '--pr', args.pr, '--runtime', args.runtime, '--reviewer', args.reviewer,
-                     '--acceptance-file', str(args.acceptance_file.resolve()), '--max-rounds', str(args.max_rounds)]
-        if args.complexity:
-            arguments += ['--complexity', args.complexity]
-        result = invoke(arguments)
+        result = invoke(review_command(args))
         return {'status': 'started' if result['active'] else 'reviewer-inactive', 'pr': args.pr,
                 'monitor_active': True, 'reviewer_active': result['active'], 'reviewer': result}
 
@@ -253,12 +273,15 @@ def finish(args):
     if not args.expected_head or not args.merge_method or not args.feedback_settled:
         raise ValueError('finish requires expected head, authorized merge method and settled feedback')
     pr = review.remote.shared.canonical(args.pr)
+    state = review.read(review.state_root(pr), pr)
     root = monitor_root(args)
     command = monitor_command(args)
+    if state.get('author_delivery'):
+        root = review.state_root(pr) / 'author'
+        command += ['--state-dir', str(root)]
     target = invoke(command + ['status'])['target']
     if not target:
         raise ValueError('the task-owned PR must already be registered')
-    state = review.read(review.state_root(pr), pr)
     github = review.remote.GitHub(pr, state['reviewer'])
     current = github.snapshot(target['author'])
     if current['terminal'] != 'merged':
@@ -297,6 +320,7 @@ def parser():
     result.add_argument('--complexity', choices=['deterministic', 'low', 'medium', 'high'])
     result.add_argument('--max-rounds', type=int, default=3)
     result.add_argument('--session-remote')
+    result.add_argument('--review-runtime', choices=['codex', 'claude'])
     result.add_argument('--expected-head')
     result.add_argument('--merge-method', choices=['squash', 'merge', 'rebase'])
     result.add_argument('--feedback-settled', action='store_true')
