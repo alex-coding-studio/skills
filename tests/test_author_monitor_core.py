@@ -467,8 +467,9 @@ class IdentityTests(unittest.TestCase):
         checks = [{'__typename': 'CheckRun', 'name': 'tests', 'status': 'COMPLETED', 'conclusion': 'FAILURE'},
                   {'__typename': 'CheckRun', 'name': 'lint', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}]
         thread = {'isOutdated': False, 'path': 'a.py', 'line': 3,
-                  'comments': {'nodes': [{'url': 'open-thread', 'author': {'login': 'reviewer'}}]}}
-        threads = [dict(thread, isResolved=False), dict(thread, isResolved=True)]
+                  'comments': {'nodes': [{'url': 'open-thread', 'author': {'login': 'human'}}]}}
+        fixed = dict(thread, comments={'nodes': [{'url': 'approved-reviewers-thread', 'author': {'login': 'Reviewer'}}]})
+        threads = [dict(thread, isResolved=False), dict(thread, isResolved=True), dict(fixed, isResolved=False)]
 
         def run(command, **kwargs):
             if 'graphql' in command:
