@@ -24,8 +24,6 @@ pool = load('worktree_pool', HERE / 'worktree_pool.py')
 
 
 class ProjectStore(core.Store):
-    state_delivery = False
-
     def register_slot(self, slot, author=None):
         path = Path(slot).expanduser()
         if not path.is_absolute():
@@ -88,20 +86,25 @@ class ProjectStore(core.Store):
             target.update(terminal=current['terminal'], head=current['head'], ci=current['ci'], ci_version=current['ci_version'])
             return self._attempt_cleanup(data, target, current, explicit=True)
 
+    def release_note(self, target, keys, suffix=''):
+        if not any(target['events'][key]['kind'] == 'terminal' for key in keys):
+            return ''
+        command = shlex.join(['python3', str(Path(self.runtime.script).resolve()), *self.runtime.identity_arguments,
+                              '--pr', self.name, '--state-dir', str(self.root), 'complete'])
+        if (target.get('cleanup_result') or {}).get('status') == 'released':
+            return '\nThe pool slot is released. Tell the project coordinator this slot is free' + suffix + '.'
+        return ('\nThe pool slot is still held. Fix the reported cause, then run: ' + command +
+                ' and tell the project coordinator once it reports released.')
+
     def build_message(self, target, keys, token):
         message = super().build_message(target, keys, token).replace(
             'Use alex-coding:monitor to handle', 'Use alex-coding:project-monitor to handle', 1)
-        if not any(target['events'][key]['kind'] == 'terminal' for key in keys):
-            return message
-        command = shlex.join(['python3', str(Path(self.runtime.script).resolve()), *self.runtime.identity_arguments,
-                              '--pr', self.name, '--state-dir', str(self.root), 'complete'])
-        outcome = target.get('cleanup_result') or {}
-        if outcome.get('status') == 'released':
-            note = 'The pool slot is released. Tell the project coordinator this slot is free before acknowledging.'
-        else:
-            note = ('The pool slot is still held. Fix the reported cause, then run: ' + command +
-                    ' and tell the project coordinator once it reports released.')
-        return message + '\n' + note
+        return message + self.release_note(target, keys, ' before acknowledging')
+
+    def build_state_message(self, target, keys):
+        message = super().build_state_message(target, keys).replace(
+            'Use alex-coding:monitor to handle', 'Use alex-coding:project-monitor to handle', 1)
+        return message + self.release_note(target, keys)
 
 
 def main():

@@ -45,11 +45,12 @@ def monitor_root(args):
         identity = args.session
         base = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
         slug = review.remote.shared.readable_slug(name)
-    return (base / 'state/author-pr-monitor' / identity / slug).resolve()
+    return (base / ('state/project-pr-monitor' if args.slot else 'state/author-pr-monitor') / identity / slug).resolve()
 
 
 def monitor_command(args):
-    script = PLUGIN / f'skills/monitor/scripts/{args.runtime}_pr_monitor.py'
+    script = (PLUGIN / 'skills/project-monitor/scripts/project_pr_monitor.py' if args.slot
+              else PLUGIN / f'skills/monitor/scripts/{args.runtime}_pr_monitor.py')
     return [sys.executable, str(script), '--thread' if args.runtime == 'codex' else '--session',
             args.session, '--pr', review.remote.shared.canonical(args.pr)]
 
@@ -75,8 +76,10 @@ def review_command(args):
 
 
 def start(args):
-    if not args.checkout or not args.reviewer:
-        raise ValueError('start requires checkout and independent reviewer')
+    if not (args.checkout or args.slot) or not args.reviewer:
+        raise ValueError('start requires a checkout or pool slot and an independent reviewer')
+    if args.slot and args.runtime != 'claude':
+        raise ValueError('pool slots are followed by Claude Project threads only')
     if args.acceptance_file and not args.acceptance_file.read_text().strip():
         raise ValueError('acceptance must be nonempty')
     exemption = pin_check(args)
@@ -84,8 +87,8 @@ def start(args):
     separate = reviewed.exists() and not json.loads(reviewed.read_text()).get('author_delivery')
     if exemption['status'] == 'review-exempt' or separate or (monitor_root(args) / 'state.json').exists():
         return start_monitor(args, exemption)
-    arguments = review_command(args) + ['--author-runtime', args.runtime, '--author-session', args.session,
-                                        '--checkout', str(args.checkout.resolve())]
+    arguments = review_command(args) + ['--author-runtime', args.runtime, '--author-session', args.session]
+    arguments += ['--slot', str(args.slot.resolve())] if args.slot else ['--checkout', str(args.checkout.resolve())]
     if args.session_remote:
         arguments += ['--session-remote', args.session_remote]
     result = invoke(arguments)
@@ -102,7 +105,8 @@ def start_monitor(args, exemption):
     root = monitor_root(args)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     with review.lock(root, 'launch.lock'):
-        registration = command + ['register', '--checkout', str(args.checkout.resolve())]
+        registration = command + (['register', '--slot', str(args.slot.resolve())] if args.slot
+                                  else ['register', '--checkout', str(args.checkout.resolve())])
         if args.session_remote:
             existing = json.loads((root / 'state.json').read_text()) if (root / 'state.json').exists() else {}
             bound = (existing.get('target') or {}).get('session_remote')
@@ -137,6 +141,7 @@ def start_monitor(args, exemption):
 
 
 def open_pr(args):
+    args.checkout = args.checkout or args.slot
     if not all([args.repository, args.checkout, args.title, args.body_file, args.reviewer]):
         raise ValueError('open requires repository, checkout, title, body file and reviewer')
     repository, _ = review.remote.shared.parse_target(args.repository + '#1')
@@ -255,6 +260,7 @@ def parser():
     result.add_argument('--title')
     result.add_argument('--body-file', type=Path)
     result.add_argument('--checkout', type=Path)
+    result.add_argument('--slot', type=Path)
     result.add_argument('--acceptance-file', type=Path)
     result.add_argument('--reviewer')
     result.add_argument('--complexity', choices=['deterministic', 'low', 'medium', 'high'])

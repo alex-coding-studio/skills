@@ -233,6 +233,7 @@ class ProjectMonitorTests(PoolFixture):
             self.assertTrue(store.deliver())
         self.assertIn('alex-coding:project-monitor', output.getvalue())
         self.assertIn('Tell the project coordinator this slot is free', output.getvalue())
+        self.assertIsNone(store.read()['batch'])
 
     def test_a_closed_pr_also_releases_its_slot(self):
         store = self.store()
@@ -240,25 +241,21 @@ class ProjectMonitorTests(PoolFixture):
         self.assertEqual(store.read()['target']['cleanup_result']['status'], 'released')
         self.assertIn(str(self.slots[0]), pool.status(self.primary)['free'])
 
-    def test_closed_pr_waits_for_active_feedback_then_releases_its_slot(self):
+    def test_feedback_and_the_release_reach_the_thread_without_any_acknowledgement(self):
         store = self.store()
         event = monitor.core.event('conversation', 1, 'v1', 'url')
         with store.locked() as data:
             data['target']['events'][event['key']] = dict(event, status='pending')
-        with contextlib.redirect_stdout(io.StringIO()):
-            store.deliver()
-        token = store.read()['batch']['token']
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertTrue(store.deliver())
+        self.assertIsNone(store.read()['batch'])
+        self.assertNotIn(' ack ', output.getvalue())
         store.apply(self.terminal('closed'))
-        with patch.object(monitor.core, 'snapshot') as snapshot:
-            self.assertFalse(monitor.core.poll(store))
-        snapshot.assert_not_called()
-        with patch.object(monitor.core, 'snapshot', return_value=self.terminal('closed')) as snapshot, \
-             contextlib.redirect_stdout(io.StringIO()):
-            store.acknowledge(token)
-        snapshot.assert_called_once()
         self.assertEqual(store.read()['target']['cleanup_result']['status'], 'released')
         self.assertIn(str(self.slots[0]), pool.status(self.primary)['free'])
-        self.assertIsNotNone(store.read()['batch'])
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertTrue(store.deliver())
+        self.assertIn('Tell the project coordinator this slot is free', output.getvalue())
         with patch.object(monitor.core, 'snapshot') as snapshot:
             self.assertTrue(monitor.core.poll(store))
         snapshot.assert_not_called()

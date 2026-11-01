@@ -146,6 +146,32 @@ class DeliveryTests(unittest.TestCase):
                 self.assertEqual(delivery.start(args)['status'], 'started')
             self.assertNotIn('--acceptance-file', invoke.call_args.args[0])
 
+    def test_a_pool_slot_starts_the_single_runner_with_its_slot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = delivery.parser().parse_args(['start', '--runtime', 'claude', '--session', 'existing',
+                '--pr', 'owner/repo#1', '--slot', directory, '--reviewer', 'reviewer'])
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
+                    patch.object(delivery, 'invoke', return_value={'active': True}) as invoke:
+                delivery.start(args)
+            command = invoke.call_args.args[0]
+            self.assertEqual(command[command.index('--slot') + 1], str(Path(directory).resolve()))
+            self.assertNotIn('--checkout', command)
+
+    def test_an_exempt_pool_slot_registers_the_project_monitor_with_its_slot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = delivery.parser().parse_args(['start', '--runtime', 'claude', '--session', 'existing',
+                '--pr', 'owner/repo#1', '--slot', directory, '--reviewer', 'reviewer'])
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-exempt', 'head': 'h'}), \
+                    patch.object(delivery, 'monitor_live', return_value=True), \
+                    patch.object(delivery, 'invoke', return_value={}) as invoke:
+                result = delivery.start(args)
+            registration = invoke.call_args_list[0].args[0]
+            self.assertEqual(result['status'], 'review-exempt')
+            self.assertIn('project_pr_monitor.py', registration[1])
+            self.assertEqual(registration[registration.index('--slot') + 1], str(Path(directory).resolve()))
+
     def test_claude_start_launches_its_own_listener_once_a_session_endpoint_is_bound(self):
         endpoint = 'unix:///tmp/semina-claude-test/control.sock'
         with tempfile.TemporaryDirectory() as directory:

@@ -20,10 +20,15 @@ import pr_review_state as core
 
 
 MONITOR = Path(__file__).resolve().parents[2] / 'monitor/scripts'
+PROJECT = Path(__file__).resolve().parents[2] / 'project-monitor/scripts/project_pr_monitor.py'
 
 
-def author_adapter(runtime):
-    spec = importlib.util.spec_from_file_location(f'{runtime}_author_adapter', MONITOR / f'{runtime}_pr_monitor.py')
+def author_script(author):
+    return PROJECT if author.get('slot') else MONITOR / f"{author['runtime']}_pr_monitor.py"
+
+
+def author_adapter(author):
+    spec = importlib.util.spec_from_file_location(f"{author_script(author).stem}_adapter", author_script(author))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -34,14 +39,17 @@ def author_owner(author):
         base = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
     else:
         base = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
-    return base / 'state/author-pr-monitor' / author['session']
+    return base / ('state/project-pr-monitor' if author.get('slot') else 'state/author-pr-monitor') / author['session']
 
 
 def author_store(root, state):
     author = state['author_delivery']
-    module = author_adapter(author['runtime'])
-    script = str(MONITOR / f"{author['runtime']}_pr_monitor.py")
+    module = author_adapter(author)
+    script = str(author_script(author))
     delivery = 'session' if author.get('remote') else 'queued' if author['runtime'] == 'codex' else 'stdout'
+    if author.get('slot'):
+        runtime_adapter = module.claude.Runtime(author['session'], script, delivery, author.get('remote'))
+        return module.ProjectStore(root / 'author', author['session'], state['pr'], runtime_adapter), module
     if author['runtime'] == 'codex':
         runtime_adapter = module.Runtime(author['session'], script, author.get('executable'), delivery, author.get('remote'))
     else:
@@ -70,10 +78,13 @@ def attach_author(args, root, state):
         session = args.author_session
     else:
         raise ValueError('invalid existing Claude session identity')
-    author = {'runtime': args.author_runtime, 'session': session, 'remote': args.session_remote}
+    author = {'runtime': args.author_runtime, 'session': session, 'remote': args.session_remote,
+              'slot': str(args.slot.resolve()) if args.slot else None}
+    if author['slot'] and author['runtime'] != 'claude':
+        raise ValueError('pool slots are followed by Claude Project threads only')
     existing = state.get('author_delivery')
     if existing:
-        if any(existing.get(key) != author[key] for key in ('runtime', 'session', 'remote')):
+        if any(existing.get(key) != author[key] for key in ('runtime', 'session', 'remote', 'slot')):
             raise ValueError('existing author delivery differs; refusing reroute')
         return
     if running(root):
@@ -87,9 +98,12 @@ def attach_author(args, root, state):
         if author['remote'] and '--remote' not in capability.stdout:
             raise ValueError('this Codex executable does not support session queue --remote')
     store, module = author_store(root, {**state, 'author_delivery': author})
-    store.register(checkout=str(args.checkout.resolve()) if args.checkout else None)
+    if author['slot']:
+        store.register_slot(args.slot)
+    else:
+        store.register(checkout=str(args.checkout.resolve()) if args.checkout else None)
     if author['remote']:
-        module.bind_session_route(store, author_owner(author), author['remote'])
+        (module.claude if author['slot'] else module).bind_session_route(store, author_owner(author), author['remote'])
     state['author_delivery'] = author
     save(root, state)
 
@@ -517,6 +531,7 @@ def main():
     parser.add_argument('--author-runtime', choices=['codex', 'claude'])
     parser.add_argument('--author-session')
     parser.add_argument('--checkout', type=Path)
+    parser.add_argument('--slot', type=Path)
     parser.add_argument('--session-remote')
     parser.add_argument('--codex', default='codex')
     args = parser.parse_args()

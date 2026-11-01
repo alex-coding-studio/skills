@@ -541,7 +541,7 @@ class OnePullRequestRunnerTests(unittest.TestCase):
     def test_author_delivery_is_registered_once_and_cannot_be_rerouted(self):
         runner.save(self.root, self.state)
         args = SimpleNamespace(author_runtime='claude', author_session='session-one', session_remote=None,
-                               checkout=Path(self.temp.name), codex='codex')
+                               checkout=Path(self.temp.name), slot=None, codex='codex')
         registered = []
         real = runner.author_store
 
@@ -565,7 +565,7 @@ class OnePullRequestRunnerTests(unittest.TestCase):
         self.state['rounds'] = 2
         runner.save(self.root, self.state)
         args = SimpleNamespace(author_runtime='claude', author_session='session-one', session_remote=None,
-                               checkout=Path(self.temp.name), codex='codex')
+                               checkout=Path(self.temp.name), slot=None, codex='codex')
         with patch.object(runner, 'author_store') as store:
             runner.attach_author(args, self.root, stale)
         store.assert_not_called()
@@ -574,12 +574,40 @@ class OnePullRequestRunnerTests(unittest.TestCase):
     def test_author_delivery_cannot_be_added_to_a_running_reviewer(self):
         runner.save(self.root, self.state)
         args = SimpleNamespace(author_runtime='claude', author_session='session-one', session_remote=None,
-                               checkout=Path(self.temp.name), codex='codex')
+                               checkout=Path(self.temp.name), slot=None, codex='codex')
         with patch.object(runner, 'running', return_value=True), patch.object(runner, 'author_store') as store, \
                 self.assertRaisesRegex(ValueError, 'already running'):
             runner.attach_author(args, self.root, self.state)
         store.assert_not_called()
         self.assertNotIn('author_delivery', runner.read(self.root, 'owner/repo#1'))
+
+    def test_a_pool_slot_is_released_by_the_project_store_instead_of_disposed(self):
+        runner.save(self.root, self.state)
+        args = SimpleNamespace(author_runtime='claude', author_session='session-one', session_remote=None,
+                               checkout=None, slot=Path(self.temp.name), codex='codex')
+        registered = []
+        real = runner.author_store
+
+        def author_store(root, state):
+            store, module = real(root, state)
+            store.register_slot = lambda slot: registered.append(slot)
+            store.register = lambda checkout=None: self.fail('a pool slot must not be registered as disposable')
+            return store, module
+
+        with patch.object(runner, 'author_store', side_effect=author_store):
+            runner.attach_author(args, self.root, self.state)
+        self.assertEqual(registered, [Path(self.temp.name)])
+        store, module = runner.author_store(self.root, self.state)
+        self.assertEqual(type(store).__name__, 'ProjectStore')
+        self.assertTrue(store.delivers_state)
+        self.assertEqual(self.state['author_delivery']['slot'], str(Path(self.temp.name).resolve()))
+
+    def test_pool_slots_are_claude_only(self):
+        runner.save(self.root, self.state)
+        args = SimpleNamespace(author_runtime='codex', author_session='00000000-0000-0000-0000-000000000001',
+                               session_remote=None, checkout=None, slot=Path(self.temp.name), codex='codex')
+        with self.assertRaisesRegex(ValueError, 'Claude'):
+            runner.attach_author(args, self.root, self.state)
 
 class OwnDiffFingerprintTests(unittest.TestCase):
     def test_merging_the_base_keeps_the_fingerprint_until_own_files_change(self):

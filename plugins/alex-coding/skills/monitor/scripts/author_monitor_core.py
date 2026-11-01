@@ -191,9 +191,11 @@ def snapshot(target, role=None, summary=False):
                             pr['html_url'], outcome=terminal, head=head))
     current = dict(events=events, terminal=terminal, head=head, ci=ci, ci_version=ci_version, url=pr['html_url'], pr=pr)
     if summary:
-        current['summary'] = dict(head=head, ci=ci, failing=failing_checks(rollup),
-                                  reviews=latest_reviews(reviews, target['author']),
-                                  threads=unresolved_threads(repository, number, role))
+        verdicts = latest_reviews(reviews, target['author'])
+        approved = {review['user'].casefold() for review in verdicts if review['state'] == 'APPROVED'}
+        current['summary'] = dict(head=head, ci=ci, failing=failing_checks(rollup), reviews=verdicts,
+                                  threads=[thread for thread in unresolved_threads(repository, number, role)
+                                           if (thread['user'] or '').casefold() not in approved])
     return current
 
 
