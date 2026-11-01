@@ -174,32 +174,6 @@ def open_pr(args):
     return start(args)
 
 
-def verify_merge(state, current, expected_head, author):
-    if state['reviewer'].casefold() == author.casefold():
-        raise ValueError('the author cannot supply independent approval')
-    if (current['terminal'] or current['draft'] or current['head'] != expected_head
-            or state.get('head') != current['head'] or state.get('base') != current['base']):
-        raise ValueError('PR does not match the expected ready reviewed head/base')
-    phase = review.core.ci_gated_phase(state['phase'], state.get('ci'))
-    if (state.get('pending') or phase not in {'approved', 'waiting-ci'}
-            or current['ci'] not in {'pass', 'none'}
-            or (phase == 'waiting-ci' and current['ci'] != 'pass')):
-        raise ValueError('review or checks are unresolved')
-    if any(row['key'] not in state['seen'] for row in current['events']):
-        raise ValueError('new feedback requires the existing reviewer before merge')
-    if current['pr'].get('mergeable') is not True or current['pr'].get('mergeable_state') in {'blocked', 'dirty', 'unknown'}:
-        raise ValueError('mergeability or required GitHub protection is unresolved')
-    latest = {}
-    for row in current['history']:
-        if row['kind'] == 'review' and row.get('state') in {'APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'}:
-            latest[row['user']['login'].casefold()] = row
-    approval = latest.get(state['reviewer'].casefold(), {})
-    if approval.get('state') != 'APPROVED' or approval.get('commit_id') != current['head']:
-        raise ValueError('current-head independent approval is missing or dismissed')
-    if any(row['state'] == 'CHANGES_REQUESTED' for row in latest.values()):
-        raise ValueError('blocking review remains unresolved')
-
-
 def exempt_kinds(files):
     kinds = set()
     for row in files:
@@ -269,45 +243,9 @@ def pin_merge(args):
     return {**result, 'status': 'merged'}
 
 
-def finish(args):
-    if not args.expected_head or not args.merge_method or not args.feedback_settled:
-        raise ValueError('finish requires expected head, authorized merge method and settled feedback')
-    pr = review.remote.shared.canonical(args.pr)
-    state = review.read(review.state_root(pr), pr)
-    root = monitor_root(args)
-    command = monitor_command(args)
-    if state.get('author_delivery'):
-        root = review.state_root(pr) / 'author'
-        command += ['--state-dir', str(root)]
-    target = invoke(command + ['status'])['target']
-    if not target:
-        raise ValueError('the task-owned PR must already be registered')
-    github = review.remote.GitHub(pr, state['reviewer'])
-    current = github.snapshot(target['author'])
-    if current['terminal'] != 'merged':
-        verify_merge(state, current, args.expected_head, target['author'])
-        fresh = github.pull()
-        if fresh['head']['sha'] != current['head'] or fresh['base']['sha'] != current['base']:
-            raise ValueError('head/base changed before merge; retain the PR for review')
-        github.verify_writer(target['author'])
-        invoke([*review.remote.shared.gh_command('admin'), 'pr', 'merge', str(github.number),
-                '--repo', github.repository, '--' + args.merge_method,
-                '--match-head-commit', args.expected_head], cwd=root)
-        if not github.pull().get('merged'):
-            raise RuntimeError('merge is not confirmed; completion was not attempted')
-    os.chdir(root)
-    cleanup = subprocess.run(command + ['complete'], cwd=root, capture_output=True, text=True, timeout=120)
-    try:
-        result = json.loads(cleanup.stdout)
-    except ValueError:
-        result = {'status': 'error', 'reason': 'inspect the existing Monitor completion state before retrying'}
-    return {'status': 'merged', 'pr': pr, 'cleanup': result,
-            'complete': cleanup.returncode == 0 and result.get('status') == 'cleaned'}
-
-
 def parser():
-    result = argparse.ArgumentParser(description='Compose existing author Monitor and independent Review operations.')
-    result.add_argument('action', choices=['open', 'start', 'finish', 'pin-check', 'pin-merge'])
+    result = argparse.ArgumentParser(description='Open a PR and start its single runner, or check and merge a declared review exemption.')
+    result.add_argument('action', choices=['open', 'start', 'pin-check', 'pin-merge'])
     result.add_argument('--runtime', choices=['codex', 'claude'])
     result.add_argument('--session')
     result.add_argument('--pr')
@@ -323,7 +261,6 @@ def parser():
     result.add_argument('--review-runtime', choices=['codex', 'claude'])
     result.add_argument('--expected-head')
     result.add_argument('--merge-method', choices=['squash', 'merge', 'rebase'])
-    result.add_argument('--feedback-settled', action='store_true')
     return result
 
 
@@ -332,15 +269,14 @@ def main():
     try:
         if args.action != 'open' and not args.pr:
             raise ValueError(f'{args.action} requires the exact PR')
-        if args.action in {'open', 'start', 'finish'} and not (args.runtime and args.session):
+        if args.action in {'open', 'start'} and not (args.runtime and args.session):
             raise ValueError(f'{args.action} requires runtime and session')
-        result = {'open': open_pr, 'start': start, 'finish': finish,
-                  'pin-check': pin_check, 'pin-merge': pin_merge}[args.action](args)
+        result = {'open': open_pr, 'start': start, 'pin-check': pin_check, 'pin-merge': pin_merge}[args.action](args)
     except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
         print(json.dumps({'status': 'error', 'reason': str(error)}))
         raise SystemExit(1)
     print(json.dumps(result, indent=2))
-    if result['status'] == 'reviewer-inactive' or result.get('complete') is False:
+    if result['status'] == 'reviewer-inactive':
         raise SystemExit(1)
 
 

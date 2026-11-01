@@ -14,38 +14,6 @@ spec.loader.exec_module(delivery)
 
 
 class DeliveryTests(unittest.TestCase):
-    def evidence(self):
-        state = {'head': 'a' * 40, 'base': 'b' * 40, 'phase': 'approved', 'pending': None,
-                 'reviewer': 'reviewer', 'seen': ['handled']}
-        snapshot = {'head': state['head'], 'base': state['base'], 'ci': 'pass',
-                    'draft': False, 'terminal': None, 'events': [{'key': 'handled'}],
-                    'pr': {'mergeable': True, 'mergeable_state': 'clean'},
-                    'history': [{'kind': 'review', 'id': 1, 'state': 'APPROVED',
-                                 'commit_id': state['head'], 'user': {'login': 'reviewer'}}]}
-        return state, snapshot
-
-    def test_merge_refuses_new_head_pending_checks_and_unhandled_feedback(self):
-        for field, value in [('head', 'c' * 40), ('ci', 'pending'), ('events', [{'key': 'new'}]),
-                             ('draft', True), ('base', 'd' * 40)]:
-            state, snapshot = self.evidence()
-            snapshot[field] = value
-            with self.subTest(field=field), self.assertRaises(ValueError):
-                delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
-
-    def test_merge_requires_current_independent_approval_and_no_blocking_review(self):
-        for row in [{'id': 2, 'state': 'DISMISSED', 'user': {'login': 'reviewer'}},
-                    {'id': 3, 'state': 'CHANGES_REQUESTED', 'user': {'login': 'other'}}]:
-            state, snapshot = self.evidence()
-            snapshot['history'].append({'kind': 'review', **row})
-            with self.assertRaises(ValueError):
-                delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
-
-    def test_merge_accepts_passing_evidence_but_rejects_author_as_reviewer(self):
-        state, snapshot = self.evidence()
-        delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
-        with self.assertRaises(ValueError):
-            delivery.verify_merge(state, snapshot, 'a' * 40, 'reviewer')
-
     def test_pin_only_accepts_lockfiles_and_version_lines_only(self):
         resolved = {'filename': 'App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved',
                     'status': 'modified', 'patch': '@@ -1 +1 @@\n-"revision" : "a"\n+"revision" : "b"'}
@@ -113,36 +81,6 @@ class DeliveryTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 delivery.pin_merge(args)
         self.assertFalse(any('merge' in command for command in calls))
-
-    def test_waiting_ci_requires_positive_check_evidence(self):
-        state, snapshot = self.evidence()
-        state['phase'] = 'waiting-ci'
-        snapshot['ci'] = 'none'
-        with self.assertRaises(ValueError):
-            delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
-        snapshot['ci'] = 'pass'
-        delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
-        state['phase'] = 'approved'
-        snapshot['ci'] = 'none'
-        delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
-
-    def test_waiting_ci_recorded_without_any_checks_merges_like_an_approval(self):
-        state, snapshot = self.evidence()
-        state.update(phase='waiting-ci', ci='none')
-        snapshot['ci'] = 'none'
-        delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
-        for ci in ('pending', 'fail'):
-            snapshot['ci'] = ci
-            with self.subTest(ci=ci), self.assertRaises(ValueError):
-                delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
-
-    def test_waiting_ci_recorded_with_observed_checks_still_requires_passing_checks(self):
-        state, snapshot = self.evidence()
-        for recorded in ('pending', 'fail'):
-            state.update(phase='waiting-ci', ci=recorded)
-            snapshot['ci'] = 'none'
-            with self.subTest(recorded=recorded), self.assertRaises(ValueError):
-                delivery.verify_merge(state, snapshot, 'a' * 40, 'author')
 
     def test_claude_stdout_delivery_returns_the_single_runner_for_the_monitor_tool(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -260,45 +198,6 @@ class DeliveryTests(unittest.TestCase):
             self.assertFalse(result['reviewer_active'])
             self.assertEqual(invoke.call_count, 1)
             self.assertNotIn('review_pr.py', ' '.join(map(str, invoke.call_args.args[0])))
-
-    def test_finish_rechecks_base_and_uses_matching_head_before_protected_completion(self):
-        state, snapshot = self.evidence()
-        args = delivery.parser().parse_args(['finish', '--runtime', 'claude', '--session', 'existing',
-            '--pr', 'owner/repo#1', '--expected-head', state['head'], '--merge-method', 'squash', '--feedback-settled'])
-        fresh = {'head': {'sha': state['head']}, 'base': {'sha': state['base']}}
-        with tempfile.TemporaryDirectory() as directory, \
-                patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
-                patch.object(delivery.review, 'read', return_value=state), \
-                patch.object(delivery.review.remote, 'GitHub') as remote, \
-                patch.object(delivery.review.remote.shared, 'gh_command', return_value=['gh_as', 'admin']), \
-                patch.object(delivery, 'invoke', side_effect=[{'target': {'author': 'author'}}, '']) as invoke, \
-                patch.object(delivery.os, 'chdir'), \
-                patch.object(delivery.subprocess, 'run', return_value=SimpleNamespace(
-                    returncode=0, stdout=json.dumps({'status': 'cleaned'}))):
-            remote.return_value.snapshot.return_value = snapshot
-            remote.return_value.pull.side_effect = [fresh, {'merged': True}]
-            remote.return_value.number = 1
-            remote.return_value.repository = 'owner/repo'
-            result = delivery.finish(args)
-            command = invoke.call_args_list[1].args[0]
-            self.assertIn('--match-head-commit', command)
-            self.assertEqual(command[-1], state['head'])
-            self.assertNotIn('--admin', command)
-            remote.return_value.verify_writer.assert_called_once_with('author')
-            self.assertTrue(result['complete'])
-
-    def test_finish_stops_if_base_changes_after_review_snapshot(self):
-        state, snapshot = self.evidence()
-        args = delivery.parser().parse_args(['finish', '--runtime', 'claude', '--session', 'existing',
-            '--pr', 'owner/repo#1', '--expected-head', state['head'], '--merge-method', 'squash', '--feedback-settled'])
-        with patch.object(delivery.review, 'read', return_value=state), \
-                patch.object(delivery.review.remote, 'GitHub') as remote, \
-                patch.object(delivery, 'invoke', return_value={'target': {'author': 'author'}}) as invoke:
-            remote.return_value.snapshot.return_value = snapshot
-            remote.return_value.pull.return_value = {'head': {'sha': state['head']}, 'base': {'sha': 'c' * 40}}
-            with self.assertRaises(ValueError):
-                delivery.finish(args)
-            self.assertEqual(invoke.call_count, 1)
 
     def test_open_reconciles_an_existing_pr_instead_of_creating_a_duplicate(self):
         args = delivery.parser().parse_args(['open', '--runtime', 'claude', '--session', 'existing',
