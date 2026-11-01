@@ -17,6 +17,7 @@ POOL_FILE = 'worktree-pool.json'
 MAIN = 'main'
 BUILD_TOOLS = {'xcodebuild', 'swift-build', 'swift-test', 'swift-frontend', 'swift-driver', 'swift-package', 'xctest',
                'xcodegen', 'test-watchdog.py', 'acceptance-tests.sh', 'kit-tests.sh', 'pre-push'}
+INTERPRETERS = {'python', 'python3', 'bash', 'sh', 'zsh'}
 
 
 class PoolError(Exception):
@@ -113,8 +114,25 @@ def current_branch(path):
     return result.stdout.strip() or None
 
 
+def slot_command(command, markers):
+    arguments = command.split()
+    if not arguments:
+        return False
+    program = Path(arguments[0]).name
+    if program.lower() in INTERPRETERS or program.lower().startswith('python3.'):
+        script = next((arg for arg in arguments[1:] if not arg.startswith('-')), '')
+        program = Path(script).name
+    if program not in BUILD_TOOLS:
+        return False
+    for argument in arguments[1:]:
+        value = argument.split('=', 1)[-1]
+        if any(value == marker or value.startswith(marker + '/') for marker in markers):
+            return True
+    return False
+
+
 def slot_processes(path):
-    markers = [str(path) + '/']
+    markers = [str(path)]
     derived = git(path, 'config', '--get', 'ios.derivedDataPath', check=False).stdout.strip()
     if derived:
         markers.append(derived.rstrip('/'))
@@ -132,8 +150,7 @@ def slot_processes(path):
     own = {os.getpid(), *ancestors(os.getpid())}
     found = set()
     for pid, (_, command) in table.items():
-        tool = any(Path(arg).name in BUILD_TOOLS for arg in command.split()[:2])
-        if tool and pid not in own and any(marker in command for marker in markers) \
+        if pid not in own and slot_command(command, markers) \
                 and not any('/Xcode.app/Contents/MacOS/Xcode' in table[a][1] for a in ancestors(pid) if a in table):
             found.add(pid)
     for pid in table:

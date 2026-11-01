@@ -121,6 +121,19 @@ class WorktreePoolTests(PoolFixture):
             os.kill(child, 0)
         self.assertIsNone(bystander.poll())
 
+    def test_only_build_tools_naming_this_slot_exactly_are_selected(self):
+        slot, derived = '/work/slot-1', '/tmp/build-slot-1'
+        cases = {
+            '/usr/bin/xcodebuild -packagePath /work/slot-1': True,
+            '/usr/bin/xcodebuild -derivedDataPath /tmp/build-slot-1/Build': True,
+            '/usr/bin/python3 /infra/test-watchdog.py --idle 30 -- swift test --package-path /work/slot-1/Core': True,
+            '/usr/bin/vim xcodebuild /work/slot-1/notes': False,
+            '/usr/bin/xcodebuild -derivedDataPath /tmp/build-slot-10': False,
+            '/usr/bin/xcodebuild -packagePath /work/slot-10': False,
+        }
+        for command, expected in cases.items():
+            self.assertEqual(pool.slot_command(command, [slot, derived]), expected, command)
+
     def test_release_after_merge_detaches_the_slot_deletes_the_branch_and_frees_it(self):
         pool.acquire(self.primary, 'thread-a', 'feature-a')
         head = self.commit_in(self.slots[0], 'work')
