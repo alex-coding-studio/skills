@@ -1,6 +1,6 @@
 # Compact delivery operations
 
-Use `scripts/delivery.py` from the installed Implement skill to start the PR's single runner. It creates no extra ledger and does not change repository gates, review requirements, round limits, identities or human acceptance. Use existing direct procedures for project-assigned reviewers, explicit review exemptions, Draft PRs or non-default target branches. The helper is not merge authorization.
+Use `scripts/delivery.py` from the installed Implement skill to start the PR's single runner. It creates no extra ledger and does not change repository gates, review requirements, round limits, identities or human acceptance. Use existing direct procedures for project-assigned reviewers, explicit review exemptions, Draft PRs or non-default target branches. The helper never merges a reviewed PR.
 
 Keep one acceptance/evidence record in the existing task or PR. Export it to a local UTF-8 file for the reviewer; include the scope, sources, actual revision-bound checks, remaining limits, human decisions and the reason for the chosen [review complexity](../../review/references/runtime.md#model-and-effort-policy). Do not include private reasoning or a suggested verdict. The PR body can be that same file when appropriate.
 
@@ -23,15 +23,9 @@ Read the compact receipt. `started` establishes active processes, not approval o
 
 For a user-authorized fresh review, use Review's [`continue --decision-file`](../../review/references/runtime.md#continue-after-user-intervention) directly. Repeating this helper's `start` only reuses the existing reviewer. The continuation entrypoint replaces its verified process/session and retains previous findings without requiring a failed publication to succeed first.
 
-Once the author has handled feedback, created required follow-up Issues, satisfied human/project acceptance, verified all declared gates, and has existing authorization to merge:
+## Merge and cleanup
 
-```sh
-python3 <implement>/scripts/delivery.py finish --runtime codex --session <existing-task-uuid> \
-  --pr owner/repo#123 --expected-head <full-reviewed-head-sha> \
-  --merge-method squash --feedback-settled
-```
-
-Select the project's authorized merge method. `--feedback-settled` records the author's actual disposition of feedback; it is not a new user approval request or permission to ignore comments. The helper freshly checks the unchanged reviewed head/base, current independent approval, new feedback, check results, blocking reviews, mergeability and actual admin writer/push permission. Current checks must be passing or absent; a waiting-ci review additionally requires passing checks unless it was recorded when the PR reported no checks. GitHub still enforces its own protections; the merge uses a matching-head guard and no admin bypass. It then verifies the merge and calls the existing per-PR Monitor `complete` from outside the checkout. Local gate evidence and human decisions remain author/reviewer responsibilities; an empty CI list does not prove them.
+The repository's `.github/workflows/auto-merge.yml` is the only merge path for reviewed PRs. It runs when an approving review is submitted, waits for the other workflow runs on the approved commit, and merges only when that commit is still the head and every other check passed (no other checks also passes); otherwise it comments on the PR and leaves it open. The author does not merge: handle feedback, create required follow-up Issues and satisfy project/human acceptance before the independent approval, then end the turn. After the merge, the PR's runner synchronizes the default checkout and disposes of the owned worktree on its own; Monitor's per-PR `complete` remains for standalone registrations. A repository without that workflow has no Agent merge path: report the approved PR as waiting for a human merge or for the workflow to be added.
 
 ## Declared review exemptions
 
@@ -52,4 +46,4 @@ python3 <implement>/scripts/delivery.py pin-merge --pr owner/repo#123 \
 
 It rechecks the current head, requires a ready open PR at that head, passing or absent checks, clean mergeability and admin push permission, and merges with a matching-head guard. Then run the registered Monitor's `complete`. A new commit is reclassified on the next `pin-merge`; a head that is no longer exempt needs `start` to launch the reviewer. Threads that do not use `open`/`start`, such as pooled project threads, run `delivery.py pin-check --pr owner/repo#123` themselves before starting Review.
 
-If another actor already merged the PR, `finish` only verifies the registered target and invokes protected completion. Preserved/error cleanup stays an explicit exception and is never described as completed or blindly retried. Closed-unmerged PRs keep local work. Other PR listeners and ledgers remain untouched.
+Preserved/error cleanup stays an explicit exception and is never described as completed or blindly retried. Closed-unmerged PRs keep local work. Other PR listeners and ledgers remain untouched.
