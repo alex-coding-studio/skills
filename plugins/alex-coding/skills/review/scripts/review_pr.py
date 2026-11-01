@@ -184,7 +184,7 @@ def reused_approval(state, current):
 
 def prompt_for(root, state, current, reason):
     (root / 'snapshot.json').write_text(json.dumps(current, indent=2))
-    (root / 'acceptance.md').write_text(state['acceptance'])
+    (root / 'acceptance.md').write_text(state.get('acceptance') or current['pr'].get('body') or '')
     history = current['history']
     checkpoint = remote.GitHub(state['pr'], state['reviewer']).latest_checkpoint(history)
     pending_keys = {event['key'] for event in current['events']} - set(state['seen'])
@@ -416,7 +416,7 @@ def register(args, root, pr):
             raise ValueError('existing reviewer complexity differs; preserve its configuration until explicit continuation')
         return state
     state = core.initial_state(pr, args.reviewer, author, args.runtime, args.max_rounds)
-    state.update(executable=executable, acceptance=args.acceptance_file.read_text(), interval=args.interval,
+    state.update(executable=executable, acceptance=args.acceptance_file.read_text() if args.acceptance_file else None, interval=args.interval,
                  worker_timeout=args.worker_timeout, complexity=args.complexity or 'high')
     state['model'] = runtime.review_settings(state['runtime'], state['complexity'])['model']
     found = github.latest_checkpoint(github.history())
@@ -534,8 +534,8 @@ def main():
     else:
         with lock(root, 'launch.lock'):
             if args.action == 'start':
-                if not args.runtime or not args.reviewer or not args.acceptance_file:
-                    parser.error('start requires --runtime, --reviewer and --acceptance-file')
+                if not args.runtime or not args.reviewer:
+                    parser.error('start requires --runtime and --reviewer')
                 state = register(args, root, pr)
                 if args.author_runtime:
                     attach_author(args, root, state)
