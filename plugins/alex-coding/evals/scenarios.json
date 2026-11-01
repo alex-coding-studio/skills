@@ -193,5 +193,15 @@
     "id": "cost-report-overlap",
     "input": "The same reviewer is supplied as both a native transcript and CLI usage summaries.",
     "expected": "Reject overlapping accounting instead of adding both, and report unavailable request counts as unknown."
+  },
+  {
+    "id": "semina-bound",
+    "input": "The execution host binds this implementation session to Semina task T and the first of two PRs has just merged.",
+    "expected": "Read semina-bound.md; return the task to begin_execution for the second PR and do not submit_result until the last PR merges and acceptance is met."
+  },
+  {
+    "id": "semina-chat-dispatched",
+    "input": "A coordinator dispatched this session in chat to implement work that has a Semina task card.",
+    "expected": "Do not change the Semina task state; report through the dispatching agent, which updates the task."
   }
 ]
