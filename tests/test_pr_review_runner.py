@@ -210,6 +210,15 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertIn('continuation.patch', prompt)
         self.assertIn('current.patch', prompt)
 
+    def test_without_an_acceptance_file_the_reviewer_reads_the_current_pr_description(self):
+        self.state['acceptance'] = None
+        runner.prompt_for(self.root, self.state, current(), 'head')
+        self.assertEqual((self.root / 'acceptance.md').read_text(), 'Acceptance')
+        edited = current()
+        edited['pr']['body'] = 'Updated checks at the new head'
+        runner.prompt_for(self.root, self.state, edited, 'feedback')
+        self.assertEqual((self.root / 'acceptance.md').read_text(), 'Updated checks at the new head')
+
     def test_continuation_prompt_names_the_event_instead_of_repeating_instructions(self):
         worker = (Path(runner.__file__).resolve().parents[1] / 'references/worker.md').read_text()
         self.assertIn(worker, runner.prompt_for(self.root, self.state, current(), 'head'))

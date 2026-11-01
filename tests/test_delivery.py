@@ -135,6 +135,17 @@ class DeliveryTests(unittest.TestCase):
             self.assertIn('--author-session', invoke.call_args.args[0])
             popen.assert_not_called()
 
+    def test_reviewer_uses_the_pr_description_when_no_acceptance_file_is_given(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = delivery.parser().parse_args(['start', '--runtime', 'codex',
+                '--session', '00000000-0000-0000-0000-000000000001', '--pr', 'owner/repo#1',
+                '--checkout', directory, '--reviewer', 'reviewer'])
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
+                    patch.object(delivery, 'invoke', return_value={'active': True}) as invoke:
+                self.assertEqual(delivery.start(args)['status'], 'started')
+            self.assertNotIn('--acceptance-file', invoke.call_args.args[0])
+
     def test_claude_start_launches_its_own_listener_once_a_session_endpoint_is_bound(self):
         endpoint = 'unix:///tmp/semina-claude-test/control.sock'
         with tempfile.TemporaryDirectory() as directory:

@@ -2,18 +2,25 @@
 
 Use `scripts/delivery.py` from the installed Implement skill to start the PR's single runner. It creates no extra ledger and does not change repository gates, review requirements, round limits, identities or human acceptance. Use existing direct procedures for project-assigned reviewers, explicit review exemptions, Draft PRs or non-default target branches. The helper never merges a reviewed PR.
 
-Keep one acceptance/evidence record in the existing task or PR. Export it to a local UTF-8 file for the reviewer; include the scope, sources, actual revision-bound checks, remaining limits, human decisions and the reason for the chosen [review complexity](../../review/references/runtime.md#model-and-effort-policy). Do not include private reasoning or a suggested verdict. The PR body can be that same file when appropriate.
+The PR description is the only acceptance and evidence record, and the reviewer reads it directly; do not export a separate acceptance file. Use this short template, written in the language the project's human-facing records require:
+
+1. What changed.
+2. Why: the request, Issue or Contract it fulfils.
+3. Checks: which gates and tests ran, with the exact head they ran on.
+4. Limits and human acceptance: what remains unverified, and the status of any required human or UI acceptance.
+
+A Contract delivery keeps its clause → case → test mapping table in the description. Add one sentence giving the reason for the chosen [review complexity](../../review/references/runtime.md#model-and-effort-policy). Do not include private reasoning or a suggested verdict. When later commits change the evidence, edit the description; the reviewer rereads it on every invocation.
 
 After committed, pushed changes, passing unchanged repository gates and any required human UI acceptance:
 
 ```sh
 python3 <implement>/scripts/delivery.py open --runtime codex --session <existing-task-uuid> \
   --repository owner/repo --checkout <owned-checkout> --title 'Concrete outcome' \
-  --body-file <pr-body> --acceptance-file <accepted-scope> --reviewer <verified-admin-login> \
+  --body-file <pr-body> --reviewer <verified-admin-login> \
   --complexity medium --max-rounds 3 --review-runtime codex
 ```
 
-`open` verifies the bot writer/push permission and committed remote work-branch head, creates a ready PR targeting the remote default, or reuses the matching existing bot-authored PR. If a write response is uncertain, reconcile the remote PR before retrying. `start` takes `--pr owner/repo#123` instead of repository/title/body and attaches to an already opened PR. Both start or reuse one `review_pr.py` runner for the PR: it reviews independently, delivers author feedback to this session and, after merge, synchronizes the default checkout and disposes of the registered owned checkout. The author ledger lives in the runner's state directory under `author/`. `--review-runtime` selects the reviewer CLI (default: the author's runtime). Pass the project's actual review-round limit. A PR already registered with a standalone Monitor before this version, or covered by a declared review exemption, keeps the standalone Monitor path below.
+`open` verifies the bot writer/push permission and committed remote work-branch head, creates a ready PR targeting the remote default, or reuses the matching existing bot-authored PR. If a write response is uncertain, reconcile the remote PR before retrying. `start` takes `--pr owner/repo#123` instead of repository/title/body and attaches to an already opened PR. Both start or reuse one `review_pr.py` runner for the PR: it reviews independently, delivers author feedback to this session and, after merge, synchronizes the default checkout and disposes of the registered owned checkout. The author ledger lives in the runner's state directory under `author/`. `--review-runtime` selects the reviewer CLI (default: the author's runtime). Pass the project's actual review-round limit. `--acceptance-file` is only for an acceptance source that cannot live in the PR description, such as a planning PR's frozen source evidence. A PR already registered with a standalone Monitor before this version, or covered by a declared review exemption, keeps the standalone Monitor path below.
 
 For Codex the helper launches the runner with disconnected stdin and verifies its lock and PID. If the host supplies an explicit persistent endpoint, pass `--session-remote`; never invent one. Queue acceptance and reviewer publication remain distinct from startup.
 

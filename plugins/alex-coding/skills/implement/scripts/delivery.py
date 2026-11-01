@@ -68,14 +68,16 @@ def monitor_live(root, command):
 def review_command(args):
     arguments = [sys.executable, str(PLUGIN / 'skills/review/scripts/review_pr.py'),
                  'start', '--pr', args.pr, '--runtime', args.review_runtime or args.runtime, '--reviewer', args.reviewer,
-                 '--acceptance-file', str(args.acceptance_file.resolve()), '--max-rounds', str(args.max_rounds)]
+                 '--max-rounds', str(args.max_rounds)]
+    if args.acceptance_file:
+        arguments += ['--acceptance-file', str(args.acceptance_file.resolve())]
     return arguments + (['--complexity', args.complexity] if args.complexity else [])
 
 
 def start(args):
-    if not args.checkout or not args.acceptance_file or not args.reviewer:
-        raise ValueError('start requires checkout, acceptance file and independent reviewer')
-    if not args.acceptance_file.read_text().strip():
+    if not args.checkout or not args.reviewer:
+        raise ValueError('start requires checkout and independent reviewer')
+    if args.acceptance_file and not args.acceptance_file.read_text().strip():
         raise ValueError('acceptance must be nonempty')
     exemption = pin_check(args)
     reviewed = review.state_root(review.remote.shared.canonical(args.pr)) / 'state.json'
@@ -135,8 +137,8 @@ def start_monitor(args, exemption):
 
 
 def open_pr(args):
-    if not all([args.repository, args.checkout, args.title, args.body_file, args.acceptance_file, args.reviewer]):
-        raise ValueError('open requires repository, checkout, title, body file, acceptance file and reviewer')
+    if not all([args.repository, args.checkout, args.title, args.body_file, args.reviewer]):
+        raise ValueError('open requires repository, checkout, title, body file and reviewer')
     repository, _ = review.remote.shared.parse_target(args.repository + '#1')
     command = review.remote.shared.gh_command('bot')
     author = invoke([*command, 'api', 'user'])['login']

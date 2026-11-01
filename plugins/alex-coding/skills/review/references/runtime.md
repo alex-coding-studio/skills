@@ -8,7 +8,7 @@ Requires macOS/Linux Python 3.9+, Git, GitHub CLI with `gh_as admin`, repository
 
 ## Model and effort policy
 
-Select `--complexity` from the actual review risk and uncertainty, and record the reason in the existing acceptance input. Do not infer complexity from line/file counts or the author's preferred verdict.
+Select `--complexity` from the actual review risk and uncertainty, and give the reason in one sentence in the PR description. Defaults by kind of change: mechanical rewrites, documentation and copied configuration use `low`; ordinary behavior changes use `medium`; anything in the `high` row below uses `high`. Depart from the default only with a stated reason. Do not infer complexity from line/file counts or the author's preferred verdict.
 
 | Complexity | Codex | Claude | Use |
 | --- | --- | --- | --- |
@@ -27,14 +27,14 @@ CLI contracts: [Codex non-interactive mode](https://developers.openai.com/codex/
 
 ## Launch after PR creation
 
-After opening the PR and registering Author Monitor, prepare a local UTF-8 file with the settled acceptance and authoritative references. Include the frozen contract path/SHA when applicable, project gates, review-round limit and explicit human decisions. Do not include the author's private reasoning or suggested verdict. This file does not itself publish private source material.
+The reviewer's acceptance input is the PR description, refreshed from GitHub on every invocation. Pass `--acceptance-file` only for a source that cannot live in the description, such as a planning PR's frozen source evidence; it then replaces the description as acceptance input and is not published. Do not include the author's private reasoning or suggested verdict in either.
 
 Use the installed script's absolute path, a verified reviewer distinct from the PR author, and the project's existing round limit (three if unspecified; a fourth round needs the user's explicit word):
 
 ```sh
 python3 <review>/scripts/review_pr.py start --pr 'owner/repo#123' \
   --runtime codex --reviewer <verified-login> \
-  --acceptance-file <accepted-scope-file> --max-rounds 3
+  --max-rounds 3
 ```
 
 Use `--runtime claude` for Claude. `--executable` optionally selects a verified CLI binary, not a model. The launcher detaches its own process with disconnected stdin and local logs, then verifies lock ownership and startup state. It actually invokes the reviewer CLI; it is not a substitute notification transport for an existing author session. Draft PRs wait without model invocation until Ready.
