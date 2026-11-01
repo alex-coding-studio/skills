@@ -1,9 +1,11 @@
 import contextlib
 import importlib.util
 import io
+import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -98,6 +100,39 @@ class WorktreePoolTests(PoolFixture):
         (self.slots[0] / 'leftover.log').write_text('earlier task')
         with self.assertRaises(pool.PoolError):
             pool.acquire(self.primary, 'thread-a', 'feature-a', slot=self.slots[0])
+
+    def test_acquire_stops_build_processes_left_running_in_the_slot(self):
+        tool = self.root / 'bin' / 'xcodebuild'
+        tool.parent.mkdir()
+        tool.write_text('#!/bin/bash\nsleep 300 &\nwait\n')
+        tool.chmod(0o755)
+        stray = subprocess.Popen([str(tool), '-derivedDataPath', str(self.slots[0] / 'build')])
+        bystander = subprocess.Popen(['/bin/bash', '-c', 'sleep 300', str(self.slots[0] / 'shell')])
+        self.addCleanup(bystander.kill)
+        deadline = time.monotonic() + 10
+        while not any('sleep 300' in item['command'] for item in pool.slot_processes(self.slots[0])):
+            self.assertLess(time.monotonic(), deadline)
+            time.sleep(0.1)
+        child = next(item['pid'] for item in pool.slot_processes(self.slots[0]) if item['pid'] != stray.pid)
+        result = pool.acquire(self.primary, 'thread-a', 'feature-a', self.slots[0])
+        self.assertIn(stray.pid, [item['pid'] for item in result['stopped_processes']])
+        self.assertIsNotNone(stray.wait(timeout=5))
+        with self.assertRaises(ProcessLookupError):
+            os.kill(child, 0)
+        self.assertIsNone(bystander.poll())
+
+    def test_only_build_tools_naming_this_slot_exactly_are_selected(self):
+        slot, derived = '/work/slot-1', '/tmp/build-slot-1'
+        cases = {
+            '/usr/bin/xcodebuild -packagePath /work/slot-1': True,
+            '/usr/bin/xcodebuild -derivedDataPath /tmp/build-slot-1/Build': True,
+            '/usr/bin/python3 /infra/test-watchdog.py --idle 30 -- swift test --package-path /work/slot-1/Core': True,
+            '/usr/bin/vim xcodebuild /work/slot-1/notes': False,
+            '/usr/bin/xcodebuild -derivedDataPath /tmp/build-slot-10': False,
+            '/usr/bin/xcodebuild -packagePath /work/slot-10': False,
+        }
+        for command, expected in cases.items():
+            self.assertEqual(pool.slot_command(command, [slot, derived]), expected, command)
 
     def test_release_after_merge_detaches_the_slot_deletes_the_branch_and_frees_it(self):
         pool.acquire(self.primary, 'thread-a', 'feature-a')

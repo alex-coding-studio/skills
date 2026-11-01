@@ -1,16 +1,23 @@
 import argparse
+import contextlib
 from contextlib import contextmanager
 import datetime
 import fcntl
 import json
+import os
 from pathlib import Path
 import shlex
+import signal
 import subprocess
+import time
 import uuid
 
 SCHEMA = 1
 POOL_FILE = 'worktree-pool.json'
 MAIN = 'main'
+BUILD_TOOLS = {'xcodebuild', 'swift-build', 'swift-test', 'swift-frontend', 'swift-driver', 'swift-package', 'xctest',
+               'xcodegen', 'test-watchdog.py', 'acceptance-tests.sh', 'kit-tests.sh', 'pre-push'}
+INTERPRETERS = {'python', 'python3', 'bash', 'sh', 'zsh'}
 
 
 class PoolError(Exception):
@@ -105,6 +112,73 @@ def untracked_files(path):
 def current_branch(path):
     result = git(path, 'symbolic-ref', '-q', '--short', 'HEAD', check=False)
     return result.stdout.strip() or None
+
+
+def slot_command(command, markers):
+    arguments = command.split()
+    if not arguments:
+        return False
+    program = Path(arguments[0]).name
+    if program.lower() in INTERPRETERS or program.lower().startswith('python3.'):
+        script = next((arg for arg in arguments[1:] if not arg.startswith('-')), '')
+        program = Path(script).name
+    if program not in BUILD_TOOLS:
+        return False
+    for argument in arguments[1:]:
+        value = argument.split('=', 1)[-1]
+        if any(value == marker or value.startswith(marker + '/') for marker in markers):
+            return True
+    return False
+
+
+def slot_processes(path):
+    markers = [str(path)]
+    derived = git(path, 'config', '--get', 'ios.derivedDataPath', check=False).stdout.strip()
+    if derived:
+        markers.append(derived.rstrip('/'))
+    listing = subprocess.run(['ps', '-axo', 'pid=,ppid=,command='], capture_output=True, text=True).stdout
+    table = {}
+    for line in listing.splitlines():
+        pid, ppid, command = (line.split(None, 2) + [''])[:3]
+        table[int(pid)] = (int(ppid), command)
+
+    def ancestors(pid):
+        while pid in table and pid > 1:
+            pid = table[pid][0]
+            yield pid
+
+    own = {os.getpid(), *ancestors(os.getpid())}
+    found = set()
+    for pid, (_, command) in table.items():
+        if pid not in own and slot_command(command, markers) \
+                and not any('/Xcode.app/Contents/MacOS/Xcode' in table[a][1] for a in ancestors(pid) if a in table):
+            found.add(pid)
+    for pid in table:
+        if pid not in own and found.intersection(ancestors(pid)):
+            found.add(pid)
+    return [dict(pid=pid, command=table[pid][1][:200]) for pid in sorted(found)]
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+
+
+def stop_slot_processes(path):
+    stray = slot_processes(path)
+    remaining = [item['pid'] for item in stray]
+    for sig, grace in ((signal.SIGTERM, 3), (signal.SIGKILL, 0)):
+        for pid in remaining:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, sig)
+        deadline = time.monotonic() + grace
+        while remaining and time.monotonic() < deadline:
+            time.sleep(0.2)
+            remaining = [pid for pid in remaining if alive(pid)]
+    return stray
 
 
 def fetch_default(data, path):
@@ -221,12 +295,13 @@ def acquire(repo, holder, branch, slot=None, main=False):
             raise PoolError(f'{path} has untracked files left by an earlier task', untracked=untracked_files(path)[:20])
         if git(path, 'show-ref', '--verify', '--quiet', f'refs/heads/{branch}', check=False).returncode == 0:
             raise PoolError(f'branch {branch} already exists')
+        stopped = stop_slot_processes(path)
         base = fetch_default(data, path)
         git(path, 'switch', '--no-track', '-c', branch, base)
         entry.update(holder=holder, branch=branch, pr=None, acquired_at=now())
         prepare = data.get('prepare')
     return dict(status='acquired', slot=key, path=str(path), branch=branch, base=git(path, 'rev-parse', 'HEAD'),
-                prepare=run_hook(prepare, path))
+                prepare=run_hook(prepare, path), stopped_processes=stopped)
 
 
 def bind(repo, slot, pr, holder=None):
@@ -257,8 +332,9 @@ def release(repo, slot, holder=None, pr=None, expect_head=None):
             raise PoolError(f'{path} has uncommitted changes; commit or discard them before release', status='preserved',
                             changes=changes[:20])
         branch = entry['branch']
+        stopped = stop_slot_processes(path)
         base = fetch_default(data, path)
-        result = dict(status='released', slot=key, path=str(path), branch=branch)
+        result = dict(status='released', slot=key, path=str(path), branch=branch, stopped_processes=stopped)
         if key == MAIN:
             git(path, 'switch', data['default'])
             merged = git(path, 'merge', '--ff-only', base, check=False)

@@ -21,6 +21,8 @@ Exit status 3 with `"status": "busy"` means every slot is held. Do not create an
 
 `acquire` refuses a slot with uncommitted changes or untracked files left by an earlier task. Report the paths to the coordinator instead of deleting someone else's files.
 
+`acquire` and `release` stop build and test processes still running for that slot (command lines naming the slot path or its `ios.derivedDataPath`, such as `xcodebuild`, `swift-frontend` or the test watchdog, plus their children). Builds started from the Xcode app are left alone. The JSON lists what was stopped under `stopped_processes`.
+
 ## Register the PR
 
 After opening the PR, register it with its slot and start one persistent listener, exactly as the generic Claude runtime does:
