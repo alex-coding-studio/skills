@@ -91,6 +91,19 @@ def prepare_checkout(root, current, repository):
     (root / 'current.patch').write_text(patch)
 
 
+def own_diff_fingerprint(root, current):
+    checkout = root / 'checkout'
+    diff = subprocess.run(['git', '-C', str(checkout), 'diff', '--binary', '--no-ext-diff', '--no-textconv',
+                           f"{current['base']}...{current['head']}"], capture_output=True, timeout=120, check=True).stdout
+    return subprocess.run(['git', '-C', str(checkout), 'hash-object', '--stdin'], input=diff,
+                          capture_output=True, timeout=120, check=True).stdout.decode().strip()
+
+
+def reused_approval(state, current):
+    return {'outcome': 'approved' if current['ci'] in {'pass', 'none'} else 'waiting-ci', 'comments': [],
+            'body': f"自身改动自 `{state['approved_head']}` 起未变，沿用批准。"}
+
+
 def prompt_for(root, state, current, reason):
     (root / 'snapshot.json').write_text(json.dumps(current, indent=2))
     (root / 'acceptance.md').write_text(state['acceptance'])
@@ -199,6 +212,17 @@ def step(root, state, github, execute=None):
         save(root, state)
         return True
     token = uuid.uuid4().hex
+    if (reason == 'head' and state.get('approved_fingerprint') and state.get('review_phase') in {'approved', 'waiting-ci'}
+            and all(event['key'] in state['seen'] for event in current['events'])):
+        prepare_checkout(root, current, github.repository)
+        current['fingerprint'] = own_diff_fingerprint(root, current)
+        if current['fingerprint'] == state['approved_fingerprint']:
+            if current['head'] == state['head']:
+                core.settle(state, current, state['review_phase'], state['seen'])
+            else:
+                state['pending'] = make_pending(state, current, reused_approval(state, current), token)
+            save(root, state)
+            return True
     code_review = reason == 'head' or (
         reason == 'feedback' and (state.get('review_phase') or state['phase']) == 'changes-requested')
     if code_review and state['rounds'] >= state['round_limit']:
@@ -208,6 +232,7 @@ def step(root, state, github, execute=None):
         save(root, state)
         return True
     prepare_checkout(root, current, github.repository)
+    current['fingerprint'] = own_diff_fingerprint(root, current)
     if code_review:
         state['rounds'] += 1
     state['phase'] = 'reviewing'

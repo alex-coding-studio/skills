@@ -81,8 +81,8 @@
   },
   {
     "id": "new-feedback",
-    "input": "More feedback arrives during an acknowledged batch and a new commit is pushed.",
-    "expected": "Handle the claimed events explicitly and preserve later events; a push alone is not resolution."
+    "input": "More feedback arrives after an earlier state delivery and a new commit is pushed.",
+    "expected": "Refetch the current state, fix accepted feedback and push, and reply with reasons only where disagreeing; a push alone is not resolution and no acknowledgement is required."
   },
   {
     "id": "no-merge-authority",

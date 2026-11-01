@@ -4,7 +4,7 @@
     "Register each PR for author feedback after creation.",
     "Handle author feedback on this named PR from the desktop task.",
     "Deliver new PR comments to the existing Codex queue while the author is busy.",
-    "Keep sending author feedback after the previous batch was accepted by the queue."
+    "Keep sending author feedback after the previous delivery was accepted by the queue."
   ],
   "should_not_trigger": [
     "Start repository-wide reviewer discovery for every open PR.",

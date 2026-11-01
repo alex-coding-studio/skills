@@ -59,13 +59,20 @@ def settle(state, current, phase, seen):
     state.update(phase=phase, head=current['head'], base=current['base'], ci=current['ci'],
                  ci_key=current['ci_key'], seen=list(seen), pending=None)
     state['review_phase'] = phase
+    if phase in {'approved', 'waiting-ci'} and current.get('fingerprint'):
+        if current['fingerprint'] != state.get('approved_fingerprint'):
+            state['approved_head'] = current['head']
+        state['approved_fingerprint'] = current['fingerprint']
+    elif phase in {'changes-requested', 'needs-user-attention'}:
+        state['approved_fingerprint'] = state['approved_head'] = None
     if 'ci_events' in current:
         state['ci_seen'] = sorted(set(state.get('ci_seen') or []) | set(current['ci_events']))
 
 
 def checkpoint(state, token):
     keys = ('schema', 'pr', 'reviewer', 'author', 'phase', 'rounds', 'round_limit',
-            'head', 'base', 'ci', 'ci_key', 'ci_seen', 'seen', 'review_phase', 'complexity', 'model')
+            'head', 'base', 'ci', 'ci_key', 'ci_seen', 'seen', 'review_phase', 'complexity', 'model',
+            'approved_fingerprint', 'approved_head')
     return {**{key: state.get(key) for key in keys}, 'token': token}
 
 
@@ -88,6 +95,10 @@ def restore(state, record):
         raise ValueError('invalid checkpoint CI progress')
     state['ci_seen'] = ci_seen
     state['review_phase'] = record.get('review_phase') or record['phase']
+    for key in ('approved_fingerprint', 'approved_head'):
+        if record.get(key) is not None and not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', record[key]):
+            raise ValueError('invalid checkpoint approval fingerprint')
+        state[key] = record.get(key)
     complexity = record.get('complexity') or 'high'
     if complexity not in {'deterministic', 'low', 'medium', 'high'}:
         raise ValueError('invalid checkpoint review complexity')

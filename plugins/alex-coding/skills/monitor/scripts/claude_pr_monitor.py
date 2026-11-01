@@ -16,6 +16,7 @@ _spec.loader.exec_module(core)
 
 class Runtime:
     role = 'bot'
+    state_delivery = True
     marker = 'From Claude 🤖'
     delivery_name = 'stdout'
     state_keys = ('session', 'name')

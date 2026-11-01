@@ -458,6 +458,31 @@ class IdentityTests(unittest.TestCase):
 
         self.assertEqual(take([merge])['ci'], 'none')
         self.assertEqual(take([tests])['ci_version'], take([tests, merge])['ci_version'])
+    def test_state_summary_keeps_latest_review_unresolved_threads_and_failing_checks(self):
+        pr = {'user': {'login': 'bot'}, 'head': {'sha': 'head'}, 'state': 'open', 'html_url': 'https://example/pr'}
+        reviews = [
+            {'id': 1, 'user': {'login': 'reviewer'}, 'state': 'CHANGES_REQUESTED', 'submitted_at': '1', 'html_url': 'old'},
+            {'id': 2, 'user': {'login': 'reviewer'}, 'state': 'APPROVED', 'submitted_at': '2', 'html_url': 'new'},
+            {'id': 3, 'user': {'login': 'bot'}, 'state': 'COMMENTED', 'body': 'x', 'submitted_at': '3', 'html_url': 'own'}]
+        checks = [{'__typename': 'CheckRun', 'name': 'tests', 'status': 'COMPLETED', 'conclusion': 'FAILURE'},
+                  {'__typename': 'CheckRun', 'name': 'lint', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}]
+        thread = {'isOutdated': False, 'path': 'a.py', 'line': 3,
+                  'comments': {'nodes': [{'url': 'open-thread', 'author': {'login': 'reviewer'}}]}}
+        threads = [dict(thread, isResolved=False), dict(thread, isResolved=True)]
+
+        def run(command, **kwargs):
+            if 'graphql' in command:
+                data = {'repository': {'pullRequest': {'reviewThreads': {'nodes': threads}}}}
+                return type('Result', (), {'stdout': json.dumps({'data': data})})()
+            return type('Result', (), {'stdout': json.dumps({'headRefOid': 'head', 'statusCheckRollup': checks})})()
+
+        github = lambda endpoint, *a, **k: pr if endpoint.endswith('/pulls/1') else reviews if '/reviews' in endpoint else []
+        with patch.object(core, 'gh_json', side_effect=github), patch.object(core.subprocess, 'run', side_effect=run):
+            summary = core.snapshot({'repository': 'owner/repo', 'number': 1, 'author': 'bot'}, 'bot', True)['summary']
+        self.assertEqual(summary['reviews'], [{'user': 'reviewer', 'state': 'APPROVED', 'url': 'new'}])
+        self.assertEqual([row['url'] for row in summary['threads']], ['open-thread'])
+        self.assertEqual(summary['failing'], ['tests'])
+
 
 class ContinuousIntegrationTests(unittest.TestCase):
     def test_first_all_green_result_is_quiet_but_a_failure_is_an_event(self):
@@ -472,6 +497,59 @@ class ContinuousIntegrationTests(unittest.TestCase):
         self.assertEqual(core.checks_state([{'status': 'IN_PROGRESS'}, {'status': 'COMPLETED', 'conclusion': 'FAILURE'}]), 'fail')
         self.assertEqual(core.checks_state([{'status': 'COMPLETED', 'conclusion': 'SKIPPED'}, {'status': 'QUEUED'}]), 'pending')
 
+
+
+class StateRuntime(FakeRuntime):
+    state_delivery = True
+
+
+def reviewed(*events, threads=(), reviews=(), failing=()):
+    current = result(*events, ci='fail' if failing else 'pending')
+    current['summary'] = dict(head='a', ci=current['ci'], failing=list(failing), reviews=list(reviews),
+                              threads=list(threads))
+    return current
+
+
+class StateDeliveryTests(unittest.TestCase):
+    review = dict(user='reviewer', state='CHANGES_REQUESTED', url='https://example/review')
+    thread = dict(path='a.py', line=3, outdated=False, user='reviewer', url='https://example/thread')
+
+    def test_every_delivery_repeats_the_complete_current_state_without_an_acknowledgement(self):
+        runtime = StateRuntime()
+        with store(runtime=runtime) as subject:
+            enrol(subject).apply(reviewed(notice(1), threads=[self.thread], reviews=[self.review]))
+            self.assertTrue(subject.deliver())
+            subject.apply(reviewed(notice(1), notice(2), threads=[self.thread], reviews=[self.review],
+                                   failing=['tests']))
+            self.assertTrue(subject.deliver())
+            self.assertIsNone(subject.read()['batch'])
+            latest = runtime.delivered[-1]
+            for text in ('https://example/review', 'https://example/thread', '["tests"]'):
+                self.assertIn(text, latest)
+            self.assertNotIn(' ack ', latest)
+            self.assertEqual(latest.count('conversation id='), 1)
+            self.assertFalse(subject.deliver())
+
+    def test_refused_state_delivery_keeps_feedback_pending_for_retry(self):
+        runtime = StateRuntime(accept=False)
+        with store(runtime=runtime) as subject:
+            enrol(subject).apply(reviewed(notice(1)))
+            self.assertFalse(subject.deliver())
+            self.assertEqual(subject.read()['target']['events'][notice(1)['key']]['status'], 'pending')
+            runtime.accept = True
+            self.assertTrue(subject.deliver())
+
+    def test_a_legacy_batch_still_waits_for_its_acknowledgement(self):
+        with store() as subject:
+            enrol(subject).apply(result(notice(1)))
+            subject.deliver()
+            token = subject.read()['batch']['token']
+            subject.runtime = StateRuntime()
+            subject.apply(reviewed(notice(1), notice(2)))
+            self.assertFalse(subject.deliver())
+            subject.acknowledge(token)
+            self.assertTrue(subject.deliver())
+            self.assertIn('Current state', subject.runtime.delivered[-1])
 
 if __name__ == '__main__':
     unittest.main()
