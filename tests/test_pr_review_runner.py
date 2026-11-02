@@ -602,12 +602,110 @@ class OnePullRequestRunnerTests(unittest.TestCase):
         self.assertTrue(store.delivers_state)
         self.assertEqual(self.state['author_delivery']['slot'], str(Path(self.temp.name).resolve()))
 
-    def test_pool_slots_are_claude_only(self):
+    def test_a_codex_worker_in_a_pool_slot_gets_queue_delivery_and_slot_release(self):
         runner.save(self.root, self.state)
         args = SimpleNamespace(author_runtime='codex', author_session='00000000-0000-0000-0000-000000000001',
                                session_remote=None, checkout=None, slot=Path(self.temp.name), codex='codex')
-        with self.assertRaisesRegex(ValueError, 'Claude'):
+        registered = []
+        real = runner.author_store
+
+        def author_store(root, state):
+            store, module = real(root, state)
+            store.register_slot = lambda slot: registered.append(slot)
+            return store, module
+
+        with patch.object(runner.shutil, 'which', return_value='/bin/codex'), \
+                patch.object(runner.subprocess, 'run'), \
+                patch.object(runner, 'author_store', side_effect=author_store):
             runner.attach_author(args, self.root, self.state)
+        self.assertEqual(registered, [Path(self.temp.name)])
+        store, module = runner.author_store(self.root, self.state)
+        self.assertEqual(type(store).__name__, 'ProjectStore')
+        self.assertEqual(store.runtime.delivery_name, 'queued')
+        self.assertEqual(store.runtime.identity_arguments, ['--thread', '00000000-0000-0000-0000-000000000001'])
+        self.assertTrue(store.runtime.may_clean({}))
+        self.assertFalse(store.runtime.foreground_cleanup)
+
+
+class TakeoverTests(unittest.TestCase):
+    OLD = '00000000-0000-0000-0000-000000000001'
+    NEW = '00000000-0000-0000-0000-000000000002'
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'review'
+        self.root.mkdir()
+        self.slot = Path(self.temp.name) / 'slot'
+        self.slot.mkdir()
+        self.state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 3)
+        self.state.update(rounds=2, approved_fingerprint='f' * 40, approved_head='a' * 40,
+                          seen=['review:1'], last_review_url='https://github.com/owner/repo/pull/1#r',
+                          phase='error', pid=None, worker_pid=None,
+                          author_delivery={'runtime': 'codex', 'session': self.OLD, 'remote': None,
+                                           'slot': None, 'executable': '/bin/codex'})
+        runner.save(self.root, self.state)
+        (self.root / 'author').mkdir()
+        (self.root / 'author/state.json').write_text(json.dumps({
+            'schema': runner.author_adapter({'runtime': 'codex'}).core.SCHEMA, 'thread': self.OLD,
+            'pr': 'owner/repo#1', 'batch': None, 'target': {
+                'repository': 'owner/repo', 'number': 1, 'author': 'bot', 'checkout': '/old/worktree',
+                'cleanup': {'owned': True, 'lifecycle': 'disposable-v1'}, 'cleanup_result': None,
+                'events': {'review:1': {'kind': 'review', 'status': 'handled'}}, 'stopped': False,
+                'terminal': None, 'ci': None, 'ci_version': None}}))
+        self.addCleanup(patch.stopall)
+        patch.object(runner.shutil, 'which', return_value='/bin/codex').start()
+        patch.object(runner.subprocess, 'run').start()
+        self.registered = []
+        real = runner.author_store
+
+        def author_store(root, state):
+            store, module = real(root, state)
+            store.register_slot = lambda slot: self.registered.append(slot)
+            return store, module
+
+        patch.object(runner, 'author_store', side_effect=author_store).start()
+
+    def args(self, takeover=True):
+        return SimpleNamespace(author_runtime='codex', author_session=self.NEW, session_remote=None,
+                               checkout=None, slot=self.slot, codex='codex', takeover=takeover)
+
+    def test_a_new_session_cannot_take_over_without_declaring_it(self):
+        with self.assertRaisesRegex(ValueError, '--takeover'):
+            runner.attach_author(self.args(takeover=False), self.root, self.state)
+        self.assertEqual(runner.read(self.root, 'owner/repo#1')['author_delivery']['session'], self.OLD)
+
+    def test_takeover_is_refused_while_the_previous_runner_holds_its_lock(self):
+        with patch.object(runner, 'running', return_value=True), self.assertRaisesRegex(ValueError, 'still alive'):
+            runner.attach_author(self.args(), self.root, self.state)
+        self.assertEqual(runner.read(self.root, 'owner/repo#1')['author_delivery']['session'], self.OLD)
+
+    def test_takeover_is_refused_while_the_previous_process_is_alive(self):
+        self.state['pid'] = os.getpid()
+        runner.save(self.root, self.state)
+        with self.assertRaisesRegex(ValueError, 'still alive'):
+            runner.attach_author(self.args(), self.root, self.state)
+        self.assertEqual(json.loads((self.root / 'author/state.json').read_text())['thread'], self.OLD)
+
+    def test_takeover_rebinds_the_ledger_and_keeps_rounds_findings_and_fingerprint(self):
+        runner.attach_author(self.args(), self.root, self.state)
+        state = runner.read(self.root, 'owner/repo#1')
+        self.assertEqual(state['author_delivery']['session'], self.NEW)
+        self.assertEqual(state['author_delivery']['slot'], str(self.slot.resolve()))
+        self.assertEqual((state['rounds'], state['approved_fingerprint'], state['seen'], state['last_review_url']),
+                         (2, 'f' * 40, ['review:1'], 'https://github.com/owner/repo/pull/1#r'))
+        self.assertEqual(state['phase'], 'starting')
+        self.assertEqual(state['takeovers'][0]['from']['session'], self.OLD)
+        ledger = json.loads((self.root / 'author/state.json').read_text())
+        self.assertEqual(ledger['thread'], self.NEW)
+        self.assertEqual(ledger['target']['events'], {'review:1': {'kind': 'review', 'status': 'handled'}})
+        self.assertIsNone(ledger['target'].get('checkout'))
+        self.assertIsNone(ledger['target'].get('cleanup'))
+        self.assertEqual(ledger['target']['takeovers'][0]['to']['session'], self.NEW)
+        self.assertEqual(self.registered, [self.slot])
+        store, module = runner.author_store(self.root, state)
+        self.assertEqual(store.read()['target']['events'], ledger['target']['events'])
+
 
 class OwnDiffFingerprintTests(unittest.TestCase):
     def test_merging_the_base_keeps_the_fingerprint_until_own_files_change(self):
