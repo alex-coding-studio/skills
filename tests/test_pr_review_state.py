@@ -74,6 +74,15 @@ class PRReviewStateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             core.restore(state, core.checkpoint(other, 'wrong'))
 
+    def test_a_checkpoint_whose_pr_case_differs_restores_progress(self):
+        stored = core.initial_state('Owner/Repo#1', 'reviewer', 'author', 'codex', 3)
+        stored['rounds'] = 2
+        state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 3)
+        core.restore(state, core.checkpoint(stored, 'case'))
+        self.assertEqual((state['pr'], state['rounds']), ('owner/repo#1', 2))
+        with self.assertRaises(ValueError):
+            core.restore(state, core.checkpoint({**stored, 'reviewer': 'other'}, 'case'))
+
 
 if __name__ == '__main__':
     unittest.main()
