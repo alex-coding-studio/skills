@@ -108,7 +108,7 @@ class GitHub:
             if row.get('user', {}).get('login', '').casefold() != self.reviewer:
                 continue
             record = state_core.decode_checkpoint(row.get('body'))
-            if record and record.get('pr') == f'{self.repository}#{self.number}':
+            if record and shared.same_pr(record.get('pr'), f'{self.repository}#{self.number}'):
                 found = (record, row)
         return found
 

@@ -3,6 +3,7 @@ import contextlib
 from contextlib import contextmanager
 import datetime
 import fcntl
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,10 @@ MAIN = 'main'
 BUILD_TOOLS = {'xcodebuild', 'swift-build', 'swift-test', 'swift-frontend', 'swift-driver', 'swift-package', 'xctest',
                'xcodegen', 'test-watchdog.py', 'acceptance-tests.sh', 'kit-tests.sh', 'pre-push'}
 INTERPRETERS = {'python', 'python3', 'bash', 'sh', 'zsh'}
+_spec = importlib.util.spec_from_file_location(
+    'author_monitor_core', Path(__file__).resolve().parents[2] / 'monitor/scripts/author_monitor_core.py')
+core = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(core)
 
 
 class PoolError(Exception):
@@ -99,6 +104,18 @@ class Pool:
 
     def checkout(self, key):
         return self.primary if key == MAIN else Path(key)
+
+
+def is_slot(path):
+    path = Path(path).expanduser().resolve()
+    try:
+        pool = Pool(path)
+        records = worktrees(pool.primary)
+    except PoolError:
+        return False
+    if pool.path.exists() and str(path) in json.loads(pool.path.read_text()).get('slots', {}):
+        return True
+    return any(Path(r['worktree']).resolve() == path and r.get('locked') == 'worktree pool slot' for r in records)
 
 
 def tracked_changes(path):
@@ -304,7 +321,15 @@ def acquire(repo, holder, branch, slot=None, main=False):
                 prepare=run_hook(prepare, path), stopped_processes=stopped)
 
 
+def canonical_pr(pr):
+    try:
+        return core.canonical(pr)
+    except ValueError as error:
+        raise PoolError(str(error)) from None
+
+
 def bind(repo, slot, pr, holder=None):
+    pr = canonical_pr(pr)
     pool = Pool(repo)
     with pool.locked() as data:
         key, entry = pool.resolve(data, slot)
@@ -312,7 +337,7 @@ def bind(repo, slot, pr, holder=None):
             raise PoolError(f'{key} is not held; acquire it before binding a PR')
         if holder and entry['holder'] != holder:
             raise PoolError(f'{key} is held by {entry["holder"]}, not {holder}')
-        if entry['pr'] not in (None, pr):
+        if entry['pr'] and not core.same_pr(entry['pr'], pr):
             raise PoolError(f'{key} is already bound to {entry["pr"]}')
         entry['pr'] = pr
         return dict(status='bound', slot=key, pr=pr, holder=entry['holder'], branch=entry['branch'])
@@ -324,7 +349,7 @@ def release(repo, slot, holder=None, pr=None, expect_head=None):
         key, entry = pool.resolve(data, slot)
         if not entry['holder']:
             return dict(status='released', slot=key, reason='slot was already free')
-        if not (holder and entry['holder'] == holder) and not (pr and entry['pr'] == pr):
+        if not (holder and entry['holder'] == holder) and not (pr and core.same_pr(entry['pr'], pr)):
             raise PoolError(f'{key} is held by {entry["holder"]} for {entry["pr"]}; name its holder or PR')
         path = pool.checkout(key)
         changes = tracked_changes(path)

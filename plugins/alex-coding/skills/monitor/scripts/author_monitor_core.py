@@ -72,6 +72,13 @@ def canonical(value):
     return f'{repository}#{number}'
 
 
+def same_pr(left, right):
+    try:
+        return canonical(left) == canonical(right)
+    except (TypeError, ValueError):
+        return False
+
+
 def hashed_slug(name):
     return 'pr-' + hashlib.sha256(name.encode()).hexdigest()[:20]
 

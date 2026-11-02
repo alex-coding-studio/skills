@@ -101,7 +101,7 @@ def guard_legacy(store, source):
     if destination.exists():
         existing = json.loads(destination.read_text())
         if (existing.get('schema') == core.SCHEMA and existing.get('thread') == store.identity
-                and existing.get('pr') == store.name and existing.get('target') is not None):
+                and core.same_pr(existing.get('pr'), store.name) and existing.get('target') is not None):
             return
     path = Path(source).expanduser().resolve() / 'state.json'
     if path.exists():

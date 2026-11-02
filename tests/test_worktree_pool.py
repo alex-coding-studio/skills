@@ -4,6 +4,7 @@ import io
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -21,6 +22,10 @@ def load(name):
 
 pool = load('worktree_pool')
 monitor = load('project_pr_monitor')
+delivery_spec = importlib.util.spec_from_file_location(
+    'delivery', SCRIPTS.parents[1] / 'implement/scripts/delivery.py')
+delivery = importlib.util.module_from_spec(delivery_spec)
+delivery_spec.loader.exec_module(delivery)
 
 
 def git(cwd, *args):
@@ -167,6 +172,23 @@ class WorktreePoolTests(PoolFixture):
         pool.acquire(self.primary, 'thread-a', 'feature-a')
         with self.assertRaises(pool.PoolError):
             pool.release(self.slots[0], self.slots[0], holder='thread-b')
+
+    def test_bind_and_release_match_a_pr_whose_owner_or_repository_case_differs(self):
+        for stored, given in (('Owner/GalleryX#7', 'owner/galleryx#7'), ('owner/galleryx#7', 'Owner/GalleryX#7')):
+            pool.acquire(self.primary, 'thread-a', 'feature-a')
+            with pool.Pool(self.primary).locked() as data:
+                data['slots'][str(self.slots[0])]['pr'] = stored
+            self.assertEqual(pool.bind(self.slots[0], self.slots[0], given)['status'], 'bound')
+            self.assertEqual(pool.bind(self.slots[0], self.slots[0], stored)['pr'], 'owner/galleryx#7')
+            self.assertEqual(pool.release(self.slots[0], self.slots[0], pr=given)['status'], 'released')
+
+    def test_a_different_pr_number_is_still_refused_whatever_its_case(self):
+        pool.acquire(self.primary, 'thread-a', 'feature-a')
+        pool.bind(self.slots[0], self.slots[0], 'Owner/GalleryX#7')
+        with self.assertRaises(pool.PoolError):
+            pool.bind(self.slots[0], self.slots[0], 'owner/galleryx#8')
+        with self.assertRaises(pool.PoolError):
+            pool.release(self.slots[0], self.slots[0], pr='OWNER/GALLERYX#8')
 
     def test_sync_main_fast_forwards_a_clean_primary_and_leaves_untracked_files(self):
         tip = self.advance_remote()
@@ -339,6 +361,65 @@ class CodexProjectMonitorTests(ProjectMonitorTests):
         git(self.slots[0], 'checkout', 'README')
         with patch.object(monitor.core, 'snapshot', return_value=self.terminal('merged')):
             self.assertEqual(store.complete()['status'], 'released')
+
+
+class SlotCheckoutGuardTests(PoolFixture):
+    def setUp(self):
+        super().setUp()
+        self.ordinary = self.root / 'worktrees' / 'task'
+        git(self.primary, 'worktree', 'add', '-q', '-b', 'task', str(self.ordinary), 'origin/main')
+        self.state = self.root / 'state'
+
+    def run_main(self, module, arguments):
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['script', *arguments]), contextlib.redirect_stdout(output), \
+                contextlib.redirect_stderr(output), self.assertRaises(SystemExit) as raised:
+            module.main()
+        return raised.exception.code, output.getvalue()
+
+    def delivery_arguments(self, action, flag, path):
+        return [action, '--runtime', 'claude', '--session', 'existing', '--pr', 'owner/repo#1',
+                '--repository', 'owner/repo', '--title', 'Fix', '--body-file', __file__,
+                flag, str(path), '--reviewer', 'reviewer']
+
+    def test_delivery_refuses_a_pool_slot_passed_as_checkout_without_any_write(self):
+        pool_file = (pool.Pool(self.primary).path).read_text()
+        for action in ('open', 'start'):
+            with patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(self.state), 'XDG_STATE_HOME': str(self.state)}), \
+                    patch.object(delivery, 'invoke') as invoke, patch.object(delivery, 'pin_check') as check:
+                code, output = self.run_main(delivery, self.delivery_arguments(action, '--checkout', self.slots[0]))
+            self.assertNotEqual(code, 0)
+            self.assertIn('请改用 --slot', output)
+            invoke.assert_not_called()
+            check.assert_not_called()
+        self.assertFalse(self.state.exists())
+        self.assertEqual(pool.Pool(self.primary).path.read_text(), pool_file)
+
+    def test_a_slot_identified_only_by_its_lock_reason_is_refused(self):
+        bare = self.root / 'worktrees' / 'unregistered'
+        git(self.primary, 'worktree', 'add', '-q', '--detach', str(bare), 'origin/main')
+        git(self.primary, 'worktree', 'lock', '--reason', 'worktree pool slot', str(bare))
+        with patch.object(delivery, 'start') as start:
+            code, output = self.run_main(delivery, self.delivery_arguments('start', '--checkout', bare))
+        self.assertNotEqual(code, 0)
+        start.assert_not_called()
+
+    def test_delivery_keeps_ordinary_checkouts_and_slot_flag_working(self):
+        for flag, path in (('--checkout', self.ordinary), ('--slot', self.slots[0])):
+            with patch.object(delivery, 'start', return_value={'status': 'started'}) as start, \
+                    contextlib.redirect_stdout(io.StringIO()), patch.object(sys, 'argv', [
+                        'delivery.py', *self.delivery_arguments('start', flag, path)]):
+                delivery.main()
+            start.assert_called_once()
+
+    def test_review_runner_refuses_a_pool_slot_checkout_before_creating_state(self):
+        code, output = self.run_main(delivery.review, [
+            'start', '--pr', 'owner/repo#1', '--state-base', str(self.state), '--runtime', 'claude',
+            '--reviewer', 'reviewer', '--author-runtime', 'claude', '--author-session', 'existing',
+            '--checkout', str(self.slots[1])])
+        self.assertNotEqual(code, 0)
+        self.assertIn('请改用 --slot', output)
+        self.assertFalse(self.state.exists())
 
 
 if __name__ == '__main__':

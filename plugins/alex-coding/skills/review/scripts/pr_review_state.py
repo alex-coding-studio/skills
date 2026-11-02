@@ -1,7 +1,14 @@
 import base64
 import hashlib
+import importlib.util
 import json
 import re
+from pathlib import Path
+
+_spec = importlib.util.spec_from_file_location(
+    'review_state_author_core', Path(__file__).resolve().parents[2] / 'monitor/scripts/author_monitor_core.py')
+shared = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(shared)
 
 
 PHASES = {'starting', 'reviewing', 'approved', 'changes-requested', 'waiting-ci',
@@ -77,9 +84,9 @@ def checkpoint(state, token):
 
 
 def restore(state, record):
-    for key in ('schema', 'pr', 'reviewer', 'author'):
-        if record.get(key) != state[key]:
-            raise ValueError('checkpoint identity does not match this PR and reviewer')
+    if not shared.same_pr(record.get('pr'), state['pr']) or any(
+            record.get(key) != state[key] for key in ('schema', 'reviewer', 'author')):
+        raise ValueError('checkpoint identity does not match this PR and reviewer')
     if (record.get('phase') not in PHASES or type(record.get('rounds')) is not int
             or record['rounds'] < 0 or type(record.get('round_limit')) is not int
             or record['round_limit'] < 1 or not isinstance(record.get('seen'), list)
