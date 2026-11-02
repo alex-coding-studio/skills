@@ -1,11 +1,11 @@
 ---
 name: project-monitor
-description: "Work in a pooled worktree slot assigned by a Claude Project coordinator and follow its PR until merge or close, then release the slot. Use for Claude Project threads in a repository with a worktree pool; exclude ordinary task-owned worktrees."
+description: "Work in a pooled worktree slot assigned by a project coordinator and follow its PR until merge or close, then release the slot. Use for Claude Project threads and Codex workers in a repository with a worktree pool, and to take over a stopped PR; exclude ordinary task-owned worktrees."
 ---
 
 # Monitor a Project Thread's PR from a Pooled Slot
 
-A Claude Project runs a fixed pool of long-lived worktree slots per repository, plus the primary checkout as the pool main. The coordinator decides which thread gets work; the pool decides which slot it lands in. Slots are never deleted, so each keeps a warm build cache. This Skill replaces the disposable cleanup of `alex-coding:monitor` with a slot release for those threads. Feedback arrives as state deliveries without acknowledgement; handle it and publish replies as [feedback-and-completion.md](../monitor/references/feedback-and-completion.md) describes.
+A Claude Project or a coordinator of Codex workers runs a fixed pool of long-lived worktree slots per repository, plus the primary checkout as the pool main. The coordinator decides which thread gets work; the pool decides which slot it lands in. Slots are never deleted, so each keeps a warm build cache. This Skill replaces the disposable cleanup of `alex-coding:monitor` with a slot release for those threads. Feedback arrives as state deliveries without acknowledgement; handle it and publish replies as [feedback-and-completion.md](../monitor/references/feedback-and-completion.md) describes.
 
 Use the installed Skill's absolute script paths. Every pool command accepts `--repo <any checkout>` and prints JSON.
 
@@ -33,6 +33,8 @@ python3 <implement>/scripts/delivery.py open --runtime claude --session <stable-
   --reviewer <verified-admin-login> --complexity medium --max-rounds 3 --review-runtime codex
 ```
 
+A Codex worker uses `--runtime codex --session <existing-task-uuid>` with the same `--slot`. Its runner is detached and delivers the current PR state to the task through the native Codex queue (or `--session-remote` when the host supplies one), without acknowledgement.
+
 It binds the PR to the slot in the pool, so only this PR or its holder can release it, and starts the PR's single runner: independent review, state delivery to this session and the slot release below. Without a host endpoint the receipt says `native-monitor-required`: start its `monitor_command` through the `Monitor` tool, then repeat `delivery.py start --pr owner/repo#123 --slot <slot-path>` with the same arguments to confirm it is active. Pass `--session-remote` when the host supplies an endpoint. A PR registered with `project_pr_monitor.py` before this version keeps that listener until the PR ends.
 
 ## Release when the PR ends
@@ -51,9 +53,21 @@ python3 <skill>/scripts/project_pr_monitor.py --session <stable-session-id> --pr
   --state-dir <runner-state-directory>/author complete
 ```
 
-The runner's status (`review_pr.py status --pr owner/repo#123`) names its `state_directory`. For a PR registered before this version, omit `--state-dir`.
+A Codex worker passes `--thread <task-uuid>` instead of `--session`. The runner's status (`review_pr.py status --pr owner/repo#123`) names its `state_directory`. For a PR registered before this version, omit `--state-dir`.
 
 `open` and `start` run the review-exemption check themselves. A `review-exempt` receipt means the repository's `.shared-config` exemption covers the PR: no reviewer starts, a standalone `project_pr_monitor.py` listener follows the PR (start the receipt's `monitor_command` through the `Monitor` tool), and you merge with `delivery.py pin-merge` once checks pass; the listener then releases the slot. See the Implement [declared exemptions](../implement/references/delivery.md#declared-review-exemptions).
+
+## Take over a stopped PR
+
+When a PR's runner has stopped and its old session cannot continue, the new owner acquires a slot (or reuses the PR's slot if the coordinator hands it over) and repeats `start` with `--takeover`:
+
+```sh
+python3 <implement>/scripts/delivery.py start --runtime codex --session <new-task-uuid> \
+  --pr owner/repo#123 --slot <slot-path> --reviewer <verified-admin-login> \
+  --max-rounds 3 --review-runtime codex --takeover
+```
+
+It is refused while the old runner's lock is held or its runner or review-worker PID is alive, and a different session or slot without `--takeover` is still refused. Takeover keeps the ledger's history, review rounds, findings and approved fingerprint, records itself under `takeovers`, binds the PR to the new slot and restarts the runner. It does not release the old slot or delete any state; report an old slot that is still held to the coordinator. The same entry moves a PR opened with `--checkout <slot>` onto `--slot`, so its slot is released instead of disposed.
 
 ## Pool administration
 

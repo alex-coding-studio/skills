@@ -273,5 +273,73 @@ class ProjectMonitorTests(PoolFixture):
             self.assertEqual(store.complete()['status'], 'released')
 
 
+class CodexProjectMonitorTests(ProjectMonitorTests):
+    THREAD = '00000000-0000-0000-0000-000000000001'
+
+    def setUp(self):
+        super().setUp()
+        self.queued = []
+        patcher = patch.object(monitor.codex.transport, 'queue_message',
+                               side_effect=lambda executable, thread, message: self.queued.append(message))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def store(self):
+        root = self.root / 'state'
+        runtime = monitor.slot_runtime('codex', self.THREAD, monitor.__file__, executable='/bin/codex')
+        store = monitor.ProjectStore(root, self.THREAD, 'o/r#1', runtime)
+        pool.acquire(self.primary, 'thread-a', 'feature-a')
+        self.head = self.commit_in(self.slots[0], 'work')
+        with patch.object(monitor.core, 'gh_json', return_value=dict(user=dict(login='bot'), head=dict(ref='feature-a'))):
+            store.register_slot(self.slots[0])
+        return store
+
+    def delivered(self, store):
+        before = len(self.queued)
+        self.assertTrue(store.deliver())
+        self.assertEqual(len(self.queued), before + 1)
+        return self.queued[-1]
+
+    def test_a_merged_pr_releases_its_slot_syncs_main_and_tells_the_thread(self):
+        store = self.store()
+        self.advance_remote('squashed')
+        store.apply(self.terminal('merged'))
+        target = store.read()['target']
+        self.assertEqual(target['cleanup_result']['status'], 'released')
+        self.assertEqual(target['cleanup_result']['main']['status'], 'synced')
+        self.assertTrue(self.slots[0].exists())
+        message = self.delivered(store)
+        self.assertIn('alex-coding:project-monitor', message)
+        self.assertIn('Tell the project coordinator this slot is free', message)
+        self.assertIsNone(store.read()['batch'])
+
+    def test_feedback_and_the_release_reach_the_thread_without_any_acknowledgement(self):
+        store = self.store()
+        event = monitor.core.event('conversation', 1, 'v1', 'url')
+        with store.locked() as data:
+            data['target']['events'][event['key']] = dict(event, status='pending')
+        self.assertNotIn(' ack ', self.delivered(store))
+        self.assertIsNone(store.read()['batch'])
+        store.apply(self.terminal('closed'))
+        self.assertEqual(store.read()['target']['cleanup_result']['status'], 'released')
+        self.assertIn(str(self.slots[0]), pool.status(self.primary)['free'])
+        self.assertIn('Tell the project coordinator this slot is free', self.delivered(store))
+
+    def test_a_failed_release_is_reported_and_complete_retries_it(self):
+        store = self.store()
+        (self.slots[0] / 'README').write_text('uncommitted')
+        store.apply(self.terminal('merged'))
+        self.assertEqual(store.read()['target']['cleanup_result']['status'], 'preserved')
+        message = self.delivered(store)
+        self.assertIn('--thread ' + self.THREAD, message)
+        self.assertIn('tell the project coordinator', message)
+        store.apply(self.terminal('merged'))
+        self.assertEqual(store.read()['target']['cleanup_result']['status'], 'preserved')
+        self.assertNotIn(str(self.slots[0]), pool.status(self.primary)['free'])
+        git(self.slots[0], 'checkout', 'README')
+        with patch.object(monitor.core, 'snapshot', return_value=self.terminal('merged')):
+            self.assertEqual(store.complete()['status'], 'released')
+
+
 if __name__ == '__main__':
     unittest.main()

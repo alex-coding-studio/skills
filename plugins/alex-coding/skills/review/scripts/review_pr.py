@@ -48,7 +48,8 @@ def author_store(root, state):
     script = str(author_script(author))
     delivery = 'session' if author.get('remote') else 'queued' if author['runtime'] == 'codex' else 'stdout'
     if author.get('slot'):
-        runtime_adapter = module.claude.Runtime(author['session'], script, delivery, author.get('remote'))
+        runtime_adapter = module.slot_runtime(author['runtime'], author['session'], script, delivery,
+                                              author.get('remote'), author.get('executable'))
         return module.ProjectStore(root / 'author', author['session'], state['pr'], runtime_adapter), module
     if author['runtime'] == 'codex':
         runtime_adapter = module.Runtime(author['session'], script, author.get('executable'), delivery, author.get('remote'))
@@ -80,14 +81,18 @@ def attach_author(args, root, state):
         raise ValueError('invalid existing Claude session identity')
     author = {'runtime': args.author_runtime, 'session': session, 'remote': args.session_remote,
               'slot': str(args.slot.resolve()) if args.slot else None}
-    if author['slot'] and author['runtime'] != 'claude':
-        raise ValueError('pool slots are followed by Claude Project threads only')
+    author['checkout'] = str(args.checkout.resolve()) if args.checkout and not author['slot'] else None
     existing = state.get('author_delivery')
     if existing:
-        if any(existing.get(key) != author[key] for key in ('runtime', 'session', 'remote', 'slot')):
-            raise ValueError('existing author delivery differs; refusing reroute')
-        return
-    if running(root):
+        if (all(existing.get(key) == author[key] for key in ('runtime', 'session', 'remote', 'slot'))
+                and registered_checkout(root, existing) in (None, author['checkout'])):
+            return
+        if not getattr(args, 'takeover', False):
+            raise ValueError('existing author delivery differs; refusing reroute. A new owner declares '
+                             '--takeover once the previous runner has stopped')
+        if running(root) or alive(state.get('pid')) or alive(state.get('worker_pid')):
+            raise ValueError('the previous runner or review worker is still alive; takeover refused')
+    elif running(root):
         raise ValueError('reviewer already running without author delivery; keep its standalone author Monitor')
     if author['runtime'] == 'codex':
         author['executable'] = shutil.which(args.codex)
@@ -97,15 +102,79 @@ def attach_author(args, root, state):
                                     text=True, timeout=10, check=True)
         if author['remote'] and '--remote' not in capability.stdout:
             raise ValueError('this Codex executable does not support session queue --remote')
+    if existing:
+        return take_over(args, root, state, author)
     store, module = author_store(root, {**state, 'author_delivery': author})
+    bind_author(store, module, author, args)
+    state['author_delivery'] = author
+    save(root, state)
+
+
+def registered_checkout(root, author):
+    if 'checkout' in author:
+        return author['checkout']
+    ledger = root / 'author' / 'state.json'
+    return (json.loads(ledger.read_text()).get('target') or {}).get('checkout') if ledger.exists() else None
+
+
+def bind_author(store, module, author, args):
     if author['slot']:
         store.register_slot(args.slot)
     else:
         store.register(checkout=str(args.checkout.resolve()) if args.checkout else None)
     if author['remote']:
-        (module.claude if author['slot'] else module).bind_session_route(store, author_owner(author), author['remote'])
+        adapter = (module.codex if author['runtime'] == 'codex' else module.claude) if author['slot'] else module
+        adapter.bind_session_route(store, author_owner(author), author['remote'])
+
+
+def alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def take_over(args, root, state, author):
+    previous = state['author_delivery']
+    old_store, _ = author_store(root, state)
+    store, module = author_store(root, {**state, 'author_delivery': author})
+    record = {'at': time.time(), 'previous_pid': state.get('pid'),
+              'from': {key: previous.get(key) for key in ('runtime', 'session', 'remote', 'slot')}
+              | {'checkout': registered_checkout(root, previous)},
+              'to': {key: author[key] for key in ('runtime', 'session', 'remote', 'slot', 'checkout')}}
+    ledger = old_store.read()
+    original = (store.root / 'state.json').read_text()
+    for key in old_store.runtime.state_keys:
+        ledger.pop(key)
+    owner_key, target_key = store.runtime.state_keys
+    ledger.update({owner_key: author['session'], target_key: store.name, 'batch': None})
+    ledger.pop('attempt', None)
+    target = old_store.require(ledger)
+    for key in ('checkout', 'cleanup', 'pool_slot', 'session_remote', 'foreground_cleanup', 'codex_executable'):
+        target.pop(key, None)
+    target['takeovers'] = target.get('takeovers', []) + [record]
+    with (store.root / 'state.lock').open('a') as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        store.persist(ledger)
+    try:
+        bind_author(store, module, author, args)
+    except BaseException:
+        with (store.root / 'state.lock').open('a') as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            (store.root / 'state.json').write_text(original)
+        raise
     state['author_delivery'] = author
+    state['takeovers'] = state.get('takeovers', []) + [record]
+    if state['phase'] == 'error':
+        state['phase'] = 'starting'
     save(root, state)
+    remote.shared.note(root, f"{state['pr']}: author delivery taken over by {author['runtime']} "
+                             f"{author['session']} from {previous['runtime']} {previous['session']}")
 
 
 def state_root(pr, base=None):
@@ -533,6 +602,8 @@ def main():
     parser.add_argument('--checkout', type=Path)
     parser.add_argument('--slot', type=Path)
     parser.add_argument('--session-remote')
+    parser.add_argument('--takeover', action='store_true',
+                        help='Rebind this PR to a new author session and checkout or slot after its previous runner stopped')
     parser.add_argument('--codex', default='codex')
     args = parser.parse_args()
     pr = remote.shared.canonical(args.pr)

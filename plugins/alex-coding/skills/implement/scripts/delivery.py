@@ -78,16 +78,17 @@ def review_command(args):
 def start(args):
     if not (args.checkout or args.slot) or not args.reviewer:
         raise ValueError('start requires a checkout or pool slot and an independent reviewer')
-    if args.slot and args.runtime != 'claude':
-        raise ValueError('pool slots are followed by Claude Project threads only')
     if args.acceptance_file and not args.acceptance_file.read_text().strip():
         raise ValueError('acceptance must be nonempty')
     exemption = pin_check(args)
     reviewed = review.state_root(review.remote.shared.canonical(args.pr)) / 'state.json'
     separate = reviewed.exists() and not json.loads(reviewed.read_text()).get('author_delivery')
     if exemption['status'] == 'review-exempt' or separate or (monitor_root(args) / 'state.json').exists():
+        if args.takeover:
+            raise ValueError('takeover applies to PRs followed by the single runner, not a standalone Monitor')
         return start_monitor(args, exemption)
     arguments = review_command(args) + ['--author-runtime', args.runtime, '--author-session', args.session]
+    arguments += ['--takeover'] if args.takeover else []
     arguments += ['--slot', str(args.slot.resolve())] if args.slot else ['--checkout', str(args.checkout.resolve())]
     if args.session_remote:
         arguments += ['--session-remote', args.session_remote]
@@ -266,6 +267,8 @@ def parser():
     result.add_argument('--complexity', choices=['deterministic', 'low', 'medium', 'high'])
     result.add_argument('--max-rounds', type=int, default=3)
     result.add_argument('--session-remote')
+    result.add_argument('--takeover', action='store_true',
+                        help='Rebind the PR to this session and checkout or slot after its previous runner stopped')
     result.add_argument('--review-runtime', choices=['codex', 'claude'])
     result.add_argument('--expected-head')
     result.add_argument('--merge-method', choices=['squash', 'merge', 'rebase'])

@@ -158,6 +158,31 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(command[command.index('--slot') + 1], str(Path(directory).resolve()))
             self.assertNotIn('--checkout', command)
 
+    def test_a_codex_worker_in_a_pool_slot_starts_the_single_runner_with_queue_delivery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = delivery.parser().parse_args(['start', '--runtime', 'codex',
+                '--session', '00000000-0000-0000-0000-000000000001', '--pr', 'owner/repo#1',
+                '--slot', directory, '--reviewer', 'reviewer'])
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
+                    patch.object(delivery, 'invoke', return_value={'active': True}) as invoke:
+                self.assertEqual(delivery.start(args)['status'], 'started')
+            command = invoke.call_args.args[0]
+            self.assertEqual(command[command.index('--author-runtime') + 1], 'codex')
+            self.assertEqual(command[command.index('--slot') + 1], str(Path(directory).resolve()))
+
+    def test_takeover_is_passed_to_the_runner_only_when_declared(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for extra, expected in (([], False), (['--takeover'], True)):
+                args = delivery.parser().parse_args(['start', '--runtime', 'codex',
+                    '--session', '00000000-0000-0000-0000-000000000001', '--pr', 'owner/repo#1',
+                    '--slot', directory, '--reviewer', 'reviewer', *extra])
+                with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                        patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
+                        patch.object(delivery, 'invoke', return_value={'active': True}) as invoke:
+                    delivery.start(args)
+                self.assertEqual('--takeover' in invoke.call_args.args[0], expected)
+
     def test_an_exempt_pool_slot_registers_the_project_monitor_with_its_slot(self):
         with tempfile.TemporaryDirectory() as directory:
             args = delivery.parser().parse_args(['start', '--runtime', 'claude', '--session', 'existing',
