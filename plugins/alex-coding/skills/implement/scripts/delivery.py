@@ -278,13 +278,14 @@ def parser():
 def main():
     args = parser().parse_args()
     try:
+        review.refuse_slot_checkout(args.checkout)
         if args.action != 'open' and not args.pr:
             raise ValueError(f'{args.action} requires the exact PR')
         if args.action in {'open', 'start'} and not (args.runtime and args.session):
             raise ValueError(f'{args.action} requires runtime and session')
         result = {'open': open_pr, 'start': start, 'pin-check': pin_check, 'pin-merge': pin_merge}[args.action](args)
     except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
-        print(json.dumps({'status': 'error', 'reason': str(error)}))
+        print(json.dumps({'status': 'error', 'reason': str(error)}, ensure_ascii=False))
         raise SystemExit(1)
     print(json.dumps(result, indent=2))
     if result['status'] == 'reviewer-inactive':

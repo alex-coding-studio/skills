@@ -15,7 +15,7 @@ Use the installed Skill's absolute script paths. Every pool command accepts `--r
 python3 <skill>/scripts/worktree_pool.py --repo <checkout> acquire --holder <thread-id> --branch <new-branch>
 ```
 
-The pool picks the first free slot, fetches the remote default, creates the branch from it, runs the pool's `prepare` command and records the holder. Repeating the same holder and branch returns the same slot. Work only in the returned `path`. Never create a worktree for this task, never run the generic lifecycle script, and never run `delivery.py open/start` without `--slot`: without it the slot would be registered as a disposable worktree.
+The pool picks the first free slot, fetches the remote default, creates the branch from it, runs the pool's `prepare` command and records the holder. Repeating the same holder and branch returns the same slot. Work only in the returned `path`. Never create a worktree for this task, never run the generic lifecycle script, and always pass the slot with `--slot`. `delivery.py open/start` and `review_pr.py start` refuse a pool slot passed as `--checkout` before writing any registration or state.
 
 Exit status 3 with `"status": "busy"` means every slot is held. Do not create another checkout. Tell the coordinator; it either queues the work or explicitly asks for the pool main as overflow with `acquire --main`. The pool main must be on the default branch with no uncommitted changes, and nothing syncs it while it is held.
 
@@ -35,7 +35,7 @@ python3 <implement>/scripts/delivery.py open --runtime claude --session <stable-
 
 A Codex worker uses `--runtime codex --session <existing-task-uuid>` with the same `--slot`. Its runner is detached and delivers the current PR state to the task through the native Codex queue (or `--session-remote` when the host supplies one), without acknowledgement.
 
-It binds the PR to the slot in the pool, so only this PR or its holder can release it, and starts the PR's single runner: independent review, state delivery to this session and the slot release below. Without a host endpoint the receipt says `native-monitor-required`: start its `monitor_command` through the `Monitor` tool, then repeat `delivery.py start --pr owner/repo#123 --slot <slot-path>` with the same arguments to confirm it is active. Pass `--session-remote` when the host supplies an endpoint. A PR registered with `project_pr_monitor.py` before this version keeps that listener until the PR ends.
+It binds the PR to the slot in the pool, so only this PR or its holder can release it (PR identities compare case-insensitively on owner and repository and are stored in canonical lowercase form), and starts the PR's single runner: independent review, state delivery to this session and the slot release below. Without a host endpoint the receipt says `native-monitor-required`: start its `monitor_command` through the `Monitor` tool, then repeat `delivery.py start --pr owner/repo#123 --slot <slot-path>` with the same arguments to confirm it is active. Pass `--session-remote` when the host supplies an endpoint. A PR registered with `project_pr_monitor.py` before this version keeps that listener until the PR ends.
 
 ## Release when the PR ends
 
@@ -67,7 +67,7 @@ python3 <implement>/scripts/delivery.py start --runtime codex --session <new-tas
   --max-rounds 3 --review-runtime codex --takeover
 ```
 
-It is refused while the old runner's lock is held or its runner or review-worker PID is alive, and a different session or slot without `--takeover` is still refused. Takeover keeps the ledger's history, review rounds, findings and approved fingerprint, records itself under `takeovers`, binds the PR to the new slot and restarts the runner. It does not release the old slot or delete any state; report an old slot that is still held to the coordinator. The same entry moves a PR opened with `--checkout <slot>` onto `--slot`, so its slot is released instead of disposed.
+It is refused while the old runner's lock is held or its runner or review-worker PID is alive, and a different session or slot without `--takeover` is still refused. Takeover keeps the ledger's history, review rounds, findings and approved fingerprint, records itself under `takeovers`, binds the PR to the new slot and restarts the runner. It does not release the old slot or delete any state; report an old slot that is still held to the coordinator. The same entry moves a PR opened with `--checkout <slot>` by a version before 0.9.16 onto `--slot`, so its slot is released instead of disposed.
 
 ## Pool administration
 

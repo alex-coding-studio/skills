@@ -17,10 +17,17 @@ import uuid
 import pr_review_github as remote
 import pr_review_runtime as runtime
 import pr_review_state as core
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'project-monitor/scripts'))
+import worktree_pool
 
 
 MONITOR = Path(__file__).resolve().parents[2] / 'monitor/scripts'
 PROJECT = Path(__file__).resolve().parents[2] / 'project-monitor/scripts/project_pr_monitor.py'
+
+
+def refuse_slot_checkout(checkout):
+    if checkout and worktree_pool.is_slot(checkout):
+        raise ValueError(f'{Path(checkout).resolve()} 该路径是池化槽位，请改用 --slot <path>')
 
 
 def author_script(author):
@@ -606,6 +613,10 @@ def main():
                         help='Rebind this PR to a new author session and checkout or slot after its previous runner stopped')
     parser.add_argument('--codex', default='codex')
     args = parser.parse_args()
+    try:
+        refuse_slot_checkout(args.checkout)
+    except ValueError as error:
+        parser.error(str(error))
     pr = remote.shared.canonical(args.pr)
     root = state_root(pr, args.state_base)
     if args.interval < 10 or args.worker_timeout < 1 or args.max_rounds < 1 or args.additional_rounds < 0:
