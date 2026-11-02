@@ -81,9 +81,11 @@ def attach_author(args, root, state):
         raise ValueError('invalid existing Claude session identity')
     author = {'runtime': args.author_runtime, 'session': session, 'remote': args.session_remote,
               'slot': str(args.slot.resolve()) if args.slot else None}
+    author['checkout'] = str(args.checkout.resolve()) if args.checkout and not author['slot'] else None
     existing = state.get('author_delivery')
     if existing:
-        if all(existing.get(key) == author[key] for key in ('runtime', 'session', 'remote', 'slot')):
+        if (all(existing.get(key) == author[key] for key in ('runtime', 'session', 'remote', 'slot'))
+                and registered_checkout(root, existing) in (None, author['checkout'])):
             return
         if not getattr(args, 'takeover', False):
             raise ValueError('existing author delivery differs; refusing reroute. A new owner declares '
@@ -106,6 +108,13 @@ def attach_author(args, root, state):
     bind_author(store, module, author, args)
     state['author_delivery'] = author
     save(root, state)
+
+
+def registered_checkout(root, author):
+    if 'checkout' in author:
+        return author['checkout']
+    ledger = root / 'author' / 'state.json'
+    return (json.loads(ledger.read_text()).get('target') or {}).get('checkout') if ledger.exists() else None
 
 
 def bind_author(store, module, author, args):
@@ -135,9 +144,11 @@ def take_over(args, root, state, author):
     old_store, _ = author_store(root, state)
     store, module = author_store(root, {**state, 'author_delivery': author})
     record = {'at': time.time(), 'previous_pid': state.get('pid'),
-              'from': {key: previous.get(key) for key in ('runtime', 'session', 'remote', 'slot')},
-              'to': {key: author[key] for key in ('runtime', 'session', 'remote', 'slot')}}
+              'from': {key: previous.get(key) for key in ('runtime', 'session', 'remote', 'slot')}
+              | {'checkout': registered_checkout(root, previous)},
+              'to': {key: author[key] for key in ('runtime', 'session', 'remote', 'slot', 'checkout')}}
     ledger = old_store.read()
+    original = (store.root / 'state.json').read_text()
     for key in old_store.runtime.state_keys:
         ledger.pop(key)
     owner_key, target_key = store.runtime.state_keys
@@ -150,7 +161,13 @@ def take_over(args, root, state, author):
     with (store.root / 'state.lock').open('a') as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         store.persist(ledger)
-    bind_author(store, module, author, args)
+    try:
+        bind_author(store, module, author, args)
+    except BaseException:
+        with (store.root / 'state.lock').open('a') as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            (store.root / 'state.json').write_text(original)
+        raise
     state['author_delivery'] = author
     state['takeovers'] = state.get('takeovers', []) + [record]
     if state['phase'] == 'error':

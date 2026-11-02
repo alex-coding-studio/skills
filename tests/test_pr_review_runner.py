@@ -657,7 +657,7 @@ class TakeoverTests(unittest.TestCase):
         patch.object(runner.shutil, 'which', return_value='/bin/codex').start()
         patch.object(runner.subprocess, 'run').start()
         self.registered = []
-        real = runner.author_store
+        real = self.real = runner.author_store
 
         def author_store(root, state):
             store, module = real(root, state)
@@ -686,6 +686,43 @@ class TakeoverTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'still alive'):
             runner.attach_author(self.args(), self.root, self.state)
         self.assertEqual(json.loads((self.root / 'author/state.json').read_text())['thread'], self.OLD)
+
+    def test_a_failed_registration_leaves_the_previous_owner_so_a_corrected_takeover_succeeds(self):
+        def refuse(slot):
+            raise ValueError('slot is not held; acquire it before binding a PR')
+
+        with patch.object(runner, 'author_store', side_effect=lambda root, state: self.refusing(root, state, refuse)), \
+                self.assertRaisesRegex(ValueError, 'not held'):
+            runner.attach_author(self.args(), self.root, self.state)
+        self.assertEqual(json.loads((self.root / 'author/state.json').read_text())['thread'], self.OLD)
+        self.assertEqual(runner.read(self.root, 'owner/repo#1')['author_delivery']['session'], self.OLD)
+        runner.attach_author(self.args(), self.root, runner.read(self.root, 'owner/repo#1'))
+        self.assertEqual(json.loads((self.root / 'author/state.json').read_text())['thread'], self.NEW)
+
+    def refusing(self, root, state, register_slot):
+        store, module = self.real(root, state)
+        store.register_slot = register_slot
+        return store, module
+
+    def test_the_same_session_moving_to_another_checkout_needs_a_declared_takeover(self):
+        moved = Path(self.temp.name) / 'moved'
+        args = SimpleNamespace(author_runtime='codex', author_session=self.OLD, session_remote=None,
+                               checkout=moved, slot=None, codex='codex', takeover=False)
+        with self.assertRaisesRegex(ValueError, '--takeover'):
+            runner.attach_author(args, self.root, self.state)
+        registered = []
+
+        def author_store(root, state):
+            store, module = self.real(root, state)
+            store.register = lambda checkout=None: registered.append(checkout)
+            return store, module
+
+        args.takeover = True
+        with patch.object(runner, 'author_store', side_effect=author_store):
+            runner.attach_author(args, self.root, self.state)
+        self.assertEqual(registered, [str(moved.resolve())])
+        self.assertIsNone(json.loads((self.root / 'author/state.json').read_text())['target'].get('checkout'))
+        self.assertEqual(runner.read(self.root, 'owner/repo#1')['author_delivery']['checkout'], str(moved.resolve()))
 
     def test_takeover_rebinds_the_ledger_and_keeps_rounds_findings_and_fingerprint(self):
         runner.attach_author(self.args(), self.root, self.state)
