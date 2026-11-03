@@ -25,13 +25,15 @@ Exit status 3 with `"status": "busy"` means every slot is held. Do not create an
 
 ## Open the PR and start its runner
 
-Open the PR through Implement's delivery helper with the slot, from the slot path:
+Open the PR through Implement's delivery helper with the slot, from the slot path, right after the push: `open` starts the review in parallel with CI, so do not run local tests or polish the description first, and add test results to the description afterwards.
 
 ```sh
 python3 <implement>/scripts/delivery.py open --runtime claude --session <stable-session-id> \
   --repository owner/repo --slot <slot-path> --title 'Concrete outcome' --body-file <pr-body> \
-  --reviewer <verified-admin-login> --complexity medium --max-rounds 3 --review-runtime codex
+  --reviewer <verified-admin-login> --complexity medium --max-rounds 3
 ```
+
+The review runtime comes from `review_runtime` in the head's `.ci/config.json`; pass `--review-runtime` only for a repository without it.
 
 A Codex worker uses `--runtime codex --session <existing-task-uuid>` with the same `--slot`. Its runner is detached and delivers the current PR state to the task through the native Codex queue (or `--session-remote` when the host supplies one), without acknowledgement.
 
