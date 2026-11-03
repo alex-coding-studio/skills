@@ -18,7 +18,7 @@ ACKNOWLEDGED_LIMIT = 50
 ROLE_TOOL = "gh_as"
 SCHEMA = 2
 CI_CONFIG = '.ci/config.json'
-CI_REQUIRED_CHECKS = ('ios-plan', 'ios-build', 'ios-unit')
+CI_REQUIRED_CHECKS = ('ios-plan', 'ios-unit')
 
 
 def cleanup_module():

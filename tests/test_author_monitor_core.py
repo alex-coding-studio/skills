@@ -494,7 +494,7 @@ class IdentityTests(unittest.TestCase):
 class RequiredCheckTests(unittest.TestCase):
     def rollup(self, unit):
         passed = {'__typename': 'CheckRun', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}
-        return [{**passed, 'name': 'ios-plan'}, {**passed, 'name': 'ios-build'}, {'__typename': 'CheckRun', 'name': 'ios-unit', **unit}]
+        return [{**passed, 'name': 'ios-plan'}, {'__typename': 'CheckRun', 'name': 'ios-unit', **unit}]
 
     def gate(self, unit):
         return core.gated_checks_state(self.rollup(unit), core.CI_REQUIRED_CHECKS)
@@ -522,7 +522,7 @@ class RequiredCheckTests(unittest.TestCase):
         self.assertEqual(self.gate(self.completed('SKIPPED')), 'fail')
 
     def test_missing_required_check_is_not_a_pass(self):
-        self.assertEqual(core.gated_checks_state(self.rollup(self.completed('SUCCESS'))[:2], core.CI_REQUIRED_CHECKS),
+        self.assertEqual(core.gated_checks_state(self.rollup(self.completed('SUCCESS'))[:1], core.CI_REQUIRED_CHECKS),
                          'pending')
         self.assertEqual(core.gated_checks_state([], core.CI_REQUIRED_CHECKS), 'pending')
 
