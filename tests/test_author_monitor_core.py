@@ -544,6 +544,12 @@ class RequiredCheckTests(unittest.TestCase):
     def test_a_project_without_ci_keeps_absent_checks_as_none(self):
         self.assertEqual(core.gated_checks_state([], ()), 'none')
 
+    def test_a_ci_config_that_is_not_an_object_is_refused_instead_of_dropping_required_checks(self):
+        for body in ('null', '[]'):
+            with patch.object(core.subprocess, 'run', return_value=core.subprocess.CompletedProcess(['gh'], 0, body, '')):
+                with self.assertRaises(ValueError):
+                    core.ci_required('owner/repo', 'head')
+
     def test_ci_config_presence_decides_the_required_checks(self):
         found = core.subprocess.CompletedProcess(['gh'], 0, '{}', '')
         missing = core.subprocess.CompletedProcess(['gh'], 1, '', 'gh: Not Found (HTTP 404)')

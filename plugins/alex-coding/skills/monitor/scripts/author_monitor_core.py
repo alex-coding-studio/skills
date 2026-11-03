@@ -129,7 +129,10 @@ def ci_config(repository, ref, role=None):
                              f'repos/{repository}/contents/{CI_CONFIG}?ref={ref}'],
                             capture_output=True, text=True, timeout=30)
     if result.returncode == 0:
-        return json.loads(result.stdout)
+        config = json.loads(result.stdout)
+        if not isinstance(config, dict):
+            raise ValueError(f'{CI_CONFIG} must be a JSON object')
+        return config
     if 'HTTP 404' in result.stderr:
         return None
     raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
