@@ -24,10 +24,6 @@ jobs:
         # 只对网页合并生效，走 API（GITHUB_TOKEN）合并时不触发（CheckMe 实测）。
         run: |
           set -euo pipefail
-          for RUN_ID in $(gh run list -R "$GITHUB_REPOSITORY" --commit "$HEAD_SHA" --limit 100 \
-              --json databaseId,workflowName --jq "map(select(.workflowName != \"$GITHUB_WORKFLOW\")) | .[].databaseId"); do
-            gh run watch "$RUN_ID" -R "$GITHUB_REPOSITORY" > /dev/null || true
-          done
           if [[ "$(gh pr view "$PR" --json headRefOid --jq .headRefOid)" != "$HEAD_SHA" ]]; then
             echo "The approved commit is no longer the PR head; nothing to merge."
             exit 0
