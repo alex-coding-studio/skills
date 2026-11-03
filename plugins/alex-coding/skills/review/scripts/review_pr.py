@@ -370,7 +370,7 @@ def step(root, state, github, execute=None):
     reason = core.next_event(state, current)
     if (reason in {None, 'ci'} and current.get('ci_required') and current['ci'] == 'pass'
             and state.get('last_review_url') and state.get('review_phase') in {'approved', 'waiting-ci'}):
-        github.merge(current['head'])
+        github.merge(current['head'], state['author'])
         return True
     if reason is None:
         return state['phase'] not in core.TERMINAL

@@ -531,6 +531,11 @@ class RequiredCheckTests(unittest.TestCase):
         rollup.append({'__typename': 'CheckRun', 'name': 'ios-unit', 'startedAt': '2', **self.completed('SKIPPED')})
         self.assertEqual(core.gated_checks_state(rollup, core.CI_REQUIRED_CHECKS), 'pass')
 
+    def test_an_earlier_failure_superseded_by_a_later_success_passes(self):
+        rollup = self.rollup({**self.completed('SUCCESS'), 'startedAt': '2'})
+        rollup.append({'__typename': 'CheckRun', 'name': 'ios-unit', 'startedAt': '1', **self.completed('FAILURE')})
+        self.assertEqual(core.gated_checks_state(rollup, core.CI_REQUIRED_CHECKS), 'pass')
+
     def test_a_project_without_ci_keeps_absent_checks_as_none(self):
         self.assertEqual(core.gated_checks_state([], ()), 'none')
 

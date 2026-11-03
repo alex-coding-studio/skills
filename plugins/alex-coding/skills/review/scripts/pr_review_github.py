@@ -29,8 +29,7 @@ def terminal_check_key(checks):
 
 
 def check_summary(checks, required=()):
-    relevant = [check for check in checks if check.get('__typename') == 'StatusContext'
-                or check.get('conclusion') != 'SKIPPED']
+    relevant = shared.ci_relevant(checks, required)
     return {'ci': shared.gated_checks_state(checks, required), 'ci_key': terminal_check_key(relevant),
             'ci_events': terminal_check_events(relevant)}
 
@@ -149,12 +148,13 @@ class GitHub:
             input=json.dumps(payload), capture_output=True, text=True, timeout=30, check=True)
         return json.loads(response.stdout)
 
-    def merge(self, head):
+    def merge(self, head, author):
         pr = self.pull()
         if pr['state'] != 'open' or pr['draft'] or pr['head']['sha'] != head:
             raise StaleHead('PR no longer matches the approved ready head')
-        if not self.json(self.base).get('permissions', {}).get('push'):
-            raise PermissionError('reviewer requires repository push permission to merge')
+        if pr['user']['login'].casefold() != author:
+            raise PermissionError('PR author identity changed')
+        self.verify_writer(author)
         subprocess.run([*shared.gh_command('admin'), 'api', '--method', 'PUT', f'{self.base}/pulls/{self.number}/merge',
                         '-f', 'merge_method=merge', '-f', f'sha={head}'],
                        capture_output=True, text=True, timeout=30, check=True)

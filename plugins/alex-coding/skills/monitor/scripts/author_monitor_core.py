@@ -145,9 +145,17 @@ def required_check_state(checks, name):
     return 'pass' if ran[-1].get('conclusion') == 'SUCCESS' else 'fail'
 
 
+def required_run(check, required):
+    return check.get('__typename') != 'StatusContext' and check.get('name') in required
+
+
+def ci_relevant(checks, required=()):
+    return [check for check in checks if check.get('__typename') == 'StatusContext'
+            or check.get('conclusion') != 'SKIPPED' or required_run(check, required)]
+
+
 def gated_checks_state(checks, required=()):
-    relevant = [check for check in checks
-                if check.get('__typename') == 'StatusContext' or check.get('conclusion') != 'SKIPPED']
+    relevant = [check for check in ci_relevant(checks) if not required_run(check, required)]
     states = [checks_state(relevant)] + [required_check_state(checks, name) for name in required]
     if 'fail' in states:
         return 'fail'
@@ -221,9 +229,9 @@ def snapshot(target, role=None, summary=False):
     detail = json.loads(result.stdout)
     if detail['headRefOid'] != head:
         raise RuntimeError('PR head changed during snapshot; retry')
-    rollup = [check for check in detail['statusCheckRollup']
-              if check.get('__typename') == 'StatusContext' or check.get('conclusion') != 'SKIPPED']
-    ci = gated_checks_state(detail['statusCheckRollup'], ci_required(repository, head, role))
+    required = ci_required(repository, head, role)
+    rollup = ci_relevant(detail['statusCheckRollup'], required)
+    ci = gated_checks_state(detail['statusCheckRollup'], required)
     checks = sorted([json.dumps(c, sort_keys=True) for c in rollup])
     ci_version = hashlib.sha256(json.dumps([head, checks]).encode()).hexdigest()
     terminal = 'merged' if pr.get('merged') else 'closed' if pr['state'] == 'closed' else None
