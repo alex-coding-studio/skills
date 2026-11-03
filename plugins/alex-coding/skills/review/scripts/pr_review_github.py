@@ -28,10 +28,9 @@ def terminal_check_key(checks):
     return state_core.digest(terminal_check_events(checks))
 
 
-def check_summary(checks):
-    relevant = [check for check in checks if check.get('__typename') == 'StatusContext'
-                or check.get('conclusion') != 'SKIPPED']
-    return {'ci': shared.checks_state(relevant), 'ci_key': terminal_check_key(relevant),
+def check_summary(checks, required=()):
+    relevant = shared.ci_relevant(checks, required)
+    return {'ci': shared.gated_checks_state(checks, required), 'ci_key': terminal_check_key(relevant),
             'ci_events': terminal_check_events(relevant)}
 
 
@@ -124,6 +123,7 @@ class GitHub:
         if detail['headRefOid'] != pr['head']['sha']:
             raise StaleHead('head changed during snapshot')
         checks = detail['statusCheckRollup']
+        required = shared.ci_required(self.repository, pr['head']['sha'], 'admin')
         events = []
         for row in history:
             if shared.self_echo(row, self.reviewer) and row.get('state') != 'DISMISSED':
@@ -133,7 +133,7 @@ class GitHub:
             events.append({'key': key, 'kind': row['kind'], 'id': row['id'], 'url': row.get('html_url')})
         return {'head': pr['head']['sha'], 'base': pr['base']['sha'], 'draft': pr['draft'],
                 'terminal': 'merged' if pr.get('merged') else 'closed' if pr['state'] == 'closed' else None,
-                **check_summary(checks), 'checks': checks, 'events': events, 'history': history, 'pr': pr}
+                **check_summary(checks, required), 'ci_required': bool(required), 'checks': checks, 'events': events, 'history': history, 'pr': pr}
 
     def post(self, endpoint, payload, state, current):
         fresh = self.pull()
@@ -147,6 +147,20 @@ class GitHub:
             [*shared.gh_command('admin'), 'api', '--method', 'POST', endpoint, '--input', '-'],
             input=json.dumps(payload), capture_output=True, text=True, timeout=30, check=True)
         return json.loads(response.stdout)
+
+    def merge(self, head, author):
+        pr = self.pull()
+        if pr['state'] != 'open' or pr['draft'] or pr['head']['sha'] != head:
+            raise StaleHead('PR no longer matches the approved ready head')
+        if pr['user']['login'].casefold() != author:
+            raise PermissionError('PR author identity changed')
+        self.verify_writer(author)
+        subprocess.run([*shared.gh_command('admin'), 'api', '--method', 'PUT', f'{self.base}/pulls/{self.number}/merge',
+                        '-f', 'merge_method=merge', '-f', f'sha={head}'],
+                       capture_output=True, text=True, timeout=30, check=True)
+        if pr['head']['repo']['full_name'].casefold() == self.repository:
+            subprocess.run([*shared.gh_command('admin'), 'api', '--method', 'DELETE',
+                            f"{self.base}/git/refs/heads/{pr['head']['ref']}"], capture_output=True, timeout=30)
 
     def publish(self, state, pending, patch=''):
         marker = 'From Codex 🤖' if state['runtime'] == 'codex' else 'From Claude 🤖'

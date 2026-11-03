@@ -35,7 +35,11 @@ class FakeGitHub:
     def __init__(self):
         self.current = current()
         self.published = []
+        self.merged = []
         self.fail = False
+
+    def merge(self, head, author):
+        self.merged.append(head)
 
     def snapshot(self, author):
         return copy.deepcopy(self.current)
@@ -341,6 +345,34 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
 
 
+    def test_ci_project_merges_the_approved_head_only_after_required_checks_pass(self):
+        self.github.current = {**current(ci='pending'), 'ci_required': True}
+        self.step()
+        self.step()
+        self.step()
+        self.assertEqual(self.github.merged, [])
+        self.github.current = {**current(ci='pass'), 'ci_required': True}
+        self.step()
+        self.assertEqual(self.github.merged, ['a' * 40])
+
+    def test_project_without_ci_leaves_the_merge_to_the_repository_workflow(self):
+        self.github.current = current(ci='none')
+        self.step()
+        self.step()
+        self.step()
+        self.assertEqual(self.github.merged, [])
+
+    def test_ci_project_does_not_merge_a_new_head_on_its_old_approval(self):
+        self.github.current = {**current(ci='pass'), 'ci_required': True}
+        self.step()
+        self.step()
+        self.github.merged.clear()
+        self.github.current = {**current(head='c' * 40, ci='pass'), 'ci_required': True}
+        self.step()
+        self.assertEqual(self.github.merged, [])
+        self.assertEqual(self.state['rounds'], 2)
+
+
 class PublicationTests(unittest.TestCase):
     def test_skipped_workflow_runs_are_not_check_results_for_the_reviewer(self):
         tests = {'__typename': 'CheckRun', 'name': 'tests', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}
@@ -384,6 +416,27 @@ class PublicationTests(unittest.TestCase):
         with patch.object(github, 'history', return_value=[existing]), patch.object(github, 'post') as post:
             self.assertEqual(github.publish(state, pending), 'review-url')
         post.assert_not_called()
+
+    def test_merge_refuses_before_writing_when_the_api_identity_is_not_the_reviewer(self):
+        github = remote.GitHub('owner/repo#1', 'reviewer')
+        pull = {'state': 'open', 'draft': False, 'head': {'sha': 'a' * 40, 'ref': 'work', 'repo': {'full_name': 'owner/repo'}},
+                'user': {'login': 'author'}}
+        with patch.object(github, 'pull', return_value=pull), \
+                patch.object(github, 'json', return_value={'login': 'someone-else', 'permissions': {'push': True}}), \
+                patch.object(remote.subprocess, 'run') as run:
+            with self.assertRaises(PermissionError):
+                github.merge('a' * 40, 'author')
+        run.assert_not_called()
+
+    def test_a_required_check_turning_skipped_is_a_terminal_ci_event(self):
+        state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
+        def snapshot(checks):
+            return {**current(), **remote.check_summary(checks, remote.shared.CI_REQUIRED_CHECKS)}
+        core.settle(state, snapshot([]), 'waiting-ci', [])
+        skipped = [{'__typename': 'CheckRun', 'name': name, 'status': 'COMPLETED', 'conclusion': 'SKIPPED'}
+                   for name in remote.shared.CI_REQUIRED_CHECKS]
+        self.assertEqual(snapshot(skipped)['ci'], 'fail')
+        self.assertEqual(core.next_event(state, snapshot(skipped)), 'ci')
 
     def test_PRL_04_identity_or_permission_failure_prevents_publication(self):
         github = remote.GitHub('owner/repo#1', 'reviewer')

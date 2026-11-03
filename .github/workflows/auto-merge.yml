@@ -32,13 +32,30 @@ jobs:
             echo "The approved commit is no longer the PR head; nothing to merge."
             exit 0
           fi
-          FAILED="$(gh pr view "$PR" --json statusCheckRollup --jq "
+          ROLLUP="$(gh pr view "$PR" --json statusCheckRollup)"
+          REQUIRED=()
+          if CI_CONFIG="$(gh api "repos/$GITHUB_REPOSITORY/contents/.ci/config.json?ref=$HEAD_SHA" --silent 2>&1)"; then
+            REQUIRED=(ios-plan ios-build ios-unit)
+          elif [[ "$CI_CONFIG" != *"HTTP 404"* ]]; then
+            echo "$CI_CONFIG" >&2
+            exit 1
+          fi
+          FAILED="$(jq -r --args "
             .statusCheckRollup[]
             | select((.workflowName // \"\") != \"$GITHUB_WORKFLOW\")
+            | select(.__typename == \"StatusContext\" or ((.name as \$name | \$ARGS.positional | index(\$name)) | not))
             | select(if .__typename == \"StatusContext\" then .state != \"SUCCESS\"
                      else .status != \"COMPLETED\" or (.conclusion | IN(\"SUCCESS\", \"NEUTRAL\", \"SKIPPED\") | not) end)
-            | \"- \(.name // .context)：\(if .__typename == \"StatusContext\" then .state
-                                         elif .status == \"COMPLETED\" then .conclusion else .status end)\"")"
+            | \"- \\(.name // .context)：\\(if .__typename == \"StatusContext\" then .state
+                                         elif .status == \"COMPLETED\" then .conclusion else .status end)\"" ${REQUIRED[@]+"${REQUIRED[@]}"} <<< "$ROLLUP")"
+          for NAME in ${REQUIRED[@]+"${REQUIRED[@]}"}; do
+            STATE="$(jq -r --arg name "$NAME" '[.statusCheckRollup[]
+                | select(.__typename == "CheckRun" and .name == $name and .conclusion != "SKIPPED")]
+              | if length == 0 then "MISSING"
+                elif any(.status != "COMPLETED") then map(select(.status != "COMPLETED"))[0].status
+                else max_by(.completedAt // .startedAt // "").conclusion end' <<< "$ROLLUP")"
+            [[ "$STATE" == "SUCCESS" ]] || FAILED="${FAILED:+$FAILED$'\n'}- $NAME：$STATE"
+          done
           if [[ -n "$FAILED" ]]; then
             gh pr comment "$PR" --body "$(printf '未自动合并：获批提交 %s 上有检查未成功。\n\n%s\n\n修复后推送新提交并重新获批。' "$HEAD_SHA" "$FAILED")"
             exit 1
