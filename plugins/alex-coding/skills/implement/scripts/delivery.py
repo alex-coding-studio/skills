@@ -238,7 +238,8 @@ def pin_merge(args):
                      github.repository, '--json', 'headRefOid,statusCheckRollup'])
     if detail['headRefOid'] != args.expected_head:
         raise ValueError('head changed while reading checks')
-    if review.remote.check_summary(detail['statusCheckRollup'])['ci'] not in {'pass', 'none'}:
+    required = review.remote.shared.ci_required(github.repository, args.expected_head, 'admin')
+    if review.remote.check_summary(detail['statusCheckRollup'], required)['ci'] not in {'pass', 'none'}:
         raise ValueError('checks are not passing')
     if pull.get('mergeable') is not True or pull.get('mergeable_state') in {'blocked', 'dirty', 'unknown'}:
         raise ValueError('mergeability or required GitHub protection is unresolved')

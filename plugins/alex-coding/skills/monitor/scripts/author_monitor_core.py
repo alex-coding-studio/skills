@@ -17,6 +17,8 @@ BATCH_LIMIT = 40
 ACKNOWLEDGED_LIMIT = 50
 ROLE_TOOL = "gh_as"
 SCHEMA = 2
+CI_CONFIG = '.ci/config.json'
+CI_REQUIRED_CHECKS = ('ios-plan', 'ios-build', 'ios-unit')
 
 
 def cleanup_module():
@@ -122,6 +124,38 @@ def checks_state(checks):
     return 'pending' if 'pending' in states else 'pass'
 
 
+def ci_required(repository, ref, role=None):
+    result = subprocess.run([*gh_command(role), 'api', '--silent', f'repos/{repository}/contents/{CI_CONFIG}?ref={ref}'],
+                            capture_output=True, text=True, timeout=30)
+    if result.returncode == 0:
+        return CI_REQUIRED_CHECKS
+    if 'HTTP 404' in result.stderr:
+        return ()
+    raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+
+
+def required_check_state(checks, name):
+    runs = sorted((check for check in checks if check.get('__typename') != 'StatusContext' and check.get('name') == name),
+                  key=lambda check: check.get('startedAt') or '')
+    ran = [check for check in runs if check.get('conclusion') != 'SKIPPED']
+    if not ran:
+        return 'fail' if runs else 'pending'
+    if ran[-1].get('status') != 'COMPLETED':
+        return 'pending'
+    return 'pass' if ran[-1].get('conclusion') == 'SUCCESS' else 'fail'
+
+
+def gated_checks_state(checks, required=()):
+    relevant = [check for check in checks
+                if check.get('__typename') == 'StatusContext' or check.get('conclusion') != 'SKIPPED']
+    states = [checks_state(relevant)] + [required_check_state(checks, name) for name in required]
+    if 'fail' in states:
+        return 'fail'
+    if 'pending' in states:
+        return 'pending'
+    return 'pass' if required or 'pass' in states else 'none'
+
+
 def latest_reviews(reviews, author):
     latest = {}
     for item in reviews:
@@ -189,7 +223,7 @@ def snapshot(target, role=None, summary=False):
         raise RuntimeError('PR head changed during snapshot; retry')
     rollup = [check for check in detail['statusCheckRollup']
               if check.get('__typename') == 'StatusContext' or check.get('conclusion') != 'SKIPPED']
-    ci = checks_state(rollup)
+    ci = gated_checks_state(detail['statusCheckRollup'], ci_required(repository, head, role))
     checks = sorted([json.dumps(c, sort_keys=True) for c in rollup])
     ci_version = hashlib.sha256(json.dumps([head, checks]).encode()).hexdigest()
     terminal = 'merged' if pr.get('merged') else 'closed' if pr['state'] == 'closed' else None

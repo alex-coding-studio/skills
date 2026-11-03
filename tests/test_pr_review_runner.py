@@ -35,7 +35,11 @@ class FakeGitHub:
     def __init__(self):
         self.current = current()
         self.published = []
+        self.merged = []
         self.fail = False
+
+    def merge(self, head):
+        self.merged.append(head)
 
     def snapshot(self, author):
         return copy.deepcopy(self.current)
@@ -339,6 +343,34 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.github.current = current(head='c' * 40, ci='pass')
         self.step()
         self.assertEqual(len(self.calls), 2)
+
+
+    def test_ci_project_merges_the_approved_head_only_after_required_checks_pass(self):
+        self.github.current = {**current(ci='pending'), 'ci_required': True}
+        self.step()
+        self.step()
+        self.step()
+        self.assertEqual(self.github.merged, [])
+        self.github.current = {**current(ci='pass'), 'ci_required': True}
+        self.step()
+        self.assertEqual(self.github.merged, ['a' * 40])
+
+    def test_project_without_ci_leaves_the_merge_to_the_repository_workflow(self):
+        self.github.current = current(ci='none')
+        self.step()
+        self.step()
+        self.step()
+        self.assertEqual(self.github.merged, [])
+
+    def test_ci_project_does_not_merge_a_new_head_on_its_old_approval(self):
+        self.github.current = {**current(ci='pass'), 'ci_required': True}
+        self.step()
+        self.step()
+        self.github.merged.clear()
+        self.github.current = {**current(head='c' * 40, ci='pass'), 'ci_required': True}
+        self.step()
+        self.assertEqual(self.github.merged, [])
+        self.assertEqual(self.state['rounds'], 2)
 
 
 class PublicationTests(unittest.TestCase):

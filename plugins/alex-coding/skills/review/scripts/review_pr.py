@@ -368,6 +368,10 @@ def step(root, state, github, execute=None):
         save(root, state)
         return state['phase'] not in core.TERMINAL
     reason = core.next_event(state, current)
+    if (reason in {None, 'ci'} and current.get('ci_required') and current['ci'] == 'pass'
+            and state.get('last_review_url') and state.get('review_phase') in {'approved', 'waiting-ci'}):
+        github.merge(current['head'])
+        return True
     if reason is None:
         return state['phase'] not in core.TERMINAL
     if (reason == 'ci' and current['ci'] == 'pass' and state.get('last_review_url')

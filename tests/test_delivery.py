@@ -76,10 +76,31 @@ class DeliveryTests(unittest.TestCase):
         with patch.object(delivery, 'pin_check', return_value={'status': 'review-exempt', 'head': head}), \
                 patch.object(delivery.review.remote, 'GitHub', return_value=github), \
                 patch.object(delivery.review.remote.shared, 'gh_command', return_value=['gh']), \
+                patch.object(delivery.review.remote.shared, 'ci_required', return_value=()), \
                 patch.object(delivery, 'invoke', side_effect=lambda command, cwd=None: calls.append(command) or
                              {'headRefOid': head, 'statusCheckRollup': []}):
             with self.assertRaises(PermissionError):
                 delivery.pin_merge(args)
+        self.assertFalse(any('merge' in command for command in calls))
+
+    def test_pin_merge_in_a_ci_project_refuses_when_a_required_check_is_missing(self):
+        head = 'a' * 40
+        github = SimpleNamespace(number=7, repository='o/r', base='repos/o/r')
+        github.pull = lambda: {'state': 'open', 'draft': False, 'head': {'sha': head},
+                               'mergeable': True, 'mergeable_state': 'clean'}
+        github.json = lambda endpoint, paginate=False: {'permissions': {'push': True}}
+        passed = {'__typename': 'CheckRun', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}
+        rollup = [{**passed, 'name': 'ios-plan'}, {**passed, 'name': 'ios-unit'}]
+        calls = []
+        with patch.object(delivery, 'pin_check', return_value={'status': 'review-exempt', 'head': head}), \
+                patch.object(delivery.review.remote, 'GitHub', return_value=github), \
+                patch.object(delivery.review.remote.shared, 'gh_command', return_value=['gh']), \
+                patch.object(delivery.review.remote.shared, 'ci_required',
+                             return_value=delivery.review.remote.shared.CI_REQUIRED_CHECKS), \
+                patch.object(delivery, 'invoke', side_effect=lambda command, cwd=None: calls.append(command) or
+                             {'headRefOid': head, 'statusCheckRollup': rollup}):
+            with self.assertRaisesRegex(ValueError, 'checks are not passing'):
+                delivery.pin_merge(SimpleNamespace(pr='o/r#7', expected_head=head, merge_method='merge'))
         self.assertFalse(any('merge' in command for command in calls))
 
     def test_claude_stdout_delivery_returns_the_single_runner_for_the_monitor_tool(self):

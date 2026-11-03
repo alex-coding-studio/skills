@@ -312,6 +312,11 @@ class TerminalTests(unittest.TestCase):
 
 
 class IdentityTests(unittest.TestCase):
+    def setUp(self):
+        required = patch.object(core, 'ci_required', return_value=())
+        required.start()
+        self.addCleanup(required.stop)
+
     def test_state_from_another_owner_or_pull_request_is_refused(self):
         with tempfile.TemporaryDirectory() as directory:
             enrol(core.Store(directory, 'identity-one', NAME, FakeRuntime()))
@@ -484,6 +489,60 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(summary['reviews'], [{'user': 'reviewer', 'state': 'APPROVED', 'url': 'new'}])
         self.assertEqual([row['url'] for row in summary['threads']], ['open-thread'])
         self.assertEqual(summary['failing'], ['tests'])
+
+
+class RequiredCheckTests(unittest.TestCase):
+    def rollup(self, unit):
+        passed = {'__typename': 'CheckRun', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}
+        return [{**passed, 'name': 'ios-plan'}, {**passed, 'name': 'ios-build'}, {'__typename': 'CheckRun', 'name': 'ios-unit', **unit}]
+
+    def gate(self, unit):
+        return core.gated_checks_state(self.rollup(unit), core.CI_REQUIRED_CHECKS)
+
+    @staticmethod
+    def completed(conclusion):
+        return {'status': 'COMPLETED', 'conclusion': conclusion}
+
+    def test_required_checks_all_succeeding_pass(self):
+        self.assertEqual(self.gate(self.completed('SUCCESS')), 'pass')
+
+    def test_required_check_still_running_is_pending(self):
+        self.assertEqual(self.gate({'status': 'IN_PROGRESS', 'conclusion': None}), 'pending')
+
+    def test_required_check_failure_fails(self):
+        self.assertEqual(self.gate(self.completed('FAILURE')), 'fail')
+
+    def test_cancelled_required_check_is_not_a_pass(self):
+        self.assertEqual(self.gate(self.completed('CANCELLED')), 'fail')
+
+    def test_timed_out_required_check_is_not_a_pass(self):
+        self.assertEqual(self.gate(self.completed('TIMED_OUT')), 'fail')
+
+    def test_skipped_required_check_is_not_a_pass(self):
+        self.assertEqual(self.gate(self.completed('SKIPPED')), 'fail')
+
+    def test_missing_required_check_is_not_a_pass(self):
+        self.assertEqual(core.gated_checks_state(self.rollup(self.completed('SUCCESS'))[:2], core.CI_REQUIRED_CHECKS),
+                         'pending')
+        self.assertEqual(core.gated_checks_state([], core.CI_REQUIRED_CHECKS), 'pending')
+
+    def test_a_later_skipped_label_run_does_not_hide_the_completed_result(self):
+        rollup = self.rollup({**self.completed('SUCCESS'), 'startedAt': '1'})
+        rollup.append({'__typename': 'CheckRun', 'name': 'ios-unit', 'startedAt': '2', **self.completed('SKIPPED')})
+        self.assertEqual(core.gated_checks_state(rollup, core.CI_REQUIRED_CHECKS), 'pass')
+
+    def test_a_project_without_ci_keeps_absent_checks_as_none(self):
+        self.assertEqual(core.gated_checks_state([], ()), 'none')
+
+    def test_ci_config_presence_decides_the_required_checks(self):
+        found = core.subprocess.CompletedProcess(['gh'], 0, '', '')
+        missing = core.subprocess.CompletedProcess(['gh'], 1, '', 'gh: Not Found (HTTP 404)')
+        broken = core.subprocess.CompletedProcess(['gh'], 1, '', 'connection reset')
+        with patch.object(core.subprocess, 'run', side_effect=[found, missing, broken]):
+            self.assertEqual(core.ci_required('owner/repo', 'head'), core.CI_REQUIRED_CHECKS)
+            self.assertEqual(core.ci_required('owner/repo', 'head'), ())
+            with self.assertRaises(core.subprocess.CalledProcessError):
+                core.ci_required('owner/repo', 'head')
 
 
 class ContinuousIntegrationTests(unittest.TestCase):
