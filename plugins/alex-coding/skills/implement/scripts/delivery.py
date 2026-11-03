@@ -68,7 +68,8 @@ def monitor_live(root, command):
 
 def review_command(args):
     arguments = [sys.executable, str(PLUGIN / 'skills/review/scripts/review_pr.py'),
-                 'start', '--pr', args.pr, '--runtime', args.review_runtime or args.runtime, '--reviewer', args.reviewer,
+                 'start', '--pr', args.pr, '--runtime',
+                 args.review_runtime or review.configured_runtime(args.pr) or args.runtime, '--reviewer', args.reviewer,
                  '--max-rounds', str(args.max_rounds)]
     if args.acceptance_file:
         arguments += ['--acceptance-file', str(args.acceptance_file.resolve())]

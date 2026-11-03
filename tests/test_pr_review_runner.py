@@ -373,6 +373,26 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(self.state['rounds'], 2)
 
 
+class ConfiguredRuntimeTests(unittest.TestCase):
+    def resolve(self, config):
+        with patch.object(remote.shared, 'gh_json', return_value={'head': {'sha': 'a' * 40}}), \
+                patch.object(remote.shared, 'ci_config', return_value=config) as read:
+            value = runner.configured_runtime('owner/repo#1')
+        read.assert_called_once_with('owner/repo', 'a' * 40, 'admin')
+        return value
+
+    def test_the_project_config_names_the_review_runtime(self):
+        self.assertEqual(self.resolve({'review_runtime': 'codex'}), 'codex')
+
+    def test_a_project_without_the_setting_or_config_leaves_the_choice_to_the_caller(self):
+        self.assertIsNone(self.resolve({}))
+        self.assertIsNone(self.resolve(None))
+
+    def test_an_unknown_configured_runtime_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.resolve({'review_runtime': 'gemini'})
+
+
 class PublicationTests(unittest.TestCase):
     def test_skipped_workflow_runs_are_not_check_results_for_the_reviewer(self):
         tests = {'__typename': 'CheckRun', 'name': 'tests', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}

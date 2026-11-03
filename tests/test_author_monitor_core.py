@@ -545,7 +545,7 @@ class RequiredCheckTests(unittest.TestCase):
         self.assertEqual(core.gated_checks_state([], ()), 'none')
 
     def test_ci_config_presence_decides_the_required_checks(self):
-        found = core.subprocess.CompletedProcess(['gh'], 0, '', '')
+        found = core.subprocess.CompletedProcess(['gh'], 0, '{}', '')
         missing = core.subprocess.CompletedProcess(['gh'], 1, '', 'gh: Not Found (HTTP 404)')
         broken = core.subprocess.CompletedProcess(['gh'], 1, '', 'connection reset')
         with patch.object(core.subprocess, 'run', side_effect=[found, missing, broken]):

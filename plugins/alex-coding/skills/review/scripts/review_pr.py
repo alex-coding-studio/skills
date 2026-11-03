@@ -25,6 +25,15 @@ MONITOR = Path(__file__).resolve().parents[2] / 'monitor/scripts'
 PROJECT = Path(__file__).resolve().parents[2] / 'project-monitor/scripts/project_pr_monitor.py'
 
 
+def configured_runtime(pr):
+    repository, number = remote.shared.parse_target(pr)
+    head = remote.shared.gh_json(f'repos/{repository}/pulls/{number}', 'admin')['head']['sha']
+    value = (remote.shared.ci_config(repository, head, 'admin') or {}).get('review_runtime')
+    if value not in (None, 'codex', 'claude'):
+        raise ValueError(f'{remote.shared.CI_CONFIG} review_runtime must be codex or claude, not {value!r}')
+    return value
+
+
 def refuse_slot_checkout(checkout):
     if checkout and worktree_pool.is_slot(checkout):
         raise ValueError(f'{Path(checkout).resolve()} 该路径是池化槽位，请改用 --slot <path>')
@@ -635,8 +644,9 @@ def main():
     else:
         with lock(root, 'launch.lock'):
             if args.action == 'start':
+                args.runtime = args.runtime or configured_runtime(pr)
                 if not args.runtime or not args.reviewer:
-                    parser.error('start requires --runtime and --reviewer')
+                    parser.error(f'start requires --reviewer and --runtime unless {remote.shared.CI_CONFIG} sets review_runtime')
                 state = register(args, root, pr)
                 if args.author_runtime:
                     attach_author(args, root, state)

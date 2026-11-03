@@ -124,14 +124,19 @@ def checks_state(checks):
     return 'pending' if 'pending' in states else 'pass'
 
 
-def ci_required(repository, ref, role=None):
-    result = subprocess.run([*gh_command(role), 'api', '--silent', f'repos/{repository}/contents/{CI_CONFIG}?ref={ref}'],
+def ci_config(repository, ref, role=None):
+    result = subprocess.run([*gh_command(role), 'api', '-H', 'Accept: application/vnd.github.raw',
+                             f'repos/{repository}/contents/{CI_CONFIG}?ref={ref}'],
                             capture_output=True, text=True, timeout=30)
     if result.returncode == 0:
-        return CI_REQUIRED_CHECKS
+        return json.loads(result.stdout)
     if 'HTTP 404' in result.stderr:
-        return ()
+        return None
     raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+
+
+def ci_required(repository, ref, role=None):
+    return CI_REQUIRED_CHECKS if ci_config(repository, ref, role) is not None else ()
 
 
 def required_check_state(checks, name):
