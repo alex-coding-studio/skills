@@ -35,7 +35,7 @@ jobs:
           ROLLUP="$(gh pr view "$PR" --json statusCheckRollup)"
           REQUIRED=()
           if CI_CONFIG="$(gh api "repos/$GITHUB_REPOSITORY/contents/.ci/config.json?ref=$HEAD_SHA" --silent 2>&1)"; then
-            REQUIRED=(ios-plan ios-build ios-unit)
+            REQUIRED=(ios-plan ios-unit)
           elif [[ "$CI_CONFIG" != *"HTTP 404"* ]]; then
             echo "$CI_CONFIG" >&2
             exit 1

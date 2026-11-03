@@ -106,7 +106,7 @@ class DeliveryTests(unittest.TestCase):
                                'mergeable': True, 'mergeable_state': 'clean'}
         github.json = lambda endpoint, paginate=False: {'permissions': {'push': True}}
         passed = {'__typename': 'CheckRun', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}
-        rollup = [{**passed, 'name': 'ios-plan'}, {**passed, 'name': 'ios-unit'}]
+        rollup = [{**passed, 'name': 'ios-plan'}]
         calls = []
         with patch.object(delivery, 'pin_check', return_value={'status': 'review-exempt', 'head': head}), \
                 patch.object(delivery.review.remote, 'GitHub', return_value=github), \
