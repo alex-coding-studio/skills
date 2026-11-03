@@ -11,7 +11,7 @@ The PR description is the only acceptance and evidence record, and the reviewer 
 
 A Contract delivery keeps its clause → case → test mapping table in the description. Add one sentence giving the reason for the chosen [review complexity](../../review/references/runtime.md#model-and-effort-policy). Do not include private reasoning or a suggested verdict. When later commits change the evidence, edit the description; the reviewer rereads it on every invocation.
 
-After committed, pushed changes, passing unchanged repository gates and any required human UI acceptance:
+After committed, pushed changes, passing unchanged repository gates and, for UI work, either the user's UI acceptance or their batch authorization to accept after delivery (opening the PR needs no separate approval):
 
 ```sh
 python3 <implement>/scripts/delivery.py open --runtime codex --session <existing-task-uuid> \
