@@ -37,7 +37,7 @@ python3 <review>/scripts/review_pr.py start --pr 'owner/repo#123' \
   --max-rounds 3
 ```
 
-Use `--runtime claude` for Claude. `--executable` optionally selects a verified CLI binary, not a model. The launcher detaches its own process with disconnected stdin and local logs, then verifies lock ownership and startup state. It actually invokes the reviewer CLI; it is not a substitute notification transport for an existing author session. Draft PRs wait without model invocation until Ready.
+Use `--runtime claude` for Claude. Without `--runtime`, `start` uses `review_runtime` from `.ci/config.json` at the PR head and refuses when neither is given. `--executable` optionally selects a verified CLI binary, not a model. The launcher detaches its own process with disconnected stdin and local logs, then verifies lock ownership and startup state. It actually invokes the reviewer CLI; it is not a substitute notification transport for an existing author session. Draft PRs wait without model invocation until Ready.
 
 ```sh
 python3 <review>/scripts/review_pr.py status --pr 'owner/repo#123'

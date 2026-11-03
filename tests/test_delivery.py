@@ -14,6 +14,22 @@ spec.loader.exec_module(delivery)
 
 
 class DeliveryTests(unittest.TestCase):
+    def setUp(self):
+        configured = patch.object(delivery.review, 'configured_runtime', return_value=None)
+        configured.start()
+        self.addCleanup(configured.stop)
+
+    def test_review_runtime_prefers_the_argument_then_the_project_config_then_the_author(self):
+        args = SimpleNamespace(pr='o/r#7', runtime='claude', review_runtime=None, reviewer='admin', max_rounds=3,
+                               acceptance_file=None, complexity=None)
+        def runtime(**changes):
+            command = delivery.review_command(SimpleNamespace(**{**vars(args), **changes}))
+            return command[command.index('--runtime') + 1]
+        self.assertEqual(runtime(), 'claude')
+        with patch.object(delivery.review, 'configured_runtime', return_value='codex'):
+            self.assertEqual(runtime(), 'codex')
+            self.assertEqual(runtime(review_runtime='claude'), 'claude')
+
     def test_pin_only_accepts_lockfiles_and_version_lines_only(self):
         resolved = {'filename': 'App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved',
                     'status': 'modified', 'patch': '@@ -1 +1 @@\n-"revision" : "a"\n+"revision" : "b"'}
