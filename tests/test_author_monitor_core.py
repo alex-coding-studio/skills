@@ -536,6 +536,11 @@ class RequiredCheckTests(unittest.TestCase):
         rollup.append({'__typename': 'CheckRun', 'name': 'ios-unit', 'startedAt': '1', **self.completed('FAILURE')})
         self.assertEqual(core.gated_checks_state(rollup, core.CI_REQUIRED_CHECKS), 'pass')
 
+    def test_a_queued_rerun_without_a_start_time_keeps_an_earlier_success_pending(self):
+        rollup = self.rollup({**self.completed('SUCCESS'), 'startedAt': '1'})
+        rollup.append({'__typename': 'CheckRun', 'name': 'ios-unit', 'status': 'QUEUED', 'conclusion': None, 'startedAt': None})
+        self.assertEqual(core.gated_checks_state(rollup, core.CI_REQUIRED_CHECKS), 'pending')
+
     def test_a_project_without_ci_keeps_absent_checks_as_none(self):
         self.assertEqual(core.gated_checks_state([], ()), 'none')
 

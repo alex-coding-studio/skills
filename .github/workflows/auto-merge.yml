@@ -51,8 +51,9 @@ jobs:
           for NAME in ${REQUIRED[@]+"${REQUIRED[@]}"}; do
             STATE="$(jq -r --arg name "$NAME" '[.statusCheckRollup[]
                 | select(.__typename == "CheckRun" and .name == $name and .conclusion != "SKIPPED")]
-              | sort_by(.startedAt // "") | last
-              | if . == null then "MISSING" elif .status != "COMPLETED" then .status else .conclusion end' <<< "$ROLLUP")"
+              | if length == 0 then "MISSING"
+                elif any(.status != "COMPLETED") then map(select(.status != "COMPLETED"))[0].status
+                else max_by(.completedAt // .startedAt // "").conclusion end' <<< "$ROLLUP")"
             [[ "$STATE" == "SUCCESS" ]] || FAILED="${FAILED:+$FAILED$'\n'}- $NAME：$STATE"
           done
           if [[ -n "$FAILED" ]]; then

@@ -135,14 +135,14 @@ def ci_required(repository, ref, role=None):
 
 
 def required_check_state(checks, name):
-    runs = sorted((check for check in checks if check.get('__typename') != 'StatusContext' and check.get('name') == name),
-                  key=lambda check: check.get('startedAt') or '')
+    runs = [check for check in checks if check.get('__typename') != 'StatusContext' and check.get('name') == name]
     ran = [check for check in runs if check.get('conclusion') != 'SKIPPED']
     if not ran:
         return 'fail' if runs else 'pending'
-    if ran[-1].get('status') != 'COMPLETED':
+    if any(check.get('status') != 'COMPLETED' for check in ran):
         return 'pending'
-    return 'pass' if ran[-1].get('conclusion') == 'SUCCESS' else 'fail'
+    latest = max(ran, key=lambda check: check.get('completedAt') or check.get('startedAt') or '')
+    return 'pass' if latest.get('conclusion') == 'SUCCESS' else 'fail'
 
 
 def required_run(check, required):
