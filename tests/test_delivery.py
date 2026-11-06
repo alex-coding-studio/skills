@@ -81,6 +81,46 @@ class DeliveryTests(unittest.TestCase):
                     patch.object(delivery.review.remote, 'GitHub', return_value=github):
                 self.assertEqual(delivery.pin_check(SimpleNamespace(pr='o/r#7'))['status'], expected)
 
+    def test_coordinator_label_exempts_source_changes_and_start_only_registers_monitor(self):
+        files = [{'filename': 'Sources/Owned.swift', 'status': 'removed', 'patch': '@@ -1 +0,0 @@\n-old'}]
+        github = SimpleNamespace(number=7, base='repos/o/r')
+        pull = {'head': {'sha': 'h'}, 'base': {'sha': 'b'}, 'labels': []}
+        github.pull = lambda: pull
+        github.json = lambda endpoint, paginate=False: files if paginate else {'content': ''}
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(delivery.review.remote, 'GitHub', return_value=github), \
+                patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                patch.object(delivery, 'monitor_live', return_value=True), \
+                patch.object(delivery, 'invoke', return_value={}) as invoke:
+            self.assertEqual(delivery.pin_check(SimpleNamespace(pr='o/r#7'))['status'], 'review-required')
+            pull['labels'] = [{'name': 'ci-skip-approved'}]
+            args = delivery.parser().parse_args(['start', '--runtime', 'codex',
+                '--session', '00000000-0000-0000-0000-000000000001', '--pr', 'o/r#7',
+                '--checkout', directory, '--reviewer', 'reviewer'])
+            result = delivery.start(args)
+        self.assertEqual(result['status'], 'review-exempt')
+        self.assertEqual(result['exemption'], 'coordinator-approved-mechanical')
+        self.assertFalse(result['reviewer_active'])
+        self.assertTrue(result['monitor_active'])
+        self.assertEqual(invoke.call_count, 1)
+        self.assertNotIn('review_pr.py', ' '.join(map(str, invoke.call_args.args[0])))
+
+    def test_coordinator_label_does_not_start_a_second_monitor_for_an_active_reviewer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'state.json').write_text(json.dumps({'author_delivery': 'codex'}))
+            args = delivery.parser().parse_args(['start', '--runtime', 'codex',
+                '--session', '00000000-0000-0000-0000-000000000001', '--pr', 'o/r#7',
+                '--checkout', directory, '--reviewer', 'reviewer'])
+            with patch.object(delivery, 'pin_check', return_value={'status': 'review-exempt',
+                    'exemption': 'coordinator-approved-mechanical'}), \
+                    patch.object(delivery.review, 'state_root', return_value=root), \
+                    patch.object(delivery.review, 'running', return_value=True), \
+                    patch.object(delivery, 'start_monitor') as monitor:
+                with self.assertRaisesRegex(ValueError, 'existing PR runner'):
+                    delivery.start(args)
+            monitor.assert_not_called()
+
     def test_pin_merge_refuses_without_push_permission(self):
         head = 'a' * 40
         github = SimpleNamespace(number=7, repository='o/r', base='repos/o/r')
@@ -329,6 +369,7 @@ class PendingCIMergeTests(unittest.TestCase):
         self.permission = True
         self.exemption = 'review-exempt'
         self.revoke_label = False
+        self.coordinator_exemption = False
         self.cancel_fails = False
         self.extra_page = []
 
@@ -353,12 +394,47 @@ class PendingCIMergeTests(unittest.TestCase):
                 return [{'workflow_runs': self.runs}, {'workflow_runs': self.extra_page}]
             raise AssertionError(command)
 
-        with patch.object(delivery, 'pin_check', return_value={'status': self.exemption, 'head': self.head}), \
+        with patch.object(delivery, 'pin_check', return_value={'status': self.exemption, 'head': self.head,
+                    **({'exemption': 'coordinator-approved-mechanical'} if self.coordinator_exemption else {})}), \
                 patch.object(delivery.review.remote, 'GitHub', return_value=github), \
                 patch.object(delivery.review.remote.shared, 'gh_command', return_value=['gh_as', 'admin']), \
                 patch.object(delivery.review.remote.shared, 'ci_required', return_value=()), \
                 patch.object(delivery, 'invoke', side_effect=invoke):
             return delivery.pin_merge(self.args)
+
+    def test_source_exemption_requires_the_flag_even_when_ci_has_passed(self):
+        self.coordinator_exemption = True
+        self.args.allow_pending_ci = False
+        self.checks = [{'__typename': 'CheckRun', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}]
+        with self.assertRaisesRegex(ValueError, '--allow-pending-ci'):
+            self.merge()
+        self.assertFalse(any('merge' in command for command in self.calls))
+
+    def test_coordinator_mechanical_merge_audits_exemption_label_head_and_cancellations(self):
+        self.coordinator_exemption = True
+        result = self.merge()
+        self.assertEqual(result['exemption'], 'coordinator-approved-mechanical')
+        self.assertEqual(result['approval_label'], 'ci-skip-approved')
+        self.assertEqual(result['head'], self.head)
+        self.assertIn('协调者批准的机械改动：免独立审查、未等 CI', result['message'])
+        self.assertEqual(result['cancel_requested_run_ids'], [1])
+
+    def test_unsuccessful_completed_checks_block_even_without_another_pending_check(self):
+        self.coordinator_exemption = True
+        for conclusion in ('FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'NEUTRAL', 'SKIPPED'):
+            with self.subTest(conclusion=conclusion):
+                self.checks = [{'__typename': 'CheckRun', 'status': 'COMPLETED', 'conclusion': conclusion}]
+                with self.assertRaisesRegex(ValueError, 'checks are not passing'):
+                    self.merge()
+        self.assertFalse(any('merge' in command for command in self.calls))
+
+    def test_coordinator_label_is_rechecked_even_after_successful_checks(self):
+        self.coordinator_exemption = True
+        self.revoke_label = True
+        self.checks = [{'__typename': 'CheckRun', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}]
+        with self.assertRaisesRegex(ValueError, 'approval label or expected ready head changed'):
+            self.merge()
+        self.assertFalse(any('merge' in command for command in self.calls))
 
     def test_pending_requires_both_the_flag_and_coordinator_label(self):
         for flag, labels in ((False, [{'name': 'ci-skip-approved'}]), (True, []), (False, [])):
@@ -415,10 +491,10 @@ class PendingCIMergeTests(unittest.TestCase):
         self.assertTrue(self.pull['merged'])
 
     def test_pending_status_and_queued_checks_are_allowed_but_unknown_states_are_not(self):
-        self.assertTrue(delivery.pending_ci_checks([{'__typename': 'StatusContext', 'state': 'PENDING'}]))
-        self.assertTrue(delivery.pending_ci_checks([{'__typename': 'CheckRun', 'status': 'QUEUED'}]))
-        self.assertFalse(delivery.pending_ci_checks([{'__typename': 'CheckRun', 'status': 'UNKNOWN'}]))
-        self.assertFalse(delivery.pending_ci_checks([]))
+        self.assertEqual(delivery.mechanical_ci_state([{'__typename': 'StatusContext', 'state': 'PENDING'}]), 'pending')
+        self.assertEqual(delivery.mechanical_ci_state([{'__typename': 'CheckRun', 'status': 'QUEUED'}]), 'pending')
+        self.assertEqual(delivery.mechanical_ci_state([{'__typename': 'CheckRun', 'status': 'UNKNOWN'}]), 'fail')
+        self.assertEqual(delivery.mechanical_ci_state([]), 'pass')
 
     def test_pending_override_preserves_exemption_head_and_permission_guards(self):
         for field, value, error in (('exemption', 'review-required', ValueError), ('permission', False, PermissionError)):

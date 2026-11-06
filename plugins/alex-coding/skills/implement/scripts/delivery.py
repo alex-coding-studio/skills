@@ -86,6 +86,9 @@ def start(args):
     exemption = pin_check(args)
     reviewed = review.state_root(review.remote.shared.canonical(args.pr)) / 'state.json'
     separate = reviewed.exists() and not json.loads(reviewed.read_text()).get('author_delivery')
+    if (exemption.get('exemption') == 'coordinator-approved-mechanical'
+            and reviewed.exists() and review.running(reviewed.parent)):
+        raise ValueError('an existing PR runner is active; retain its review path or stop it before starting a coordinator-only Monitor')
     if exemption['status'] == 'review-exempt' or separate or (monitor_root(args) / 'state.json').exists():
         if args.takeover:
             raise ValueError('takeover applies to PRs followed by the single runner, not a standalone Monitor')
@@ -222,27 +225,31 @@ def pin_check(args):
     except (subprocess.CalledProcessError, KeyError, ValueError):
         declared = set()
     kinds = exempt_kinds(files)
-    return {'status': 'review-exempt' if kinds and kinds <= declared else 'review-required',
-            'pr': review.remote.shared.canonical(args.pr), 'head': pull['head']['sha'],
-            'kinds': sorted(kinds), 'declared': sorted(declared), 'files': [row['filename'] for row in files]}
+    result = {'status': 'review-exempt' if kinds and kinds <= declared else 'review-required',
+              'pr': review.remote.shared.canonical(args.pr), 'head': pull['head']['sha'],
+              'kinds': sorted(kinds), 'declared': sorted(declared), 'files': [row['filename'] for row in files]}
+    if result['status'] == 'review-required' and pending_ci_approved(pull):
+        result.update(status='review-exempt', exemption='coordinator-approved-mechanical',
+                      approval_label=PENDING_CI_LABEL)
+    return result
 
 
-def pending_ci_checks(checks):
+def mechanical_ci_state(checks):
     pending = False
     for check in checks:
         if check.get('__typename') == 'StatusContext':
             state = check.get('state')
             if state not in {'SUCCESS', 'PENDING', 'EXPECTED'}:
-                return False
+                return 'fail'
             pending |= state != 'SUCCESS'
         elif check.get('status') == 'COMPLETED':
             if check.get('conclusion') != 'SUCCESS':
-                return False
+                return 'fail'
         elif check.get('status') in {'QUEUED', 'IN_PROGRESS', 'PENDING', 'REQUESTED', 'WAITING'} and not check.get('conclusion'):
             pending = True
         else:
-            return False
-    return pending
+            return 'fail'
+    return 'pending' if pending else 'pass'
 
 
 def pending_ci_approved(pull):
@@ -281,6 +288,9 @@ def pin_merge(args):
         raise ValueError('the PR is not covered by a declared review exemption; independent review is required')
     github = review.remote.GitHub(args.pr, '')
     pull = github.pull()
+    coordinator = getattr(args, 'allow_pending_ci', False) and pending_ci_approved(pull)
+    if result.get('exemption') == 'coordinator-approved-mechanical' and not coordinator:
+        raise ValueError('coordinator-approved source changes require --allow-pending-ci and the approval label')
     if pull['state'] != 'open' or pull['draft'] or {pull['head']['sha'], result['head']} != {args.expected_head}:
         raise ValueError('PR does not match the expected ready head')
     detail = invoke([*review.remote.shared.gh_command('admin'), 'pr', 'view', str(github.number), '--repo',
@@ -289,15 +299,15 @@ def pin_merge(args):
         raise ValueError('head changed while reading checks')
     required = review.remote.shared.ci_required(github.repository, args.expected_head, 'admin')
     ci = review.remote.check_summary(detail['statusCheckRollup'], required)['ci']
-    skip_ci = (ci == 'pending' and getattr(args, 'allow_pending_ci', False)
-               and pending_ci_approved(pull) and pending_ci_checks(detail['statusCheckRollup']))
-    if ci not in {'pass', 'none'} and not skip_ci:
+    mechanical_ci = mechanical_ci_state(detail['statusCheckRollup'])
+    skip_ci = ci == 'pending' and coordinator and mechanical_ci == 'pending'
+    if (coordinator and mechanical_ci == 'fail') or (ci not in {'pass', 'none'} and not skip_ci):
         raise ValueError('checks are not passing')
     if pull.get('mergeable') is not True or pull.get('mergeable_state') in {'blocked', 'dirty', 'unknown'}:
         raise ValueError('mergeability or required GitHub protection is unresolved')
     if not github.json(github.base).get('permissions', {}).get('push'):
         raise PermissionError('admin requires repository push permission')
-    if skip_ci:
+    if coordinator:
         pull = github.pull()
         if (pull['state'] != 'open' or pull['draft'] or pull['head']['sha'] != args.expected_head
                 or not pending_ci_approved(pull)):
@@ -306,9 +316,11 @@ def pin_merge(args):
             '--' + args.merge_method, '--match-head-commit', args.expected_head])
     if not github.pull().get('merged'):
         raise RuntimeError('merge is not confirmed')
-    if skip_ci:
-        return {**result, 'status': 'merged', 'merged_without_waiting_for_ci': True,
-                'message': '未等 CI 合并', **cancel_pending_runs(github, pull, args.expected_head)}
+    if coordinator:
+        return {**result, 'status': 'merged', 'exemption': 'coordinator-approved-mechanical',
+                'approval_label': PENDING_CI_LABEL, 'merged_without_waiting_for_ci': True,
+                'message': '协调者批准的机械改动：免独立审查、未等 CI 合并',
+                **cancel_pending_runs(github, pull, args.expected_head)}
     return {**result, 'status': 'merged'}
 
 
@@ -334,7 +346,7 @@ def parser():
     result.add_argument('--expected-head')
     result.add_argument('--merge-method', choices=['squash', 'merge', 'rebase'])
     result.add_argument('--allow-pending-ci', action='store_true',
-                        help=f'For pin-merge only: allow pending CI with the coordinator-applied {PENDING_CI_LABEL} label')
+                        help=f'For pin-merge only: waive independent review and CI waiting for mechanical changes with the coordinator-applied {PENDING_CI_LABEL} label')
     return result
 
 
