@@ -56,3 +56,18 @@ python3 <implement>/scripts/delivery.py pin-merge --pr owner/repo#123 \
 It rechecks the current head, requires a ready open PR at that head, passing or absent checks (a CI project's required checks must all succeed), clean mergeability and admin push permission, and merges with a matching-head guard. Then run the registered Monitor's `complete`. A new commit is reclassified on the next `pin-merge`; a head that is no longer exempt needs `start` to launch the reviewer. Threads that do not use `open`/`start` run `delivery.py pin-check --pr owner/repo#123` themselves before starting Review.
 
 Preserved/error cleanup stays an explicit exception and is never described as completed or blindly retried. Closed-unmerged PRs keep local work. Other PR listeners and ledgers remain untouched.
+
+### Explicitly approved pending CI
+
+CI waiting remains the default. Only for purely mechanical changes explicitly approved by Alex (moves, deletions or straightforward interface narrowing), after the local repository hooks pass, may the coordinator or human explicitly apply the dedicated `ci-skip-approved` label. The author and script never add it. The PR must still qualify under the base revision's declared review exemption; the label does not extend `pin`/`text` classification to arbitrary source changes, Setup or work requiring independent review.
+
+With that approval already recorded and the label present, invoke:
+
+```sh
+python3 <implement>/scripts/delivery.py pin-merge --pr owner/repo#123 \
+  --expected-head <full-head-sha> --merge-method merge --allow-pending-ci
+```
+
+Both the explicit flag and label are necessary to bypass CI waiting. Without either, the unchanged passing/absent-check rule applies. The exception requires at least one queued/running check or pending status; missing required checks alone do not activate it. Every completed check must be `SUCCESS`, and status contexts must be `SUCCESS`, `PENDING` or `EXPECTED`. Failures, cancellations, timeouts, action-required, neutral, skipped and unknown terminal results refuse the exception even if another check is still pending. The expected Ready head, declared exemption, admin identity/push permission and GitHub mergeability/protection checks remain enforced. The label and Ready head are rechecked before merging. This option does not enable `--admin` or bypass unrelated branch protections, and is rejected for `open`, `start` and `pin-check`.
+
+After a confirmed pending-CI merge, the helper requests cancellation only for unfinished workflow runs matching the PR's exact head SHA, head branch and head repository. Its JSON receipt includes `merged_without_waiting_for_ci: true`, the explicit message `未等 CI 合并`, `cancel_requested_run_ids` and `cancel_errors`. Cancellation errors retain the confirmed `status: merged` and identify the remaining work; an accepted cancellation request does not prove the run has stopped. Do not repeat the merge to repair cancellation errors. Refetch those exact runs before retrying cancellation, then run the registered Monitor's `complete` for cleanup or pool release. Normal passing/absent-CI merges keep their existing receipt and do not cancel runs.

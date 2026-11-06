@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import uuid
+from urllib.parse import urlencode
 
 
 PLUGIN = Path(__file__).resolve().parents[3]
@@ -22,6 +23,7 @@ TEXT_FILES = {'.md', '.markdown', '.txt', '.rst'}
 VERSION_FILES = {'.yml', '.yaml', '.xcconfig', '.toml', '.pbxproj'}
 VERSION_LINE = re.compile(r'\s*"?(MARKETING_VERSION|CURRENT_PROJECT_VERSION|exactVersion|revision|version)"?'
                           r'\s*[:=]\s*"?[\w.+-]+"?[,;]?\s*')
+PENDING_CI_LABEL = 'ci-skip-approved'
 
 
 def invoke(arguments, cwd=None):
@@ -225,6 +227,52 @@ def pin_check(args):
             'kinds': sorted(kinds), 'declared': sorted(declared), 'files': [row['filename'] for row in files]}
 
 
+def pending_ci_checks(checks):
+    pending = False
+    for check in checks:
+        if check.get('__typename') == 'StatusContext':
+            state = check.get('state')
+            if state not in {'SUCCESS', 'PENDING', 'EXPECTED'}:
+                return False
+            pending |= state != 'SUCCESS'
+        elif check.get('status') == 'COMPLETED':
+            if check.get('conclusion') != 'SUCCESS':
+                return False
+        elif check.get('status') in {'QUEUED', 'IN_PROGRESS', 'PENDING', 'REQUESTED', 'WAITING'} and not check.get('conclusion'):
+            pending = True
+        else:
+            return False
+    return pending
+
+
+def pending_ci_approved(pull):
+    return any(label['name'].casefold() == PENDING_CI_LABEL for label in pull.get('labels', []))
+
+
+def cancel_pending_runs(github, pull, head):
+    cancelled, errors = [], []
+    query = urlencode({'branch': pull['head']['ref'], 'head_sha': head, 'per_page': 100})
+    command = review.remote.shared.gh_command('admin')
+    try:
+        pages = invoke([*command, 'api', '--paginate', '--slurp', f'{github.base}/actions/runs?{query}'])
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        return {'cancel_requested_run_ids': [], 'cancel_errors': [{'reason': str(error)}]}
+    for page in pages:
+        for run in page['workflow_runs']:
+            if (run.get('head_sha') != head or run.get('head_branch') != pull['head']['ref']
+                    or (run.get('head_repository') or {}).get('full_name', '').casefold() != pull['head']['repo']['full_name'].casefold()
+                    or run.get('status') not in {'queued', 'in_progress', 'pending', 'requested', 'waiting'}):
+                continue
+            try:
+                if not github.json(github.base).get('permissions', {}).get('push'):
+                    raise PermissionError('admin requires repository push permission to cancel workflows')
+                invoke([*command, 'api', '--method', 'POST', f'{github.base}/actions/runs/{run["id"]}/cancel'])
+                cancelled.append(run['id'])
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                errors.append({'run_id': run['id'], 'reason': str(error)})
+    return {'cancel_requested_run_ids': cancelled, 'cancel_errors': errors}
+
+
 def pin_merge(args):
     if not args.expected_head or not args.merge_method:
         raise ValueError('pin-merge requires expected head and merge method')
@@ -240,16 +288,27 @@ def pin_merge(args):
     if detail['headRefOid'] != args.expected_head:
         raise ValueError('head changed while reading checks')
     required = review.remote.shared.ci_required(github.repository, args.expected_head, 'admin')
-    if review.remote.check_summary(detail['statusCheckRollup'], required)['ci'] not in {'pass', 'none'}:
+    ci = review.remote.check_summary(detail['statusCheckRollup'], required)['ci']
+    skip_ci = (ci == 'pending' and getattr(args, 'allow_pending_ci', False)
+               and pending_ci_approved(pull) and pending_ci_checks(detail['statusCheckRollup']))
+    if ci not in {'pass', 'none'} and not skip_ci:
         raise ValueError('checks are not passing')
     if pull.get('mergeable') is not True or pull.get('mergeable_state') in {'blocked', 'dirty', 'unknown'}:
         raise ValueError('mergeability or required GitHub protection is unresolved')
     if not github.json(github.base).get('permissions', {}).get('push'):
         raise PermissionError('admin requires repository push permission')
+    if skip_ci:
+        pull = github.pull()
+        if (pull['state'] != 'open' or pull['draft'] or pull['head']['sha'] != args.expected_head
+                or not pending_ci_approved(pull)):
+            raise ValueError('pending-CI approval label or expected ready head changed before merge')
     invoke([*review.remote.shared.gh_command('admin'), 'pr', 'merge', str(github.number), '--repo', github.repository,
             '--' + args.merge_method, '--match-head-commit', args.expected_head])
     if not github.pull().get('merged'):
         raise RuntimeError('merge is not confirmed')
+    if skip_ci:
+        return {**result, 'status': 'merged', 'merged_without_waiting_for_ci': True,
+                'message': '未等 CI 合并', **cancel_pending_runs(github, pull, args.expected_head)}
     return {**result, 'status': 'merged'}
 
 
@@ -274,12 +333,16 @@ def parser():
     result.add_argument('--review-runtime', choices=['codex', 'claude'])
     result.add_argument('--expected-head')
     result.add_argument('--merge-method', choices=['squash', 'merge', 'rebase'])
+    result.add_argument('--allow-pending-ci', action='store_true',
+                        help=f'For pin-merge only: allow pending CI with the coordinator-applied {PENDING_CI_LABEL} label')
     return result
 
 
 def main():
     args = parser().parse_args()
     try:
+        if args.allow_pending_ci and args.action != 'pin-merge':
+            raise ValueError('--allow-pending-ci is only available for pin-merge')
         review.refuse_slot_checkout(args.checkout)
         if args.action != 'open' and not args.pr:
             raise ValueError(f'{args.action} requires the exact PR')

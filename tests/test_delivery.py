@@ -99,6 +99,7 @@ class DeliveryTests(unittest.TestCase):
                 delivery.pin_merge(args)
         self.assertFalse(any('merge' in command for command in calls))
 
+
     def test_pin_merge_in_a_ci_project_refuses_when_a_required_check_is_missing(self):
         head = 'a' * 40
         github = SimpleNamespace(number=7, repository='o/r', base='repos/o/r')
@@ -312,6 +313,141 @@ class DeliveryTests(unittest.TestCase):
             delivery.open_pr(args)
             self.assertEqual(args.pr, 'owner/repo#1')
             self.assertFalse(any('create' in call.args[0] for call in invoke.call_args_list))
+
+
+class PendingCIMergeTests(unittest.TestCase):
+    def setUp(self):
+        self.head = 'a' * 40
+        self.args = SimpleNamespace(pr='o/r#7', expected_head=self.head, merge_method='merge', allow_pending_ci=True)
+        self.pull = {'state': 'open', 'draft': False, 'head': {'sha': self.head, 'ref': 'work',
+                     'repo': {'full_name': 'o/r'}}, 'mergeable': True, 'mergeable_state': 'clean',
+                     'labels': [{'name': 'ci-skip-approved'}]}
+        self.checks = [{'__typename': 'CheckRun', 'name': 'tests', 'status': 'IN_PROGRESS', 'conclusion': None}]
+        self.runs = [{'id': 1, 'head_sha': self.head, 'head_branch': 'work',
+                      'head_repository': {'full_name': 'o/r'}, 'status': 'in_progress'}]
+        self.calls = []
+        self.permission = True
+        self.exemption = 'review-exempt'
+        self.revoke_label = False
+        self.cancel_fails = False
+        self.extra_page = []
+
+    def merge(self):
+        github = SimpleNamespace(number=7, repository='o/r', base='repos/o/r', pull=lambda: self.pull.copy(),
+                                 json=lambda endpoint, paginate=False: {'permissions': {'push': self.permission}})
+
+        def invoke(command, cwd=None):
+            self.calls.append(command)
+            if 'view' in command:
+                if self.revoke_label:
+                    self.pull['labels'] = []
+                return {'headRefOid': self.head, 'statusCheckRollup': self.checks}
+            if 'merge' in command:
+                self.pull['merged'] = True
+                return ''
+            if any('/cancel' in str(value) for value in command):
+                if self.cancel_fails:
+                    raise delivery.subprocess.CalledProcessError(1, command, stderr='HTTP 403')
+                return {}
+            if any('/actions/runs' in str(value) for value in command):
+                return [{'workflow_runs': self.runs}, {'workflow_runs': self.extra_page}]
+            raise AssertionError(command)
+
+        with patch.object(delivery, 'pin_check', return_value={'status': self.exemption, 'head': self.head}), \
+                patch.object(delivery.review.remote, 'GitHub', return_value=github), \
+                patch.object(delivery.review.remote.shared, 'gh_command', return_value=['gh_as', 'admin']), \
+                patch.object(delivery.review.remote.shared, 'ci_required', return_value=()), \
+                patch.object(delivery, 'invoke', side_effect=invoke):
+            return delivery.pin_merge(self.args)
+
+    def test_pending_requires_both_the_flag_and_coordinator_label(self):
+        for flag, labels in ((False, [{'name': 'ci-skip-approved'}]), (True, []), (False, [])):
+            with self.subTest(flag=flag, labels=labels):
+                self.args.allow_pending_ci = flag
+                self.pull['labels'] = labels
+                with self.assertRaisesRegex(ValueError, 'checks are not passing'):
+                    self.merge()
+                self.assertFalse(any('merge' in command for command in self.calls))
+
+    def test_every_unsuccessful_terminal_check_still_blocks_the_override(self):
+        for conclusion in ('FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'NEUTRAL', 'SKIPPED', None):
+            with self.subTest(conclusion=conclusion):
+                self.checks = [self.checks[0], {'__typename': 'CheckRun', 'status': 'COMPLETED', 'conclusion': conclusion}]
+                with self.assertRaisesRegex(ValueError, 'checks are not passing'):
+                    self.merge()
+        for state in ('FAILURE', 'ERROR'):
+            with self.subTest(state=state):
+                self.checks = [self.checks[0], {'__typename': 'StatusContext', 'state': state}]
+                with self.assertRaisesRegex(ValueError, 'checks are not passing'):
+                    self.merge()
+        self.assertFalse(any('merge' in command for command in self.calls))
+
+    def test_pending_override_merges_then_cancels_only_its_exact_head_branch_and_repository(self):
+        self.runs += [{**self.runs[0], 'id': 2, 'head_sha': 'b' * 40},
+                      {**self.runs[0], 'id': 3, 'head_branch': 'other'},
+                      {**self.runs[0], 'id': 4, 'head_repository': {'full_name': 'fork/r'}},
+                      {**self.runs[0], 'id': 5, 'status': 'completed'}]
+        self.extra_page = [{**self.runs[0], 'id': 6, 'status': 'queued'}]
+        result = self.merge()
+        self.assertEqual(result['status'], 'merged')
+        self.assertTrue(result['merged_without_waiting_for_ci'])
+        self.assertEqual(result['cancel_requested_run_ids'], [1, 6])
+        self.assertIn('未等 CI 合并', result['message'])
+        commands = [' '.join(command) for command in self.calls]
+        cancelled = [command for command in commands if '/cancel' in command]
+        self.assertEqual(len(cancelled), 2)
+        self.assertIn('/actions/runs/1/cancel', cancelled[0])
+        self.assertLess(next(index for index, command in enumerate(commands) if 'pr merge' in command),
+                        next(index for index, command in enumerate(commands) if '/cancel' in command))
+
+    def test_revoked_label_prevents_a_merge_after_the_checks_are_read(self):
+        self.revoke_label = True
+        with self.assertRaisesRegex(ValueError, 'approval label or expected ready head changed'):
+            self.merge()
+        self.assertFalse(any('merge' in command for command in self.calls))
+
+    def test_cancellation_failure_keeps_the_confirmed_merge_and_failed_run_in_the_receipt(self):
+        self.cancel_fails = True
+        result = self.merge()
+        self.assertEqual(result['status'], 'merged')
+        self.assertEqual(result['cancel_requested_run_ids'], [])
+        self.assertEqual(result['cancel_errors'][0]['run_id'], 1)
+        self.assertTrue(self.pull['merged'])
+
+    def test_pending_status_and_queued_checks_are_allowed_but_unknown_states_are_not(self):
+        self.assertTrue(delivery.pending_ci_checks([{'__typename': 'StatusContext', 'state': 'PENDING'}]))
+        self.assertTrue(delivery.pending_ci_checks([{'__typename': 'CheckRun', 'status': 'QUEUED'}]))
+        self.assertFalse(delivery.pending_ci_checks([{'__typename': 'CheckRun', 'status': 'UNKNOWN'}]))
+        self.assertFalse(delivery.pending_ci_checks([]))
+
+    def test_pending_override_preserves_exemption_head_and_permission_guards(self):
+        for field, value, error in (('exemption', 'review-required', ValueError), ('permission', False, PermissionError)):
+            with self.subTest(field=field):
+                previous = getattr(self, field)
+                setattr(self, field, value)
+                with self.assertRaises(error):
+                    self.merge()
+                setattr(self, field, previous)
+        self.args.expected_head = 'b' * 40
+        with self.assertRaisesRegex(ValueError, 'expected ready head'):
+            self.merge()
+        self.assertFalse(any('merge' in command for command in self.calls))
+
+    def test_flag_is_explicit_and_normal_success_keeps_the_existing_receipt(self):
+        self.assertFalse(delivery.parser().parse_args(['pin-merge']).allow_pending_ci)
+        self.assertTrue(delivery.parser().parse_args(['pin-merge', '--allow-pending-ci']).allow_pending_ci)
+        for action in ('open', 'start', 'pin-check'):
+            with self.subTest(action=action), patch.object(delivery.sys, 'argv', ['delivery.py', action, '--allow-pending-ci']), \
+                    patch('builtins.print') as printed, patch.object(delivery, 'invoke') as invoke:
+                with self.assertRaises(SystemExit) as exited:
+                    delivery.main()
+                self.assertEqual(exited.exception.code, 1)
+                self.assertIn('only available for pin-merge', printed.call_args.args[0])
+                invoke.assert_not_called()
+        self.args.allow_pending_ci = False
+        self.checks = [{'__typename': 'CheckRun', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}]
+        self.assertEqual(self.merge(), {'status': 'merged', 'head': self.head})
+
 
 
 if __name__ == '__main__':
