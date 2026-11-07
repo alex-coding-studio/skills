@@ -478,6 +478,17 @@ class PendingCIMergeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'checks are not passing'):
             self.merge()
 
+    def test_new_failed_run_blocks_merge_when_old_success_started_later(self):
+        old = {'__typename': 'CheckRun', 'name': 'lint', 'status': 'COMPLETED', 'conclusion': 'SUCCESS',
+               'startedAt': '2026-11-07T10:03:00Z',
+               'detailsUrl': 'https://github.com/o/r/actions/runs/100/job/1000'}
+        new = {**old, 'conclusion': 'FAILURE', 'startedAt': '2026-11-07T10:01:00Z',
+               'detailsUrl': 'https://github.com/o/r/actions/runs/101/job/1001'}
+        self.checks = [new, old]
+        with self.assertRaisesRegex(ValueError, 'checks are not passing'):
+            self.merge()
+        self.assertFalse(any('merge' in command for command in self.calls))
+
     def test_pending_override_merges_then_cancels_only_its_exact_head_branch_and_repository(self):
         self.runs += [{**self.runs[0], 'id': 2, 'head_sha': 'b' * 40},
                       {**self.runs[0], 'id': 3, 'head_branch': 'other'},

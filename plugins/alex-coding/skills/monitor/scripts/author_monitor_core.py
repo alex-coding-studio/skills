@@ -114,7 +114,14 @@ def check_order(check):
         started = None
     at = started or check.get('createdAt') or check.get('completedAt')
     job = re.search(r'/(?:job|check-runs)/(\d+)', check.get('detailsUrl') or '')
-    return (at or ('9999' if check.get('status') != 'COMPLETED' else ''), int(job[1]) if job else 0)
+    return (int(job[1]) if job else 0, at or ('9999' if check.get('status') != 'COMPLETED' else ''))
+
+
+def latest_check(checks):
+    ranked = [(check_order(check), check) for check in checks]
+    if all(rank[0] for rank, _ in ranked):
+        return max(ranked, key=lambda item: item[0])[1]
+    return max(ranked, key=lambda item: item[0][1])[1]
 
 
 def latest_checks(checks, required=()):
@@ -127,7 +134,7 @@ def latest_checks(checks, required=()):
     for (kind, _, name), runs in grouped.items():
         if kind == 'CheckRun' and name in required:
             runs = [check for check in runs if check.get('conclusion') != 'SKIPPED'] or runs
-        latest.append(max(runs, key=check_order))
+        latest.append(latest_check(runs))
     return latest
 
 
@@ -170,7 +177,7 @@ def required_check_state(checks, name):
     ran = [check for check in runs if check.get('conclusion') != 'SKIPPED']
     if not ran:
         return 'fail' if runs else 'pending'
-    latest = max(ran, key=check_order)
+    latest = latest_check(ran)
     if latest.get('status') != 'COMPLETED':
         return 'pending'
     return 'pass' if latest.get('conclusion') == 'SUCCESS' else 'fail'
