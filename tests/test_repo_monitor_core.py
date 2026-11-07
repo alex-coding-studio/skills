@@ -58,6 +58,11 @@ class RoleSelectionTests(unittest.TestCase):
 
 
 class EventSelectionTests(unittest.TestCase):
+    def test_latest_success_replaces_cancelled_run_in_legacy_monitor(self):
+        old = {'__typename': 'CheckRun', 'name': 'tests', 'startedAt': '1',
+               'status': 'COMPLETED', 'conclusion': 'CANCELLED'}
+        self.assertEqual(core.checks_state([old, {**old, 'startedAt': '2', 'conclusion': 'SUCCESS'}]), 'pass')
+
     def test_ready_pull_requests_produce_events_and_drafts_stay_quiet(self):
         self.assertTrue(core.changes({}, {'1': row()}))
         self.assertFalse(core.changes({}, {'1': row(draft=True)}))

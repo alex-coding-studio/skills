@@ -421,7 +421,7 @@ class PendingCIMergeTests(unittest.TestCase):
 
     def test_unsuccessful_completed_checks_block_even_without_another_pending_check(self):
         self.coordinator_exemption = True
-        for conclusion in ('FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'NEUTRAL', 'SKIPPED'):
+        for conclusion in ('FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED'):
             with self.subTest(conclusion=conclusion):
                 self.checks = [{'__typename': 'CheckRun', 'status': 'COMPLETED', 'conclusion': conclusion}]
                 with self.assertRaisesRegex(ValueError, 'checks are not passing'):
@@ -446,7 +446,7 @@ class PendingCIMergeTests(unittest.TestCase):
                 self.assertFalse(any('merge' in command for command in self.calls))
 
     def test_every_unsuccessful_terminal_check_still_blocks_the_override(self):
-        for conclusion in ('FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'NEUTRAL', 'SKIPPED', None):
+        for conclusion in ('FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', None):
             with self.subTest(conclusion=conclusion):
                 self.checks = [self.checks[0], {'__typename': 'CheckRun', 'status': 'COMPLETED', 'conclusion': conclusion}]
                 with self.assertRaisesRegex(ValueError, 'checks are not passing'):
@@ -456,6 +456,37 @@ class PendingCIMergeTests(unittest.TestCase):
                 self.checks = [self.checks[0], {'__typename': 'StatusContext', 'state': state}]
                 with self.assertRaisesRegex(ValueError, 'checks are not passing'):
                     self.merge()
+        self.assertFalse(any('merge' in command for command in self.calls))
+
+    def test_skipped_and_neutral_checks_do_not_block_a_coordinator_merge(self):
+        for conclusion in ('SKIPPED', 'NEUTRAL'):
+            for pending in (False, True):
+                with self.subTest(conclusion=conclusion, pending=pending):
+                    self.pull['merged'] = False
+                    self.checks = ([{'__typename': 'CheckRun', 'name': 'build', 'status': 'QUEUED'}] if pending else [])
+                    self.checks.append({'__typename': 'CheckRun', 'name': 'label-job',
+                                        'status': 'COMPLETED', 'conclusion': conclusion})
+                    self.assertEqual(self.merge()['status'], 'merged')
+
+    def test_superseded_cancelled_check_does_not_block_but_latest_failure_does(self):
+        old = {'__typename': 'CheckRun', 'name': 'lint', 'startedAt': '1',
+               'status': 'COMPLETED', 'conclusion': 'CANCELLED'}
+        self.checks = [{**old, 'startedAt': '2', 'conclusion': 'SUCCESS'}, old]
+        self.assertEqual(self.merge()['status'], 'merged')
+        self.pull['merged'] = False
+        self.checks.append({**old, 'startedAt': '3', 'conclusion': 'FAILURE'})
+        with self.assertRaisesRegex(ValueError, 'checks are not passing'):
+            self.merge()
+
+    def test_new_failed_run_blocks_merge_when_old_success_started_later(self):
+        old = {'__typename': 'CheckRun', 'name': 'lint', 'status': 'COMPLETED', 'conclusion': 'SUCCESS',
+               'startedAt': '2026-11-07T10:03:00Z',
+               'detailsUrl': 'https://github.com/o/r/actions/runs/100/job/1000'}
+        new = {**old, 'conclusion': 'FAILURE', 'startedAt': '2026-11-07T10:01:00Z',
+               'detailsUrl': 'https://github.com/o/r/actions/runs/101/job/1001'}
+        self.checks = [new, old]
+        with self.assertRaisesRegex(ValueError, 'checks are not passing'):
+            self.merge()
         self.assertFalse(any('merge' in command for command in self.calls))
 
     def test_pending_override_merges_then_cancels_only_its_exact_head_branch_and_repository(self):

@@ -383,9 +383,10 @@ def step(root, state, github, execute=None):
         return True
     if reason is None:
         return state['phase'] not in core.TERMINAL
-    if (reason == 'ci' and current['ci'] == 'pass' and state.get('last_review_url')
+    if (reason == 'ci' and state.get('last_review_url')
             and state.get('review_phase') in {'approved', 'waiting-ci'}):
-        core.settle(state, current, 'approved', state['seen'])
+        phase = 'approved' if current['ci'] == 'pass' else 'waiting-ci'
+        core.settle(state, current, phase, state['seen'])
         save(root, state)
         return True
     if reason == 'ci' and state.get('review_phase') == 'changes-requested':

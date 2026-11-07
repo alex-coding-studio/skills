@@ -143,13 +143,15 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(self.state['base'], 'd' * 40)
         self.assertIsNone(self.state['pending'])
 
-    def test_base_move_does_not_swallow_a_new_ci_failure(self):
+    def test_base_move_records_a_new_ci_failure_without_repeating_approval(self):
         self.approve_at_round_limit()
         self.github.current = current(ci='fail')
         self.github.current['base'] = 'd' * 40
         self.step()
         self.step()
-        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.state['ci'], 'fail')
+        self.assertEqual(len(self.github.published), 1)
 
     def test_merged_pr_discards_its_review_checkout_and_keeps_state(self):
         self.step()
@@ -179,13 +181,14 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(self.state['review_phase'], 'approved')
         self.assertEqual(self.state['ci'], 'none')
 
-    def test_checks_appearing_after_a_no_check_approval_still_wake_the_reviewer_on_failure(self):
+    def test_checks_appearing_after_a_no_check_approval_do_not_repeat_review_on_failure(self):
         self.github.current = current(ci='none')
         self.step()
         self.step()
         self.github.current = current(ci='fail')
         self.step()
-        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.state['ci'], 'fail')
 
     def test_waiting_ci_with_observed_pending_checks_keeps_its_ci_gate(self):
         self.execute = lambda state, root, prompt, persist: result('waiting-ci')
@@ -194,10 +197,19 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(self.github.published[0]['checkpoint']['phase'], 'waiting-ci')
         self.assertEqual(self.state['phase'], 'waiting-ci')
 
-    def test_failed_ci_still_reaches_independent_reviewer(self):
+    def test_repeated_ci_failures_keep_approval_without_model_or_publication(self):
         self.step()
         self.step()
-        self.github.current = current(ci='fail')
+        for event in ('unit-failed', 'merge-failed', 'unit-failed-again'):
+            self.github.current = current(ci='fail')
+            self.github.current['ci_events'] = [event]
+            self.step()
+            self.step()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.github.published), 1)
+        self.assertEqual(self.state['ci'], 'fail')
+        self.assertIsNone(self.state['pending'])
+        self.github.current['events'] = [{'key': 'human', 'kind': 'conversation', 'id': 9}]
         self.step()
         self.assertEqual(len(self.calls), 2)
 
@@ -394,6 +406,30 @@ class ConfiguredRuntimeTests(unittest.TestCase):
 
 
 class PublicationTests(unittest.TestCase):
+    def test_superseded_cancelled_runs_do_not_change_terminal_events(self):
+        old = {'__typename': 'CheckRun', 'name': 'native-layout', 'status': 'COMPLETED',
+               'conclusion': 'CANCELLED', 'startedAt': '1'}
+        new = {**old, 'conclusion': 'SUCCESS', 'startedAt': '2'}
+        self.assertEqual(remote.check_summary([new, old]), remote.check_summary([new]))
+
+    def test_automatic_merge_failure_comments_stay_out_of_reviewer_feedback(self):
+        github = remote.GitHub('owner/repo#1', 'reviewer')
+        pull = {'state': 'open', 'draft': False, 'head': {'sha': 'a' * 40},
+                'base': {'sha': 'b' * 40}, 'user': {'login': 'author'}}
+        bot = {'kind': 'conversation', 'id': 1, 'user': {'login': 'github-actions[bot]', 'type': 'Bot'},
+               'body': '未自动合并：CI 失败'}
+        human = {**bot, 'id': 2, 'user': {'login': 'human', 'type': 'User'}, 'body': '请检查状态处理'}
+        response = remote.subprocess.CompletedProcess([], 0, json.dumps(
+            {'headRefOid': 'a' * 40, 'statusCheckRollup': []}))
+        with patch.object(github, 'pull', return_value=pull), \
+                patch.object(github, 'history', return_value=[bot, human]), \
+                patch.object(remote.shared, 'ci_required', return_value=()), \
+                patch.object(remote.shared, 'gh_command', return_value=['gh_as', 'admin']), \
+                patch.object(remote.subprocess, 'run', return_value=response):
+            snapshot = github.snapshot('author')
+        self.assertEqual([row['id'] for row in snapshot['events']], [2])
+        self.assertEqual(snapshot['history'], [bot, human])
+
     def test_skipped_workflow_runs_are_not_check_results_for_the_reviewer(self):
         tests = {'__typename': 'CheckRun', 'name': 'tests', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}
         merge = {'__typename': 'CheckRun', 'name': 'merge', 'status': 'COMPLETED', 'conclusion': 'SKIPPED'}
