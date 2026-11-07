@@ -108,11 +108,34 @@ def event(kind, identifier, version, url, **metadata):
     return dict(key=key, kind=kind, id=identifier, url=url, **metadata)
 
 
+def check_order(check):
+    started = check.get('startedAt')
+    if started and started.startswith('0001-'):
+        started = None
+    at = started or check.get('createdAt') or check.get('completedAt')
+    job = re.search(r'/(?:job|check-runs)/(\d+)', check.get('detailsUrl') or '')
+    return (at or ('9999' if check.get('status') != 'COMPLETED' else ''), int(job[1]) if job else 0)
+
+
+def latest_checks(checks, required=()):
+    grouped = {}
+    for index, check in enumerate(checks):
+        kind = 'StatusContext' if check.get('__typename') == 'StatusContext' else 'CheckRun'
+        name = check.get('context') if kind == 'StatusContext' else check.get('name')
+        grouped.setdefault((kind, check.get('workflowName') or '', name or index), []).append(check)
+    latest = []
+    for (kind, _, name), runs in grouped.items():
+        if kind == 'CheckRun' and name in required:
+            runs = [check for check in runs if check.get('conclusion') != 'SKIPPED'] or runs
+        latest.append(max(runs, key=check_order))
+    return latest
+
+
 def checks_state(checks):
     if not checks:
         return 'none'
     states = []
-    for check in checks:
+    for check in latest_checks(checks):
         if check.get('__typename') == 'StatusContext':
             states.append({'SUCCESS': 'pass', 'FAILURE': 'fail', 'ERROR': 'fail'}.get(check.get('state'), 'pending'))
         elif check.get('status') != 'COMPLETED':
@@ -147,9 +170,9 @@ def required_check_state(checks, name):
     ran = [check for check in runs if check.get('conclusion') != 'SKIPPED']
     if not ran:
         return 'fail' if runs else 'pending'
-    if any(check.get('status') != 'COMPLETED' for check in ran):
+    latest = max(ran, key=check_order)
+    if latest.get('status') != 'COMPLETED':
         return 'pending'
-    latest = max(ran, key=lambda check: check.get('completedAt') or check.get('startedAt') or '')
     return 'pass' if latest.get('conclusion') == 'SUCCESS' else 'fail'
 
 
@@ -158,7 +181,7 @@ def required_run(check, required):
 
 
 def ci_relevant(checks, required=()):
-    return [check for check in checks if check.get('__typename') == 'StatusContext'
+    return [check for check in latest_checks(checks, required) if check.get('__typename') == 'StatusContext'
             or check.get('conclusion') != 'SKIPPED' or required_run(check, required)]
 
 
@@ -201,7 +224,7 @@ def unresolved_threads(repository, number, role=None):
 
 
 def failing_checks(checks):
-    return sorted(check.get('name') or check.get('context') or '?' for check in checks
+    return sorted(check.get('name') or check.get('context') or '?' for check in latest_checks(checks)
                   if checks_state([check]) == 'fail')
 
 

@@ -18,7 +18,7 @@ class StaleHead(RuntimeError):
 
 
 def terminal_check_events(checks):
-    terminal = [check for check in checks if (
+    terminal = [check for check in shared.latest_checks(checks) if (
         check.get('__typename') == 'StatusContext' and check.get('state') in {'SUCCESS', 'FAILURE', 'ERROR'}
     ) or (check.get('__typename') != 'StatusContext' and check.get('status') == 'COMPLETED')]
     return sorted(state_core.digest(check) for check in terminal)
@@ -126,6 +126,8 @@ class GitHub:
         required = shared.ci_required(self.repository, pr['head']['sha'], 'admin')
         events = []
         for row in history:
+            if (row.get('user') or {}).get('type') == 'Bot':
+                continue
             if shared.self_echo(row, self.reviewer) and row.get('state') != 'DISMISSED':
                 continue
             key = state_core.digest([row['kind'], row['id'], row.get('updated_at'),

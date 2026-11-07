@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,11 @@ import shutil
 import subprocess
 import time
 import uuid
+
+spec = importlib.util.spec_from_file_location(
+    'repo_monitor_author_core', Path(__file__).resolve().parents[2] / 'monitor/scripts/author_monitor_core.py')
+shared = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(shared)
 
 PHASES = ["reviewing", "changes-requested", "waiting-ci", "done"]
 ROLE_TOOL = "gh_as"
@@ -94,7 +100,7 @@ def checks_state(checks):
     if not checks:
         return "none"
     states = []
-    for check in checks:
+    for check in shared.latest_checks(checks):
         if check.get("__typename") == "StatusContext":
             states.append({"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}.get(check.get("state"), "pending"))
         elif check.get("status") != "COMPLETED":

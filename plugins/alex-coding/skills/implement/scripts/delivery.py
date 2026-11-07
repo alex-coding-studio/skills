@@ -236,14 +236,14 @@ def pin_check(args):
 
 def mechanical_ci_state(checks):
     pending = False
-    for check in checks:
+    for check in review.remote.shared.latest_checks(checks):
         if check.get('__typename') == 'StatusContext':
             state = check.get('state')
             if state not in {'SUCCESS', 'PENDING', 'EXPECTED'}:
                 return 'fail'
             pending |= state != 'SUCCESS'
         elif check.get('status') == 'COMPLETED':
-            if check.get('conclusion') != 'SUCCESS':
+            if check.get('conclusion') not in {'SUCCESS', 'NEUTRAL', 'SKIPPED'}:
                 return 'fail'
         elif check.get('status') in {'QUEUED', 'IN_PROGRESS', 'PENDING', 'REQUESTED', 'WAITING'} and not check.get('conclusion'):
             pending = True

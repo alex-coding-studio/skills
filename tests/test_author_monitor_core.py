@@ -537,9 +537,44 @@ class RequiredCheckTests(unittest.TestCase):
         self.assertEqual(core.gated_checks_state(rollup, core.CI_REQUIRED_CHECKS), 'pass')
 
     def test_a_queued_rerun_without_a_start_time_keeps_an_earlier_success_pending(self):
-        rollup = self.rollup({**self.completed('SUCCESS'), 'startedAt': '1'})
-        rollup.append({'__typename': 'CheckRun', 'name': 'ios-unit', 'status': 'QUEUED', 'conclusion': None, 'startedAt': None})
-        self.assertEqual(core.gated_checks_state(rollup, core.CI_REQUIRED_CHECKS), 'pending')
+        for started in (None, '0001-01-01T00:00:00Z'):
+            with self.subTest(started=started):
+                rollup = self.rollup({**self.completed('SUCCESS'), 'startedAt': '1'})
+                rollup.append({'__typename': 'CheckRun', 'name': 'ios-unit', 'status': 'QUEUED',
+                               'conclusion': None, 'startedAt': started})
+                self.assertEqual(core.gated_checks_state(rollup, core.CI_REQUIRED_CHECKS), 'pending')
+
+    def test_superseded_cancelled_runs_are_absent_from_state_and_failure_summary(self):
+        old = {'__typename': 'CheckRun', 'name': 'native-layout', 'status': 'COMPLETED',
+               'conclusion': 'CANCELLED', 'startedAt': '1', 'completedAt': '4'}
+        new = {**old, 'conclusion': 'SUCCESS', 'startedAt': '2', 'completedAt': '3'}
+        for checks in ([old, new], [new, old]):
+            with self.subTest(checks=checks):
+                self.assertEqual(core.gated_checks_state(checks), 'pass')
+                self.assertEqual(core.failing_checks(checks), [])
+                self.assertEqual(core.ci_relevant(checks), [new])
+        self.assertEqual(core.gated_checks_state([new, {**old, 'startedAt': '5'}]), 'fail')
+        running = {**new, 'startedAt': '5', 'completedAt': None, 'status': 'IN_PROGRESS', 'conclusion': None}
+        self.assertEqual(core.gated_checks_state([old, running]), 'pending')
+
+    def test_newer_status_context_replaces_its_old_failure(self):
+        old = {'__typename': 'StatusContext', 'context': 'external-ci', 'state': 'FAILURE', 'createdAt': '1'}
+        new = {**old, 'state': 'SUCCESS', 'createdAt': '2'}
+        self.assertEqual(core.gated_checks_state([new, old]), 'pass')
+        self.assertEqual(core.failing_checks([new, old]), [])
+
+    def test_required_check_uses_latest_run_even_when_the_old_run_finished_later(self):
+        rollup = self.rollup({**self.completed('SUCCESS'), 'startedAt': '2', 'completedAt': '3'})
+        rollup.append({'__typename': 'CheckRun', 'name': 'ios-unit', 'startedAt': '1',
+                       'completedAt': '4', **self.completed('CANCELLED')})
+        self.assertEqual(core.gated_checks_state(rollup, core.CI_REQUIRED_CHECKS), 'pass')
+
+    def test_same_start_time_uses_job_identity_and_different_workflows_keep_their_gates(self):
+        old = {'__typename': 'CheckRun', 'name': 'test', 'workflowName': 'CI', 'status': 'COMPLETED',
+               'conclusion': 'CANCELLED', 'startedAt': '1', 'detailsUrl': 'https://github.com/o/r/actions/runs/1/job/9'}
+        new = {**old, 'conclusion': 'SUCCESS', 'detailsUrl': 'https://github.com/o/r/actions/runs/2/job/10'}
+        self.assertEqual(core.gated_checks_state([new, old]), 'pass')
+        self.assertEqual(core.gated_checks_state([new, {**old, 'workflowName': 'Other CI'}]), 'fail')
 
     def test_a_project_without_ci_keeps_absent_checks_as_none(self):
         self.assertEqual(core.gated_checks_state([], ()), 'none')
