@@ -26,9 +26,9 @@ VERSION_LINE = re.compile(r'\s*"?(MARKETING_VERSION|CURRENT_PROJECT_VERSION|exac
 PENDING_CI_LABEL = 'ci-skip-approved'
 
 
-def invoke(arguments, cwd=None):
+def invoke(arguments, cwd=None, input=None):
     result = subprocess.run([str(item) for item in arguments], cwd=cwd, capture_output=True,
-                            text=True, timeout=120, check=True)
+                            text=True, timeout=120, check=True, input=input)
     try:
         return json.loads(result.stdout)
     except ValueError:
@@ -181,9 +181,11 @@ def open_pr(args):
         permission = invoke([*command, 'api', f'repos/{repository}']).get('permissions', {}).get('push')
         if writer.casefold() != author.casefold() or not permission:
             raise PermissionError('bot identity or push permission changed before PR creation')
-        args.pr = invoke([*command, 'pr', 'create', '--repo', repository, '--head', branch,
-                          '--base', metadata['default_branch'], '--title', args.title,
-                          '--body-file', str(args.body_file.resolve())])
+        body_stdin = args.body_file == Path('-')
+        create = [*command, 'pr', 'create', '--repo', repository, '--head', branch,
+                  '--base', metadata['default_branch'], '--title', args.title,
+                  '--body-file', '-' if body_stdin else str(args.body_file.resolve())]
+        args.pr = invoke(create, input=sys.stdin.read()) if body_stdin else invoke(create)
     args.pr = review.remote.shared.canonical(args.pr)
     return start(args)
 
