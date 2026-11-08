@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -338,6 +339,29 @@ class DeliveryTests(unittest.TestCase):
             self.assertFalse(result['reviewer_active'])
             self.assertEqual(invoke.call_count, 1)
             self.assertNotIn('review_pr.py', ' '.join(map(str, invoke.call_args.args[0])))
+
+    def test_open_passes_stdin_body_to_gh(self):
+        args = delivery.parser().parse_args(['open', '--runtime', 'codex', '--session', 'existing',
+            '--repository', 'owner/repo', '--checkout', '/checkout', '--title', 'Fix',
+            '--body-file', '-', '--reviewer', 'reviewer'])
+        responses = [{'login': 'author'}, {'default_branch': 'main', 'permissions': {'push': True}},
+                     {'object': {'sha': 'a' * 40}}, [], {'login': 'author'},
+                     {'permissions': {'push': True}}]
+
+        def run(command, **kwargs):
+            if 'create' in command:
+                self.assertEqual(command[-2:], ['--body-file', '-'])
+                self.assertEqual(kwargs.get('input'), '正文\nCloses #78\n')
+                return SimpleNamespace(stdout='https://github.com/owner/repo/pull/1')
+            return SimpleNamespace(stdout=json.dumps(responses.pop(0)))
+
+        with patch.object(delivery.review.remote.shared, 'gh_command', return_value=['gh_as', 'bot']), \
+                patch.object(delivery.review, 'git', side_effect=['work', 'a' * 40, '']), \
+                patch.object(delivery.sys, 'stdin', io.StringIO('正文\nCloses #78\n')), \
+                patch.object(delivery.subprocess, 'run', side_effect=run), \
+                patch.object(delivery, 'start', return_value={'status': 'started'}):
+            self.assertEqual(delivery.open_pr(args)['status'], 'started')
+            self.assertEqual(args.pr, 'owner/repo#1')
 
     def test_open_reconciles_an_existing_pr_instead_of_creating_a_duplicate(self):
         args = delivery.parser().parse_args(['open', '--runtime', 'claude', '--session', 'existing',
