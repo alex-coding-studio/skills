@@ -113,8 +113,11 @@ def check_order(check):
     if started and started.startswith('0001-'):
         started = None
     at = started or check.get('createdAt') or check.get('completedAt')
-    job = re.search(r'/(?:job|check-runs)/(\d+)', check.get('detailsUrl') or '')
-    return (int(job[1]) if job else 0, at or ('9999' if check.get('status') != 'COMPLETED' else ''))
+    url = check.get('detailsUrl') or ''
+    run = re.search(r'/runs/(\d+)/job/', url)
+    job = re.search(r'/(?:job|check-runs)/(\d+)', url)
+    return ((int(run[1]) if run else 0, int(job[1])) if job else 0,
+            at or ('9999' if check.get('status') != 'COMPLETED' else ''))
 
 
 def latest_check(checks):

@@ -591,6 +591,16 @@ class RequiredCheckTests(unittest.TestCase):
                     self.assertEqual(core.gated_checks_state(checks, ('ios-unit',)), 'fail')
                     self.assertEqual(core.failing_checks(checks), ['ios-unit'])
 
+    def test_rerun_of_an_older_run_does_not_override_a_newer_run(self):
+        base = {'__typename': 'CheckRun', 'name': 'test-change-notes', 'workflowName': 'Notes', 'status': 'COMPLETED'}
+        stale = {**base, 'conclusion': 'FAILURE', 'detailsUrl': 'https://github.com/o/r/actions/runs/100/job/1000'}
+        newer = {**base, 'conclusion': 'SUCCESS', 'detailsUrl': 'https://github.com/o/r/actions/runs/101/job/1001'}
+        rerun = {**stale, 'detailsUrl': 'https://github.com/o/r/actions/runs/100/job/1002'}
+        self.assertEqual(core.gated_checks_state([stale, newer, rerun]), 'pass')
+        self.assertEqual(core.failing_checks([stale, newer, rerun]), [])
+        self.assertEqual(core.gated_checks_state([stale, newer, {**rerun, 'detailsUrl':
+                         'https://github.com/o/r/actions/runs/101/job/1002'}]), 'fail')
+
     def test_old_unstarted_run_does_not_replace_new_success(self):
         new = {'__typename': 'CheckRun', 'name': 'ios-unit', 'workflowName': 'CI', 'status': 'COMPLETED',
                'conclusion': 'SUCCESS', 'startedAt': '2026-11-07T10:01:00Z',

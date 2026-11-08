@@ -103,6 +103,7 @@ def execute(state, root, prompt, persist, terminal_probe=None):
         process = subprocess.Popen(command(state, root, output), cwd=root / 'checkout', stdin=source,
                                    stdout=target, stderr=errors, start_new_session=True)
         state['worker_pid'] = process.pid
+        state['worker_deadline'] = time.time() + state['worker_timeout']
         persist(state)
         try:
             deadline = time.monotonic() + state['worker_timeout']
@@ -131,6 +132,31 @@ def execute(state, root, prompt, persist, terminal_probe=None):
                     process.wait()
             state['worker_pid'] = None
             persist(state)
+    return collect(state, root, token, persist)
+
+
+def worker_alive(state, root):
+    if not state.get('worker_pid'):
+        return False
+    found = subprocess.run(['ps', '-o', 'command=', '-p', str(state['worker_pid'])], capture_output=True, text=True)
+    return str(Path(root)) in found.stdout
+
+
+def stop_worker(state, root):
+    try:
+        os.killpg(state['worker_pid'], signal.SIGTERM)
+        for _ in range(50):
+            if not worker_alive(state, root):
+                return
+            time.sleep(0.1)
+        os.killpg(state['worker_pid'], signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def collect(state, root, token, persist):
+    output = root / f'{token}.result.json'
+    events = root / f'{token}.events.jsonl'
     if state['runtime'] == 'codex':
         for line in events.read_text().splitlines():
             event = json.loads(line)
