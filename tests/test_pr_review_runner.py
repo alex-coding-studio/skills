@@ -6,7 +6,9 @@ from types import SimpleNamespace
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -295,6 +297,19 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.state['pending'] = {'stage': 'execution', 'token': 'lost', 'snapshot': current(), 'resumed': True}
         self.assertFalse(self.step())
         self.assertEqual(self.state['phase'], 'needs-user-attention')
+        self.assertEqual(len(self.calls), 1)
+
+    def test_PRL_04_orphaned_worker_past_its_deadline_is_stopped_and_resumed(self):
+        worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)', str(self.root)],
+                                  start_new_session=True)
+        self.addCleanup(worker.wait)
+        self.state.update(worker_pid=worker.pid, worker_deadline=time.time() + 60, interval=0)
+        self.state['pending'] = {'stage': 'execution', 'token': 'lost', 'snapshot': current(), 'reason': 'head'}
+        self.assertTrue(self.step())
+        self.assertFalse(self.calls)
+        self.state['worker_deadline'] = 0
+        self.step()
+        self.assertIsNotNone(worker.wait(timeout=10))
         self.assertEqual(len(self.calls), 1)
 
     def test_PRL_01_only_one_process_can_hold_a_pr_lock(self):

@@ -350,14 +350,12 @@ def step(root, state, github, execute=None):
         return False
     pending = state.get('pending')
     if pending and pending['stage'] == 'execution':
-        if state.get('worker_pid'):
-            try:
-                os.kill(state['worker_pid'], 0)
-            except ProcessLookupError:
-                state['worker_pid'] = None
-            else:
+        if runtime.worker_alive(state, root):
+            if time.time() < state.get('worker_deadline', 0):
                 time.sleep(state['interval'])
                 return True
+            runtime.stop_worker(state, root)
+        state['worker_pid'] = None
         snapshot = pending['snapshot']
         try:
             result = core.validate_result(runtime.collect(state, root, pending['token'], lambda value: save(root, value)))
