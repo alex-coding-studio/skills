@@ -131,6 +131,12 @@ def execute(state, root, prompt, persist, terminal_probe=None):
                     process.wait()
             state['worker_pid'] = None
             persist(state)
+    return collect(state, root, token, persist)
+
+
+def collect(state, root, token, persist):
+    output = root / f'{token}.result.json'
+    events = root / f'{token}.events.jsonl'
     if state['runtime'] == 'codex':
         for line in events.read_text().splitlines():
             event = json.loads(line)

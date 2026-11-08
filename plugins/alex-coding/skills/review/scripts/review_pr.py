@@ -356,10 +356,21 @@ def step(root, state, github, execute=None):
             except ProcessLookupError:
                 state['worker_pid'] = None
             else:
-                raise RuntimeError('previous worker may still be running; preserve ownership until it stops')
-        state['pending'] = make_pending(state, pending['snapshot'], attention_result(
-            'the previous worker was interrupted before a validated result was saved. '
-            'Its local artifacts are retained; no automatic model replay was attempted.'), pending['token'])
+                time.sleep(state['interval'])
+                return True
+        snapshot = pending['snapshot']
+        try:
+            result = core.validate_result(runtime.collect(state, root, pending['token'], lambda value: save(root, value)))
+        except Exception:
+            result = None
+        if (result is None and not pending.get('resumed')
+                and (snapshot['head'], snapshot['base']) == (current['head'], current['base'])):
+            pending['resumed'] = True
+            prepare_checkout(root, snapshot, github.repository)
+            return run_worker(root, state, github, snapshot, pending.get('reason', 'head'), pending['token'], execute)
+        state['pending'] = make_pending(state, snapshot, result or attention_result(
+            'the previous worker was interrupted twice before a validated result was saved. '
+            'Its local artifacts are retained; no further automatic model replay was attempted.'), pending['token'])
         pending = state['pending']
         save(root, state)
     if pending:
@@ -417,8 +428,12 @@ def step(root, state, github, execute=None):
     current['fingerprint'] = own_diff_fingerprint(root, current)
     if code_review:
         state['rounds'] += 1
+    state['pending'] = {'stage': 'execution', 'token': token, 'snapshot': current, 'reason': reason}
+    return run_worker(root, state, github, current, reason, token, execute)
+
+
+def run_worker(root, state, github, current, reason, token, execute):
     state['phase'] = 'reviewing'
-    state['pending'] = {'stage': 'execution', 'token': token, 'snapshot': current}
     save(root, state)
     prompt = prompt_for(root, state, current, reason)
     try:

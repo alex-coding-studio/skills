@@ -280,11 +280,22 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(len(self.github.published), 1)
         self.assertFalse(self.calls)
 
-    def test_PRL_04_interrupted_worker_produces_recoverable_handoff_without_replay(self):
-        self.state['pending'] = {'stage': 'execution', 'token': 'lost', 'snapshot': current()}
+    def test_PRL_04_interrupted_worker_resumes_once_then_hands_off(self):
+        self.state['rounds'] = 1
+        self.state['pending'] = {'stage': 'execution', 'token': 'lost', 'snapshot': current(), 'reason': 'head'}
+        self.assertTrue(self.step())
+        self.assertEqual((len(self.calls), self.state['rounds']), (1, 1))
+        self.assertEqual(self.state['pending']['result']['outcome'], 'approved')
+        self.state['pending'] = {'stage': 'execution', 'token': 'done', 'snapshot': current()}
+        (self.root / 'done.result.json').write_text(json.dumps(result('changes-requested')))
+        (self.root / 'done.events.jsonl').write_text(json.dumps({'type': 'thread.started', 'thread_id': 'one-pr-session'}))
+        self.step()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.github.published[-1]['result']['outcome'], 'changes-requested')
+        self.state['pending'] = {'stage': 'execution', 'token': 'lost', 'snapshot': current(), 'resumed': True}
         self.assertFalse(self.step())
         self.assertEqual(self.state['phase'], 'needs-user-attention')
-        self.assertFalse(self.calls)
+        self.assertEqual(len(self.calls), 1)
 
     def test_PRL_01_only_one_process_can_hold_a_pr_lock(self):
         with runner.lock(self.root, 'run.lock'):
