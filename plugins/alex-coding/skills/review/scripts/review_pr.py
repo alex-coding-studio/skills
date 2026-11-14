@@ -293,6 +293,7 @@ def prompt_for(root, state, current, reason):
                'round': state['rounds'], 'round_limit': state['round_limit'],
                'user_decision': state.get('decision'),
                'title': current['pr']['title'],
+               'labels': [label['name'] for label in current['pr'].get('labels') or []],
                'checkpoint': checkpoint[1] if checkpoint else None, 'new_feedback': recent,
                'checks': current['checks']}
     inputs = {'context': str(root / 'context.json'), 'patch': str(root / 'current.patch'),

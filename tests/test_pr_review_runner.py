@@ -228,6 +228,13 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertIn('continuation.patch', prompt)
         self.assertIn('current.patch', prompt)
 
+    def test_reviewer_context_carries_the_current_pr_labels(self):
+        labeled = current()
+        labeled['pr']['labels'] = [{'name': 'skip-acceptance'}]
+        runner.prompt_for(self.root, self.state, labeled, 'head')
+        context = json.loads((self.root / 'context.json').read_text())
+        self.assertEqual(context['labels'], ['skip-acceptance'])
+
     def test_without_an_acceptance_file_the_reviewer_reads_the_current_pr_description(self):
         self.state['acceptance'] = None
         runner.prompt_for(self.root, self.state, current(), 'head')
