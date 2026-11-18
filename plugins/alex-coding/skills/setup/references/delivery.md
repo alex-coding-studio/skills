@@ -24,7 +24,7 @@ After push, follow the first CI run. Local gates do not prove the remote job. If
 
 ## Existing repositories and later changes
 
-Use one task worktree and ready PR for each later Setup delivery. Keep dependency/version changes separate from business feature PRs. The Setup PR carries required compatibility changes, migrations, tests, documentation, ProjectContext updates, verification, and rollback limits as one transaction.
+Use one task worktree and ready PR for each later Setup delivery. Standalone dependency/toolchain updates use Setup; needed dependency changes may stay in feature, fix or removal PRs. The Setup PR carries required compatibility changes, migrations, tests, documentation, ProjectContext updates, verification, and rollback limits as one transaction.
 
 After opening the PR, register `alex-coding:monitor` with the exact task-owned checkout and start or reuse one independent `alex-coding:review` reviewer bound to that PR. Use the existing [delivery helper](../../implement/references/delivery.md) when its runtime path applies; otherwise follow the same project-configured identity, monitoring, review, feedback, merge and protected-cleanup rules directly. Approval belongs to the independent reviewer and current head. Setup owns author feedback, required follow-up work, merge under existing authorization, and terminal cleanup.
 

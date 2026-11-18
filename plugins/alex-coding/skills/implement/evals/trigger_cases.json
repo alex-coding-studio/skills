@@ -11,6 +11,14 @@
     {
       "family": "should_trigger-2",
       "text": "There is no Delivery Contract for this work; implement my request directly."
+    },
+    {
+      "family": "feature-dependency-add",
+      "text": "Implement image upload and add its needed direct dependency in the same PR."
+    },
+    {
+      "family": "feature-dependency-remove",
+      "text": "Implement removal of image upload and remove its unused direct dependency in the same PR."
     }
   ],
   "should_not_trigger": [

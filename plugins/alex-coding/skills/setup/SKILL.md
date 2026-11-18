@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Create, align, or update a runnable technical project baseline, including toolchains, adding/removing direct packages, dependency version changes, data infrastructure, commands, CI, ProjectContext, and initial repository delivery. Use for project setup and later foundation changes; exclude product planning, feature implementation, review-only work, application deployment or package/artifact publication, and work owned by a narrower installed platform setup skill."
+description: "Create, align, or update a runnable technical project baseline, including toolchains, standalone direct package additions/removals and dependency version changes, data infrastructure, commands, CI, ProjectContext, and initial repository delivery. Use for project setup and later foundation changes; exclude product planning, feature implementation, review-only work, application deployment or package/artifact publication, and work owned by a narrower installed platform setup skill."
 ---
 
 # Establish a Technical Project Baseline
@@ -13,7 +13,7 @@ Read the shared [delivery policy](../../references/delivery-policy.md) and [oper
 
 ## Build and verify the baseline
 
-Read [technical baseline](references/technical-baseline.md). Configure each confirmed layer and prove its foundation smoke without inventing business behavior. Setup owns direct dependency changes, dependency resolution, package-manager configuration, dependency-related manifest fields and resulting lockfiles; other manifest fields follow their actual meaning. Feature implementation waits for a separate dependency Setup delivery. Update-caused compatibility code stays in that Setup transaction.
+Read [technical baseline](references/technical-baseline.md). Configure each confirmed layer and prove its foundation smoke without inventing business behavior. Setup owns runtimes, frameworks, databases, package managers, generators, CI, commands, ports, debug flows and ProjectContext, plus standalone dependency/toolchain updates. Explicit package addition, removal or update requests may use Setup. A feature, fix or removal PR (Implement) may add, remove, replace or update the direct dependencies it needs, with matching manifest and lockfile changes in the same PR. List each dependency change in the PR description and update ProjectContext when it names that dependency. Reviewers must not require a separate Setup PR or treat these dependency changes as a blocker. Update-caused compatibility code stays in the standalone Setup transaction.
 
 Fill the `assets/` templates only with verified facts. Preserve authored files. Keep stable operations in `ProjectContext.md`, leaf versions in manifests/lockfiles, and progress in Task/PR records.
 

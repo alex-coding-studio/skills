@@ -20,9 +20,7 @@
         "plan this",
         "only review",
         "explain this",
-        "scaffold",
-        "direct dependency",
-        "version bump"
+        "scaffold"
       ]
     }
   }

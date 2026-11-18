@@ -84,7 +84,7 @@ class SetupSkillTests(unittest.TestCase):
         self.assertEqual({case["id"] for case in cases}, {
             "create-runnable-baseline",
             "reference-technical-only",
-            "dependency-separation",
+            "feature-dependency",
             "version-update-transaction",
         })
         for case in cases:
