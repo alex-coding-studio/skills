@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import subprocess
 import sys
 import time
@@ -138,6 +139,7 @@ class DisposableWorktreeTests(unittest.TestCase):
         self.assertTrue(self.checkout.exists())
 
     def test_creation_uses_the_synchronized_main_or_master(self):
+        (self.root / '.worktrees').mkdir()
         for default in ('main', 'master'):
             with self.subTest(default=default):
                 if default == 'master':
@@ -149,6 +151,27 @@ class DisposableWorktreeTests(unittest.TestCase):
                 self.assertEqual(created['base_sha'], self.git(self.repo, 'rev-parse', default))
                 self.assertEqual(self.git(destination, 'rev-parse', 'HEAD'), created['base_sha'])
                 self.assertEqual(self.git(destination, 'status', '--porcelain'), '')
+
+    def test_cli_defaults_to_the_primary_repositories_workspace(self):
+        self.git(self.remote, 'symbolic-ref', 'HEAD', 'refs/heads/main')
+        (self.root / '.worktrees').mkdir()
+        script = Path(cleanup.lifecycle.__file__)
+        result = subprocess.run([sys.executable, str(script), '--repository', str(self.checkout),
+                                 '--branch', 'fix/default-root'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        destination = self.root.resolve() / '.worktrees/tasks/primary repo/fix%2Fdefault-root'
+        self.assertEqual(json.loads(result.stdout)['path'], str(destination))
+        self.assertEqual(self.git(destination, 'branch', '--show-current'), 'fix/default-root')
+
+    def test_default_rejects_a_symlinked_repository_container(self):
+        root = self.root / '.worktrees' / 'tasks'
+        root.mkdir(parents=True)
+        outside = self.root / 'outside'
+        outside.mkdir()
+        (root / self.repo.name).symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            cleanup.lifecycle.create_worktree(self.repo, None, 'task')
+        self.assertFalse((outside / 'task').exists())
 
     def test_two_successive_deliveries_create_merge_sync_and_dispose(self):
         self.git(self.remote, 'symbolic-ref', 'HEAD', 'refs/heads/main')

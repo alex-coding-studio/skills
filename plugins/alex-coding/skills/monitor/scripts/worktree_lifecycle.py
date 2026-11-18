@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from urllib.parse import quote
 import uuid
 
 
@@ -85,27 +86,43 @@ def synchronize(primary, remote, default, run_git=None, lock_fd=None):
     return commit
 
 
+def default_destination(primary, branch):
+    root = next((parent / '.worktrees' for parent in primary.parents
+                 if (parent / '.worktrees').is_dir()), None)
+    if root is None:
+        raise ValueError('No ancestor workspace has a .worktrees directory; pass --destination')
+    destination = root / 'tasks' / primary.name / quote(branch, safe='')
+    if destination.resolve() != destination:
+        raise ValueError('The default worktree destination must not traverse a symbolic link')
+    return destination
+
+
 def create_worktree(repository, destination, branch, remote='origin'):
     repository = Path(repository).resolve()
-    destination = Path(destination).absolute()
-    if destination.exists() or destination.is_symlink():
-        raise ValueError('The destination already exists')
     common = Path(git(repository, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve()
     with (common / 'author-monitor-cleanup.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         paths = [Path(value.removeprefix('worktree ')).resolve()
                  for value in git(repository, 'worktree', 'list', '--porcelain', '-z').split('\0')
                  if value.startswith('worktree ')]
+        primary = paths[0]
+        branch_name = git(repository, 'check-ref-format', '--branch', branch)
+        if destination is None:
+            if branch_name != branch:
+                raise ValueError('The default destination requires a literal task branch name')
+            destination = default_destination(primary, branch)
+        else:
+            destination = Path(destination).absolute()
+        if destination.exists() or destination.is_symlink():
+            raise ValueError('The destination already exists')
         destination = destination.resolve()
         if any(destination == path or path in destination.parents or destination in path.parents for path in paths):
             raise ValueError('Task worktrees must not contain or be inside another registered worktree')
-        primary = paths[0]
         head = git(repository, 'ls-remote', '--symref', remote, 'HEAD')
         match = re.search(r'^ref: refs/heads/(.+)\tHEAD$', head, re.MULTILINE)
         if not match:
             raise ValueError('Could not resolve the remote default branch')
         default = match[1]
-        git(repository, 'check-ref-format', '--branch', branch)
         if branch == default:
             raise ValueError('A task branch must differ from the default branch')
         commit = synchronize(primary, remote, default, lock_fd=lock.fileno())
@@ -117,7 +134,8 @@ def create_worktree(repository, destination, branch, remote='origin'):
 def main():
     parser = argparse.ArgumentParser(description='Create a disposable task worktree from the synchronized default checkout')
     parser.add_argument('--repository', required=True, type=Path)
-    parser.add_argument('--destination', required=True, type=Path)
+    parser.add_argument('--destination', type=Path,
+                        help='Explicit path; defaults to the ancestor workspace .worktrees/tasks directory')
     parser.add_argument('--branch', required=True)
     parser.add_argument('--remote', default='origin')
     args = parser.parse_args()
