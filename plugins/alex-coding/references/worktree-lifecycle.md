@@ -10,9 +10,11 @@ When no task worktree has been assigned, run the bundled script before editing:
 
 ```sh
 python3 <plugin>/skills/monitor/scripts/worktree_lifecycle.py \
-  --repository <existing-repository> --destination <new-absolute-worktree-path> \
+  --repository <existing-repository> \
   --branch <new-task-branch>
 ```
+
+The script finds the nearest ancestor of the primary checkout containing an existing `.worktrees` directory and creates `.worktrees/tasks/<repository-folder>/<task-branch>` there. It URL-encodes the branch as one path component (for example, `fix/login` becomes `fix%2Flogin`). Use `--destination <new-absolute-worktree-path>` when a different new path is required or no such workspace exists.
 
 The script resolves the remote default, requires the primary checkout on it, fetches without a stale-cache fallback, resets tracked source to the fetched commit and creates the task worktree from that exact SHA. It serializes with Monitor completion through the common Git directory lock. Both `main` and `master` work without a hardcoded default. An existing destination or branch is never reused as a new delivery. Do not switch an unrelated primary branch or bypass a failure; reconcile that checkout before adopting this lifecycle.
 
