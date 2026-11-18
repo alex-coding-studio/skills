@@ -6,7 +6,7 @@ Practical Agent skills from Alex Coding Studio. Each skill includes the instruct
 
 General technical setup, GitHub PR-based planning and implementation, guided by the current repository rather than a fixed technology stack.
 
-- **`alex-coding:setup`** creates, aligns or updates a runnable technical project baseline. It owns runtimes, frameworks, direct dependencies, data infrastructure, commands, CI, ProjectContext and initial repository delivery, while excluding product planning and business-feature implementation. It selects stable unspecified technical details, can reuse another project's technical setup without copying business code, and carries update-required compatibility changes in the same Setup PR.
+- **`alex-coding:setup`** creates, aligns or updates a runnable technical project baseline. It owns runtimes, frameworks, standalone dependency/toolchain updates, data infrastructure, commands, CI, ProjectContext and initial repository delivery, while excluding product planning and business-feature implementation. It selects stable unspecified technical details, can reuse another project's technical setup without copying business code, and carries update-required compatibility changes in the same Setup PR.
 - **`alex-coding:plan`** turns accepted requirements into a delivery contract and documentation PR. After the required review and merge, it returns an Implement prompt bound to the actual full merge commit, contract path and acceptance IDs. The contract governs that delivery only and becomes an unchanged historical record after implementation review and merge. It does not start a Worker automatically.
 - **`alex-coding:implement`** consumes the current work's merged contract when one exists; otherwise it uses the user's current request as acceptance. It writes and verifies the code, opens a code PR and handles author feedback through the project's existing review process. A completed contract does not force later direct work back through Plan; an unfinished Plan-owned delivery for the same work cannot be silently bypassed.
 
@@ -51,7 +51,7 @@ Example requests:
 
 > Use alex-coding:setup to create this project as a verified local and GitHub technical baseline.
 
-> Use alex-coding:setup to add this dependency in a separate Setup PR, then I will resume feature implementation.
+> Use alex-coding:implement to deliver this feature with its needed dependency changes, matching manifests and lockfiles, and list each dependency change in the PR description.
 
 > Use alex-coding:setup to upgrade this framework and include every compatibility change caused by the update.
 

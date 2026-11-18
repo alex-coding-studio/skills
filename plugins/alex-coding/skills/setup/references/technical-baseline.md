@@ -17,7 +17,7 @@ Generator success alone is not evidence. Verify from a clean dependency state wh
 
 ## Dependency ownership
 
-Every direct dependency addition, removal, replacement or version change is Setup work, including dependency resolution, package-manager configuration, dependency-related manifest fields, and resulting lockfile changes. Manifest fields that describe product entry points, application metadata or feature behavior remain with their semantic owner. A feature that needs a new dependency completes and merges a separate Setup delivery before feature implementation resumes.
+Setup owns runtimes, frameworks, databases, package managers, generators, CI, commands, ports, debug flows and ProjectContext, plus standalone dependency/toolchain updates. Explicit package addition, removal or update requests may use Setup. A feature, fix or removal PR (Implement) may add, remove, replace or update the direct dependencies it needs, with matching manifest and lockfile changes in the same PR. List each dependency change in the PR description and update ProjectContext when it names that dependency. Reviewers must not require a separate Setup PR or treat these dependency changes as a blocker. Other manifest fields follow their actual product or technical meaning.
 
 An update transaction may contain only changes directly caused by the update: API migrations, compiler fixes, configuration formats, generated output, compatibility adapters, data/ORM migration formats, tests that preserve the same behavior, and removal of obsolete compatibility code. New business behavior and unrelated cleanup remain outside Setup.
 
@@ -28,7 +28,7 @@ Update `ProjectContext.md` in the same Setup delivery when the stable runtime, f
 Every project formally created or aligned by Setup has:
 
 - root `ProjectContext.md` with verified stable project facts;
-- root `AGENTS.md` that makes the context discoverable and preserves Setup ownership of dependencies;
+- root `AGENTS.md` that makes the context discoverable and records Setup ownership of foundations and standalone dependency updates;
 - a compatible root Agent adapter such as `CLAUDE.md` when the project uses that runtime;
 - `README.md` with the human entry point;
 - a detailed engineering document such as `docs/PROJECT.md` when commands and operations exceed the concise context.

@@ -203,5 +203,20 @@
     "id": "semina-chat-dispatched",
     "input": "A coordinator dispatched this session in chat to implement work that has a Semina task card.",
     "expected": "Do not change the Semina task state; report through the dispatching agent, which updates the task."
+  },
+  {
+    "id": "implement-needed-dependency",
+    "input": "Implement image upload with a new direct dependency, matching manifest and lockfile changes.",
+    "expected": "Keep these changes in one Implement PR, list each dependency change in its description and update ProjectContext when it names the dependency. Reviewers do not require a separate Setup PR or block on dependency presence."
+  },
+  {
+    "id": "remove-feature-dependency",
+    "input": "Remove a feature and the now-unused dependency named in ProjectContext.",
+    "expected": "Remove the feature, dependency, matching manifest/lockfile entries and ProjectContext reference in one Implement PR; disclose the dependency removal."
+  },
+  {
+    "id": "plan-needed-dependency",
+    "input": "Plan a feature that needs a new direct dependency but no other missing foundation.",
+    "expected": "Include the dependency and matching manifest/lockfile changes in Implement scope without a separate Setup prerequisite."
   }
 ]

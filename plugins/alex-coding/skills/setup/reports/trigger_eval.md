@@ -1,6 +1,6 @@
 # Trigger Evaluation
 
-The bundled semantic trigger smoke evaluated nine positive and twelve negative/near-neighbor cases at threshold `0.5`.
+The bundled semantic trigger smoke evaluated nine positive and fourteen negative/near-neighbor cases at threshold `0.5`.
 
 - Precision: `1.0`
 - Recall: `1.0`
