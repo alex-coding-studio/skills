@@ -1,4 +1,4 @@
 interface:
   display_name: "Plan"
-  short_description: "Project-context-driven plan workflow"
+  short_description: "Repository-guided plan workflow"
   default_prompt: "Use alex-coding:plan for this repository task."

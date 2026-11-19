@@ -6,26 +6,15 @@ Practical Agent skills from Alex Coding Studio. Each skill includes the instruct
 
 General technical setup, GitHub PR-based planning and implementation, guided by the current repository rather than a fixed technology stack.
 
-- **`alex-coding:setup`** creates, aligns or updates a runnable technical project baseline. It owns runtimes, frameworks, standalone dependency/toolchain updates, data infrastructure, commands, CI, ProjectContext and initial repository delivery, while excluding product planning and business-feature implementation. It selects stable unspecified technical details, can reuse another project's technical setup without copying business code, and carries update-required compatibility changes in the same Setup PR.
+- **`alex-coding:setup`** creates, aligns or updates a runnable technical project baseline. It owns runtimes, frameworks, standalone dependency/toolchain updates, data infrastructure, commands, CI, versioned engineering documentation and initial repository delivery, while excluding product planning and business-feature implementation. It selects stable unspecified technical details, can reuse another project's technical setup without copying business code, and carries update-required compatibility changes in the same Setup PR.
 - **`alex-coding:plan`** turns accepted requirements into a delivery contract and documentation PR. After the required review and merge, it returns an Implement prompt bound to the actual full merge commit, contract path and acceptance IDs. The contract governs that delivery only and becomes an unchanged historical record after implementation review and merge. It does not start a Worker automatically.
 - **`alex-coding:implement`** consumes the current work's merged contract when one exists; otherwise it uses the user's current request as acceptance. It writes and verifies the code, opens a code PR and handles author feedback through the project's existing review process. A completed contract does not force later direct work back through Plan; an unfinished Plan-owned delivery for the same work cannot be silently bypassed.
 
 Plan and Implement respect existing human acceptance and merge restrictions. After opening a PR and registering author feedback monitoring, they automatically start one independent reviewer for that PR unless a reviewer is already assigned or the project requires a human-owned path. The plugin bundles `alex-coding:monitor` for author feedback, `alex-coding:project-monitor` for Claude Project threads that work in a pooled worktree slot, `alex-coding:review` for PR-bound independent review, their runtime scripts, and `gh_as`. Unsupported execution and notification capabilities are reported honestly; credentials stay with the existing CLIs.
 
-### ProjectContext.md
+### Repository entry and context
 
-A root `ProjectContext.md` gives Agents a concise map of project-specific requirements. Setup creates or aligns it as a required part of a Setup-owned technical baseline. It remains optional for repositories that have not accepted Setup: if absent, Plan and Implement use existing repository instructions, README and relevant project documents and continue with their general workflow. They do not create one as a side effect of feature work.
-
-The canonical [Setup template](plugins/alex-coding/skills/setup/assets/ProjectContext.md) covers:
-
-1. Project purpose and technology stack.
-2. Code structure and architectural constraints.
-3. Current authoritative requirements, active-contract locations and historical delivery-record locations.
-4. Actual lint, test and build commands.
-5. Human acceptance and existing delivery rules.
-6. Exceptions, open questions and the agreed context-update process.
-
-Reference existing documentation, record only verified facts, and adapt only what the project needs. The template is not authority to overwrite authored context. A narrower platform setup capability can add its verified platform-specific facts while preserving the same baseline contract.
+Start with root `AGENTS.md` and follow its context and engineering pointers. Use the applicable workspace's declared provider or the repository's own technical sources. An explicitly declared legacy context file remains valid. Setup establishes the root Agent entry and keeps affected versioned engineering documentation with the reproducible baseline.
 
 ### Install the plugin
 

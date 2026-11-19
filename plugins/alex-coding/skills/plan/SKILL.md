@@ -9,7 +9,7 @@ Own the requested outcome, scope and Delivery Contract when the user asks to pla
 
 ## Establish the input
 
-1. Read [project context](../../references/project-context.md) and [delivery policy](../../references/delivery-policy.md). Identify the repository, relevant accepted requirements and current project constraints. Read only the sources needed for this delivery slice; completed contracts from earlier deliveries are optional history, not acceptance criteria to reconcile.
+1. Read [repository entry and declared context](../../references/project-context.md) and [delivery policy](../../references/delivery-policy.md). Identify the repository, relevant accepted requirements and current project constraints. Read only the sources needed for this delivery slice; completed contracts from earlier deliveries are optional history, not acceptance criteria to reconcile.
 2. Clarify material ambiguity and confirm scope and acceptance before authoring normative project documents. Reuse confirmation already given; do not ask again because a skill or session changed.
 3. For an idea without a repository, prepare a provisional proposal and name repository setup as the prerequisite to the planning PR. Do not create a technical shell, fabricate a merge or claim an implementation-ready handoff.
 
@@ -17,7 +17,7 @@ Own the requested outcome, scope and Delivery Contract when the user asks to pla
 
 Read [source-fidelity.md](references/source-fidelity.md) and [contract.md](references/contract.md). Freeze the accepted input and preserve a source-to-clause mapping. Define observable outcomes, exclusions, source anchors, acceptance criteria and the evidence each criterion requires. Use the existing project documentation location; otherwise propose a simple repository-relative contract path rather than a new documentation system.
 
-Apply platform-specific guidance from ProjectContext and its relevant references. Preserve explicit project choices. Do not introduce an iOS, web or backend checklist automatically, require EXPERIENCE.md or milestones, prescribe implementation internals without a real constraint, or add features to make the plan look complete.
+Discover applicable platform guidance, current product decisions, pitfalls and constraints through the repository entry and its declared sources. Preserve explicit project choices. Do not introduce an iOS, web or backend checklist automatically, require EXPERIENCE.md or milestones, prescribe implementation internals without a real constraint, or add features to make the plan look complete.
 
 Keep needed direct dependency changes and matching manifest/lockfile changes in the feature implementation delivery; do not split them into a Setup prerequisite. Identify a separate Setup prerequisite for other missing technical foundations such as runtime, framework, database or package-manager changes. Setup does not require its own planning PR; the feature handoff waits only for those required foundation baselines to merge.
 
@@ -25,7 +25,7 @@ Make project-specific pitfalls available to the Worker when relevant: explain th
 
 ## Publish and hand off
 
-1. Use the [disposable worktree lifecycle](../../references/worktree-lifecycle.md): keep the fresh worktree explicitly assigned by the execution host, create one when none is assigned, or resume the same delivery in its existing worktree. Write only the user-accepted planning documents there. Protect unrelated work. Changes to ProjectContext follow its own approval and separate-PR rules; ordinary planning authorization does not bypass them.
+1. Use the [disposable worktree lifecycle](../../references/worktree-lifecycle.md): keep the fresh worktree explicitly assigned by the execution host, create one when none is assigned, or resume the same delivery in its existing worktree. Write only the user-accepted planning documents there. Protect unrelated work. Follow the project’s approval and separate-PR rules for protected instructions and context changes.
 2. Open a ready documentation PR with the configured author identity. Use Draft only when requested. Register author-side follow-up through the project's existing monitoring mechanism when configured and available.
 3. Invoke `alex-coding:review` for the exact planning PR using [review startup](../review/references/runtime.md), unless a reviewer is already assigned or the project explicitly requires a human-owned path. Automatic reviewer startup is part of this delivery. Supply the frozen accepted source and clause mapping, address document feedback, obtain current-head approval and satisfy applicable document checks. Do not create a competing reviewer or supply the author's own verdict.
 4. When existing user/project authorization permits merge and all required conditions are satisfied, merge and verify the terminal state. Otherwise retain the PR and state the missing authorization or gate. Never hand off an open or rejected planning PR as implementation-ready.

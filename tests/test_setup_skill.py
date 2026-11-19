@@ -40,7 +40,6 @@ class SetupSkillTests(unittest.TestCase):
             "references/operation.md",
             "references/technical-baseline.md",
             "references/delivery.md",
-            "assets/ProjectContext.md",
             "assets/AGENTS.md",
             "assets/CLAUDE.md",
             "agents/interface.yaml",
@@ -91,7 +90,7 @@ class SetupSkillTests(unittest.TestCase):
             self.assertTrue(case["assertions"])
             self.assertEqual(case["human_review"]["expected_winner"], "with_skill")
         reference = next(case for case in cases if case["id"] == "reference-technical-only")
-        self.assertIn("Do not copy Harvis business", reference["with_skill_output"])
+        self.assertIn("Do not copy reference-project business", reference["with_skill_output"])
 
         holdouts = [
             json.loads(line)

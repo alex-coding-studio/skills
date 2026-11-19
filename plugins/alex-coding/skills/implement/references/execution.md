@@ -1,6 +1,6 @@
 # Implementation Evidence
 
-Read the narrow source closure from the contract bound to this delivery and relevant current code. Expand only to resolve an actual missing fact, affected caller or contradiction within this delivery. Completed contracts from earlier deliveries are optional history and do not supply acceptance criteria. Return changes to the active delivery's product meaning to Plan rather than writing a test that invents a requirement.
+Follow the [repository entry and declared context](../../../references/project-context.md), then read the narrow source closure from the bound contract and relevant current code. Expand only to resolve an actual missing fact, affected caller or contradiction within this delivery. Completed contracts from earlier deliveries are optional history and do not supply acceptance criteria. Return changes to the active delivery's product meaning to Plan rather than writing a test that invents a requirement.
 
 ## Record proportionate acceptance before code
 
@@ -38,6 +38,6 @@ Use declared lint/test/build entry points, respecting directory allowlists and p
 
 Temporary local shared-package overrides are development tools, not portable delivery artifacts. Respect project policy for dependency publication and pinning. Do not infer that repository-owned local packages are invalid.
 
-Setup owns runtimes, frameworks, databases, package managers, generators, CI, commands, ports, debug flows and ProjectContext, plus standalone dependency/toolchain updates. Explicit package addition, removal or update requests may use Setup. A feature, fix or removal PR (Implement) may add, remove, replace or update the direct dependencies it needs, with matching manifest and lockfile changes in the same PR. List each dependency change in the PR description and update ProjectContext when it names that dependency. Reviewers must not require a separate Setup PR or treat these dependency changes as a blocker. Other manifest fields follow their actual product or technical meaning.
+Keep directly needed dependency changes with the feature, fix or removal. Commit the matching manifest and lockfile changes, update affected versioned engineering documentation in the same PR, and disclose each addition, removal, replacement or version change in its description. Apply the repository’s declared context and authorization rules to durable knowledge updates at the applicable delivery point. Standalone dependency and other technical foundation updates belong to Setup. Other manifest fields follow their actual product or technical meaning.
 
 A PR description follows the [delivery template](delivery.md): what changed, why, which checks actually ran on which exact head, and the limits and human acceptance status. Test totals describe execution scope, not test value or acceptance completeness. Never promote intended checks, cached historical reports or contract assertions into a current passing result.

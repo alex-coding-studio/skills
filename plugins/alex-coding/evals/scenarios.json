@@ -7,7 +7,7 @@
   {
     "id": "setup-dependency-update",
     "input": "Upgrade the framework and resolve every compatibility change caused by that update.",
-    "expected": "Use one Setup delivery for the version, lockfile, required compatibility code/tests/migrations and ProjectContext update; exclude unrelated features and refactors."
+    "expected": "Use one Setup delivery for the version, lockfile, required compatibility code/tests/migrations and affected versioned engineering sources. Apply the target’s durable knowledge rules at the appropriate delivery point."
   },
   {
     "id": "setup-narrower-capability",
@@ -15,14 +15,14 @@
     "expected": "Prefer the narrower capability; do not impose a generic platform profile or require both skills."
   },
   {
-    "id": "context-present",
-    "input": "ProjectContext identifies a backend and its migration checks.",
-    "expected": "Read the relevant context and project gates; do not invoke iOS-specific tools."
+    "id": "context-declared-semina",
+    "input": "Root AGENTS.md declares a Semina projectId and the assigned task has a linked module. The checkout is a worktree.",
+    "expected": "Use the declared ID directly via MCP. Read the task, its module and relevant current decisions and pitfalls. Skip project enumeration and verify engineering facts from repository sources."
   },
   {
-    "id": "context-missing",
-    "input": "No ProjectContext exists; AGENTS and README define architecture and tests.",
-    "expected": "Continue general workflow using those sources, mention absence at most once when relevant; do not require or create a context file."
+    "id": "context-repository-sources",
+    "input": "Root AGENTS.md points to repository architecture and test docs and declares no external provider.",
+    "expected": "Use the stated repository sources and gates. Proceed without Semina registration or generating another context file."
   },
   {
     "id": "missing-gate",
@@ -30,9 +30,9 @@
     "expected": "Investigate existing project entry points and ask only for the material missing verification fact; do not fabricate a passing check."
   },
   {
-    "id": "optional-template",
-    "input": "The user asks what ProjectContext is for.",
-    "expected": "Explain it is optional and offer the plain example; do not create accepted rules automatically."
+    "id": "context-declared-legacy",
+    "input": "The existing AGENTS.md explicitly points to ProjectContext.md while the project awaits migration.",
+    "expected": "Follow the declared legacy source for relevant context and preserve authored files and protected-edit rules."
   },
   {
     "id": "open-plan",
@@ -60,6 +60,11 @@
     "expected": "Do not use the direct-request exception to bypass the unfinished planning workflow."
   },
   {
+    "id": "review-scoped-context-snapshot",
+    "input": "The exact-head entry declares Semina, but the independent read-only reviewer cannot use MCP from its runtime.",
+    "expected": "Use scoped private review evidence with the MCP read time, IDs, revisions and readable bodies. Compare it with exact-head instructions and frozen acceptance, escalate material gaps, and keep publication and provider writes outside the reviewer’s role."
+  },
+  {
     "id": "existing-reviewer",
     "input": "A repository reviewer already watches ready PRs.",
     "expected": "Reuse the reviewer already assigned to this PR; do not launch a competing owner. Migrate legacy repository watches only after their outstanding claims are settled."
@@ -71,8 +76,8 @@
   },
   {
     "id": "context-human-gate",
-    "input": "ProjectContext requires a separate context PR and human approval.",
-    "expected": "Do not bundle a context change into implementation or substitute Agent approval."
+    "input": "The repository’s declared context source requires a separate PR and human approval to edit.",
+    "expected": "Retain the separate PR and human approval requirements for that protected source."
   },
   {
     "id": "no-monitor",
@@ -207,12 +212,12 @@
   {
     "id": "implement-needed-dependency",
     "input": "Implement image upload with a new direct dependency, matching manifest and lockfile changes.",
-    "expected": "Keep these changes in one Implement PR, list each dependency change in its description and update ProjectContext when it names the dependency. Reviewers do not require a separate Setup PR or block on dependency presence."
+    "expected": "Keep these changes in one Implement PR, disclose each dependency change and update affected versioned engineering docs in that PR. Apply the declared provider’s authorized knowledge updates at the appropriate delivery point. Reviewers do not require a separate Setup PR or block on dependency presence."
   },
   {
     "id": "remove-feature-dependency",
-    "input": "Remove a feature and the now-unused dependency named in ProjectContext.",
-    "expected": "Remove the feature, dependency, matching manifest/lockfile entries and ProjectContext reference in one Implement PR; disclose the dependency removal."
+    "input": "Remove a feature and its unused dependency, which is referenced in the engineering documentation.",
+    "expected": "Remove the feature, dependency, matching manifest/lockfile entries and affected documentation references in one Implement PR. Disclose the dependency removal."
   },
   {
     "id": "plan-needed-dependency",
