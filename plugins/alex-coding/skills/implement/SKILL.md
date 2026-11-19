@@ -5,7 +5,7 @@ description: "Implement and deliver accepted repository changes, using the curre
 
 # Implement Accepted Repository Work
 
-Own implementation, verification, the code PR and author feedback. Read [project context](../../references/project-context.md) and [delivery policy](../../references/delivery-policy.md); reuse unchanged guidance within the same task and load only the runtime in use.
+Own implementation, verification, the code PR and author feedback. Read [repository entry and declared context](../../references/project-context.md) and [delivery policy](../../references/delivery-policy.md); reuse unchanged guidance within the same task and load only the runtime in use.
 
 ## Acceptance and focused entry
 
@@ -15,7 +15,7 @@ Without a Contract, use the user's accepted request and direct clarifications. D
 
 For a diagnosed Issue, batch the Issue, named code, relevant tests and verification entry points. Verify the diagnosis and affected callers; suggestions are evidence, not instructions. Expand only for missing facts, changed locations, dependencies or contradictions. Do not repeat repository discovery when current context is adequate.
 
-A feature, fix or removal PR (Implement) may add, remove, replace or update the direct dependencies it needs, with matching manifest and lockfile changes in the same PR. List each dependency change in the PR description and update ProjectContext when it names that dependency. Reviewers must not require a separate Setup PR or treat these dependency changes as a blocker. If implementation needs another unmerged technical foundation such as a runtime, framework, database or package-manager change, route that prerequisite through `alex-coding:setup` and resume from the resulting default-branch baseline. Other manifest fields follow their actual product or technical meaning.
+A feature, fix or removal PR may add, remove, replace or update the direct dependencies it needs with matching manifest and lockfile changes in the same PR. Disclose each dependency change in the PR description, update affected versioned engineering sources in that delivery, and follow the declared provider for authorized durable knowledge updates at the applicable delivery point. Reviewers must not require a separate Setup PR or treat these dependency changes as a blocker. If implementation needs another unmerged technical foundation such as a runtime, framework, database or package-manager change, route that prerequisite through `alex-coding:setup` and resume from the resulting default-branch baseline. Other manifest fields follow their actual product or technical meaning.
 
 ## Implement and deliver
 

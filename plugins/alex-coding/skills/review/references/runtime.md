@@ -27,7 +27,9 @@ CLI contracts: [Codex non-interactive mode](https://developers.openai.com/codex/
 
 ## Launch after PR creation
 
-The reviewer's acceptance input is the PR description, refreshed from GitHub on every invocation. Pass `--acceptance-file` only for a source that cannot live in the description, such as a planning PR's frozen source evidence; it then replaces the description as acceptance input and is not published. Do not include the author's private reasoning or suggested verdict in either.
+The reviewer's default acceptance input is the PR description, refreshed from GitHub on every invocation. For evidence that cannot live there, pass a local `--acceptance-file`. The runner supplies a readable copy to the worker in its state directory as the acceptance input. Include the bound acceptance or its readable local evidence there when using this option.
+
+If the declared Semina provider is unavailable to the reviewer runtime, obtain the applicable scoped reads through authorized MCP access before startup and include them in that local input. Record the read time, project and card IDs, revisions and readable bodies so the reviewer can compare them with the exact-head entry and frozen acceptance. Carry only relevant cards and preserve their access boundaries. Keep private evidence out of GitHub. Report material evidence gaps to the reviewer. Keep the author's private reasoning and suggested verdict out of both inputs.
 
 Use the installed script's absolute path, a verified reviewer distinct from the PR author, and the project's existing round limit (three if unspecified; a fourth round needs the user's explicit word):
 

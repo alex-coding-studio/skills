@@ -1,21 +1,21 @@
 ---
 name: setup
-description: "Create, align, or update a runnable technical project baseline, including toolchains, standalone direct package additions/removals and dependency version changes, data infrastructure, commands, CI, ProjectContext, and initial repository delivery. Use for project setup and later foundation changes; exclude product planning, feature implementation, review-only work, application deployment or package/artifact publication, and work owned by a narrower installed platform setup skill."
+description: "Create, align, or update a runnable technical project baseline, including toolchains, standalone direct package additions/removals and dependency version changes, data infrastructure, commands, CI, versioned engineering documentation, and initial repository delivery. Use for project setup and later foundation changes; exclude product planning, feature implementation, review-only work, application deployment or package/artifact publication, and work owned by a narrower installed platform setup skill."
 ---
 
 # Establish a Technical Project Baseline
 
-Own the technical foundation from settled product needs through a reproducible, runnable baseline. `ProjectContext.md` is one required interface, not the delivery by itself.
+Own the technical foundation from settled product needs through a reproducible, runnable baseline.
 
 ## Establish the operation
 
-Read the shared [delivery policy](../../references/delivery-policy.md) and [operation modes](references/operation.md), then select Create, Align, or Update. Use confirmed project/Git inputs, choose unspecified reversible details with stable compatible releases and official generators, and ask only about a project-shaping fact or new authority. Prefer a narrower installed platform setup capability when it fits; this skill maintains no platform profiles.
+Read the [repository entry and declared context](../../references/project-context.md) and shared [delivery policy](../../references/delivery-policy.md) and [operation modes](references/operation.md), then select Create, Align, or Update. Use confirmed project/Git inputs, choose unspecified reversible details with stable compatible releases and official generators, and ask only about a project-shaping fact or new authority. Prefer a narrower installed platform setup capability when it fits; this skill maintains no platform profiles.
 
 ## Build and verify the baseline
 
-Read [technical baseline](references/technical-baseline.md). Configure each confirmed layer and prove its foundation smoke without inventing business behavior. Setup owns runtimes, frameworks, databases, package managers, generators, CI, commands, ports, debug flows and ProjectContext, plus standalone dependency/toolchain updates. Explicit package addition, removal or update requests may use Setup. A feature, fix or removal PR (Implement) may add, remove, replace or update the direct dependencies it needs, with matching manifest and lockfile changes in the same PR. List each dependency change in the PR description and update ProjectContext when it names that dependency. Reviewers must not require a separate Setup PR or treat these dependency changes as a blocker. Update-caused compatibility code stays in the standalone Setup transaction.
+Read [technical baseline](references/technical-baseline.md). Configure each confirmed layer and prove its foundation smoke without inventing business behavior. Setup owns runtimes, frameworks, databases, package managers, generators, CI, commands, ports, debug flows and their versioned engineering documentation, plus standalone dependency/toolchain updates. A feature, fix or removal PR may add, remove, replace or update the direct dependencies it needs with matching manifest and lockfile changes in the same PR. Disclose each dependency change in the PR description, update affected versioned engineering sources in that delivery, and follow the declared provider for authorized durable knowledge updates at the applicable delivery point. Update-caused compatibility code stays in the standalone Setup transaction.
 
-Fill the `assets/` templates only with verified facts. Preserve authored files. Keep stable operations in `ProjectContext.md`, leaf versions in manifests/lockfiles, and progress in Task/PR records.
+Fill the applicable `assets/` templates with verified facts and preserve authored files. Keep stable operations in the repository entry and its technical pointers, exact dependency versions in manifests and lockfiles, and progress in task or PR records. Follow the target’s declared provider for durable knowledge.
 
 ## Deliver the setup
 

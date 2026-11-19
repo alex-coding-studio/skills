@@ -14,23 +14,23 @@ Do not require a complete product specification. If the purpose and target form 
 
 ## Create
 
-Use an empty destination. Reject or reclassify a non-empty destination before a generator can overwrite it. Prefer the selected ecosystem's official generator and project-local dependency management. Configure all confirmed layers, context files, verification entry points, CI, and foundation smoke before GitHub publication.
+Use an empty destination. Reject or reclassify a non-empty destination before a generator can overwrite it. Prefer the selected ecosystem's official generator and project-local dependency management. Configure all confirmed layers, the root Agent entry, engineering sources, verification entry points, CI, and foundation smoke before GitHub publication.
 
 ## Align
 
-Inspect the existing Git state, instructions, `ProjectContext.md`, detailed engineering docs, manifests, lockfiles, scripts, CI, and runtime entry points. Preserve dirty or authored work. Do not rerun a full generator blindly or overwrite an authored context. Establish only the missing or explicitly accepted baseline and deliver it through a Setup PR.
+Inspect the existing Git state, root `AGENTS.md`, its declared context, detailed engineering docs, manifests, lockfiles, scripts, CI, and runtime entry points. Preserve dirty or authored work. Do not rerun a full generator blindly or overwrite authored sources. Establish only the missing or explicitly accepted baseline and deliver it through a Setup PR.
 
 ## Update
 
-Investigate the named foundation change, affected manifests/configuration, direct callers, migrations, tests, and declared gates. Prefer the smallest stable compatible change. Do not upgrade unrelated packages or refactor unrelated code. If preserving existing behavior requires a product decision, stop and ask before changing that behavior.
+Investigate the named foundation change against the declared context and affected engineering sources, manifests/configuration, direct callers, migrations, tests, and declared gates. Prefer the smallest stable compatible change. Do not upgrade unrelated packages or refactor unrelated code. If preserving existing behavior requires a product decision, stop and ask before changing that behavior.
 
 Project-wide runtime, framework, database, ORM, package-manager, UI-foundation, build, test, lint, port, or development-flow changes belong here. Do not upgrade merely because a newer release exists; act on an explicit request, a confirmed requirement, or a blocking compatibility/security condition.
 
 ## Reference projects
 
-When the user says to reference another project, read its root `ProjectContext.md` completely when present, then follow only the relevant pointers into engineering docs, manifests, lockfiles, scripts, and CI. If it has no ProjectContext, fall back to its project instructions, README, engineering docs, manifests and declared commands; report the missing context once and continue when those sources establish the technical baseline. Do not create or modify context in the reference project as a side effect. Reuse applicable technical choices, not product or business implementation.
+For a reference project, follow its [repository entry and declared context](../../../references/project-context.md). Verify relevant technical choices against its engineering docs, manifests, lockfiles, scripts and CI. Treat the reference checkout and any declared provider as read-only. Reuse only applicable technical choices.
 
-Record in the delivery summary what was adopted, adjusted, and rejected. Never inherit project/repository identity, secrets, real data, business schemas, screens, workflows, progress records, machine paths, or external resources without separate evidence and authorization. Record the reference in the new ProjectContext only when an ongoing technical dependency remains.
+Record in the delivery summary what was adopted, adjusted, and rejected. Never inherit project/repository identity, secrets, real data, business schemas, screens, workflows, progress records, machine paths, or external resources without separate evidence and authorization. Record the reference in the target’s versioned technical sources only when an ongoing technical dependency remains.
 
 ## Permission boundary
 

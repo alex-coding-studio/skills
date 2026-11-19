@@ -9,7 +9,7 @@ Contract revision: <full actual merge commit SHA>
 Contract: <repository-relative path at that SHA>
 Acceptance: <criterion IDs>
 Source evidence and mapping: <frozen source reference and contract mapping path>
-Read the project context and this frozen contract with its cited sources. Implement and verify the accepted scope, publish the code PR, and follow the project's review and author-feedback process. Return material scope or acceptance conflicts to Plan rather than redefining them.
+Read the root Agent entry, applicable declared context, and this frozen contract with its cited sources. Implement and verify the accepted scope, publish the code PR, and follow the project's review and author-feedback process. Return material scope or acceptance conflicts to Plan rather than redefining them.
 ```
 
 Name any remaining human acceptance steps and known environment constraints. Do not label this ready if the contract is missing, the PR is unmerged or a material planning decision is unresolved. Verify the path at the actual merge revision, including after squash/rebase merges.

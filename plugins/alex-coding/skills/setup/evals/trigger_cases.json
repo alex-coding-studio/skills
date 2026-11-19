@@ -1,7 +1,7 @@
 {
   "should_trigger": [
     {"family": "create", "text": "Create a new Node web project, choose the missing stable dependencies, and deliver a runnable baseline."},
-    {"family": "align", "text": "Align this existing repository: add ProjectContext, CI, declared commands, and a reproducible development baseline without changing product behavior."},
+    {"family": "align", "text": "Align this existing repository: add an Agent entry, CI, declared commands, and a reproducible development baseline without changing product behavior."},
     {"family": "reference", "text": "Set up this new home website using Harvis as a reference for the technical stack and development workflow only."},
     {"family": "dependency-add", "text": "Add and verify the image-processing dependency as a standalone setup change."},
     {"family": "dependency-add-short", "text": "Add the Axios dependency."},
