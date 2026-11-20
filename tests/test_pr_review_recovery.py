@@ -194,6 +194,14 @@ class FreshReviewTests(unittest.TestCase):
         # Routine continuation without changing runtime/complexity/model retains pinned Antigravity model
         kept = self.continue_review('--additional-rounds', '1')
         self.assertEqual((kept['runtime'], kept['model']), ('antigravity', 'gemini-4-neon-medium'))
+        # Complexity promotion preserves the neon family instead of silently switching to claude
+        promoted = self.continue_review('--complexity', 'high')
+        self.assertEqual((promoted['runtime'], promoted['model']), ('antigravity', 'gemini-4-neon-high'))
+        # Non-family pinned slug requires explicit --model when changing complexity
+        hydrogen = self.continue_review('--model', 'gemini-4-hydrogen-medium', '--complexity', 'medium')
+        self.assertEqual(hydrogen['model'], 'gemini-4-hydrogen-medium')
+        with self.assertRaisesRegex(ValueError, 'requires explicit --model'):
+            self.continue_review('--complexity', 'high')
         # Invalid --model fails before stopping an active runner
         self.running.return_value = True
         with patch.object(runner, 'stop_runner') as stop, self.assertRaises(ValueError):

@@ -687,6 +687,7 @@ class RuntimeTests(unittest.TestCase):
         initial = runtime.command(state, Path('/state'), Path('/state/result'))
         self.assertEqual(initial[0], '/agy')
         self.assertEqual(initial[initial.index('--model') + 1], 'claude-opus-5-5-high')
+        self.assertEqual(initial[initial.index('--agent') + 1], runtime.antigravity_agent_name(Path('/state')))
         self.assertEqual(initial[initial.index('--input-format') + 1], 'stream-json')
         self.assertEqual(initial[initial.index('--output-format') + 1], 'stream-json')
         self.assertEqual(initial[initial.index('--json-schema') + 1], '/state/result-schema.json')
@@ -701,7 +702,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(resumed[-2:], ['--conversation', 'conv-123'])
 
     def test_antigravity_preflight_checks_agy_binary_and_stderr_help(self):
-        help_text = 'Usage of agy: --model --conversation --input-format --output-format --json-schema --add-dir --settings'
+        help_text = 'Usage of agy: --model --agent --conversation --input-format --output-format --json-schema --add-dir --settings'
         completed = subprocess.CompletedProcess(['/bin/agy', '--help'], 0, stdout='', stderr=help_text)
         with patch.object(runtime.shutil, 'which', return_value='/bin/agy') as which, \
                 patch.object(runtime.subprocess, 'run', return_value=completed):
@@ -737,12 +738,16 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(got['outcome'], 'approved')
             self.assertEqual(state['session'], 'conv-1')
             self.assertEqual(state['last_usage'], {'total_tokens': 42})
+            agent_file = root / '.agents' / 'agents' / f'{runtime.antigravity_agent_name(root)}.md'
+            agent_text = agent_file.read_text()
+            self.assertIn('tools:\n  - read_file\n  - finish\n', agent_text)
+            self.assertIn('subagent: false\n', agent_text)
             settings = json.loads((root / 'agy-settings.json').read_text())
             self.assertEqual(settings['agentMode'], '')
             self.assertFalse(settings['allowNonWorkspaceAccess'])
             self.assertTrue(settings['disableSlashCommands'])
             self.assertEqual(set(settings['permissions']['deny']),
-                             {'write_file(*)', 'command(*)', 'mcp(*)', 'read_url(*)', 'execute_url(*)', 'download_url(*)'})
+                             {'write_file(*)', 'command(*)', 'unsandboxed(*)', 'mcp(*)', 'read_url(*)', 'execute_url(*)'})
             # Mismatched conversation_id on resume is refused
             state['session'] = 'conv-other'
             with self.assertRaisesRegex(RuntimeError, 'different review session'):

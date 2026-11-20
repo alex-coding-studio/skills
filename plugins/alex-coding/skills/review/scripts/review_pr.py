@@ -637,9 +637,14 @@ def continue_review(args, root, pr):
     selected_complexity = args.complexity or previous.get('complexity', 'high')
     requested_model = getattr(args, 'model', None)
     if (requested_model is None and selected_runtime == 'antigravity'
-            and previous['runtime'] == 'antigravity' and not args.complexity
-            and previous.get('model') in runtime.ANTIGRAVITY_MODELS):
-        resolved_model = previous['model']
+            and previous['runtime'] == 'antigravity'):
+        if not args.complexity and previous.get('model') in runtime.ANTIGRAVITY_MODELS:
+            resolved_model = previous['model']
+        else:
+            family = runtime.antigravity_family(previous.get('model'))
+            if family is None and previous.get('model') in runtime.ANTIGRAVITY_MODELS:
+                raise ValueError('changing complexity for a pinned non-family antigravity model requires explicit --model')
+            resolved_model = runtime.review_settings(selected_runtime, selected_complexity, family)['model']
     else:
         resolved_model = runtime.review_settings(selected_runtime, selected_complexity, requested_model)['model']
     executable = runtime.preflight(selected_runtime, args.executable)

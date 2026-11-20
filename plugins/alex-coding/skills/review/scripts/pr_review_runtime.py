@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -35,13 +36,42 @@ ANTIGRAVITY_SETTINGS = {
         'deny': [
             'write_file(*)',
             'command(*)',
+            'unsandboxed(*)',
             'mcp(*)',
             'read_url(*)',
             'execute_url(*)',
-            'download_url(*)',
         ],
     },
 }
+
+
+def antigravity_family(model):
+    if not model:
+        return None
+    if model.startswith('gemini-4-neon-'):
+        return 'neon'
+    if model.startswith(('claude-opus-5-5-', 'claude-sonnet-5-5-')):
+        return 'claude'
+    return None
+
+
+def antigravity_agent_name(root):
+    digest = hashlib.sha256(str(Path(root)).encode()).hexdigest()[:12]
+    return f'alex-coding-pr-reviewer-{digest}'
+
+
+def write_antigravity_agent(root):
+    name = antigravity_agent_name(root)
+    agents_dir = Path(root) / '.agents' / 'agents'
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    (agents_dir / f'{name}.md').write_text(
+        f'---\nname: {name}\n'
+        'description: Read-only independent PR review worker\n'
+        'mainAgent: true\nsubagent: false\n'
+        'tools:\n  - read_file\n  - finish\n---\n'
+        'You are a read-only independent PR review worker. Follow the user prompt instructions '
+        'and return only the required structured output.\n')
+    return name
 
 
 def review_settings(runtime, complexity='high', model=None):
@@ -114,7 +144,7 @@ def preflight(runtime, executable=None):
         probes = [(['exec', '--help'], ['--json', '--output-schema', '--sandbox', '--model', '--config']),
                   (['exec', 'resume', '--help'], ['--json', '--output-schema', '--model', '--config'])]
     elif runtime == 'antigravity':
-        probes = [(['--help'], ['--model', '--conversation', '--input-format', '--output-format',
+        probes = [(['--help'], ['--model', '--agent', '--conversation', '--input-format', '--output-format',
                                 '--json-schema', '--add-dir', '--settings'])]
     else:
         probes = [(['--help'], ['--resume', '--json-schema', '--tools', '--strict-mcp-config',
@@ -142,6 +172,7 @@ def command(state, root, output):
         return arguments
     if state['runtime'] == 'antigravity':
         arguments = [executable, '--model', settings['model'],
+                     '--agent', antigravity_agent_name(root),
                      '--input-format', 'stream-json', '--output-format', 'stream-json',
                      '--json-schema', str(root / 'result-schema.json'),
                      '--settings', str(root / 'agy-settings.json'),
@@ -163,6 +194,8 @@ def execute(state, root, prompt, persist, terminal_probe=None):
     (root / 'result-schema.json').write_text(json.dumps(schema()))
     (root / 'empty-mcp.json').write_text('{"mcpServers":{}}')
     (root / 'agy-settings.json').write_text(json.dumps(ANTIGRAVITY_SETTINGS))
+    if state['runtime'] == 'antigravity':
+        write_antigravity_agent(root)
     state['next_session'] = str(uuid.uuid4())
     persist(state)
     prompt_path = root / f'{token}.prompt.txt'
