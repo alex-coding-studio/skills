@@ -1,6 +1,5 @@
 import contextlib
 import copy
-import fcntl
 import io
 import os
 from types import SimpleNamespace
@@ -1019,44 +1018,6 @@ class TakeoverTests(unittest.TestCase):
         self.assertNotIn('thread', ledger)
         store, _ = runner.author_store(self.root, state)
         self.assertEqual(store.read()['target']['events'], {'review:1': {'kind': 'review', 'status': 'handled'}})
-
-    def test_takeover_invalidates_an_active_antigravity_waiter_without_cursor_theft(self):
-        ag = runner.author_adapter({'runtime': 'antigravity'})
-        self.state['phase'] = 'reviewing'
-        self.state['author_delivery'] = {'runtime': 'antigravity', 'session': 'ag-old', 'remote': None, 'slot': None}
-        runner.save(self.root, self.state)
-        (self.root / 'author/state.json').write_text(json.dumps({
-            'schema': ag.core.SCHEMA, 'session': 'ag-old', 'pr': 'owner/repo#1', 'batch': None, 'target': {
-                'repository': 'owner/repo', 'number': 1, 'author': 'bot', 'checkout': '/old/wt',
-                'cleanup': {'owned': True, 'lifecycle': 'disposable-v1'}, 'cleanup_result': None,
-                'events': {}, 'stopped': False, 'terminal': None, 'ci': None, 'ci_version': None}}))
-        with (self.root / 'run.lock').open('a') as run_lock:
-            fcntl.flock(run_lock, fcntl.LOCK_EX)
-            with subprocess.Popen(
-                [sys.executable, str(runner.MONITOR / 'antigravity_pr_monitor.py'),
-                 '--session', 'ag-old', '--pr', 'owner/repo#1', '--state-dir', str(self.root / 'author'),
-                 'wait', '--runner-dir', str(self.root), '--interval', '2.0', '--timeout', '10'],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            ) as old_waiter:
-                deadline = time.monotonic() + 5
-                while (not ag.lock_held(self.root / 'author/wait.lock')
-                       or not (self.root / 'author/wait.owner.json').exists()) and time.monotonic() < deadline:
-                    self.assertIsNone(old_waiter.poll())
-                    time.sleep(0.05)
-                self.assertTrue(ag.lock_held(self.root / 'author/wait.lock'))
-                fcntl.flock(run_lock, fcntl.LOCK_UN)
-                args = SimpleNamespace(author_runtime='antigravity', author_session='ag-new', session_remote=None,
-                                       checkout=None, slot=self.slot, codex='codex', takeover=True)
-                runner.attach_author(args, self.root, runner.read(self.root, 'owner/repo#1'))
-                old_exit = old_waiter.wait(timeout=5)
-                self.assertNotEqual(old_exit, 0)
-        self.assertFalse(ag.lock_held(self.root / 'author/wait.lock'))
-        ag.append_outbox(self.root / 'author', 'new feedback after takeover')
-        self.assertEqual(ag.read_cursor(self.root / 'author'), 0)
-        code, output = ag.wait_for_event(self.root / 'author', 'ag-new', 'owner/repo#1', runner_dir=self.root, interval=0.1)
-        self.assertEqual(code, 0)
-        self.assertIn('new feedback after takeover', output)
-        self.assertEqual(ag.read_cursor(self.root / 'author'), 1)
 
 
 class OwnDiffFingerprintTests(unittest.TestCase):

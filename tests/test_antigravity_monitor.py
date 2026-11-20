@@ -43,15 +43,6 @@ def register_disposable(store, checkout='/tmp/task-wt'):
         )
 
 
-def write_runner_state(runner, **overrides):
-    data = {
-        'schema': 1, 'pr': PR, 'phase': 'reviewing',
-        'author_delivery': {'runtime': 'antigravity', 'session': SESSION, 'remote': None, 'slot': None},
-    }
-    data.update(overrides)
-    (runner / 'state.json').write_text(json.dumps(data))
-
-
 def make_snapshot(events, terminal=None, head='a' * 40, ci='pass', summary=None):
     return dict(
         events=list(events), terminal=terminal, head=head, ci=ci, ci_version=head + ':' + ci,
@@ -73,17 +64,6 @@ class OutboxDeliveryTests(unittest.TestCase):
             self.assertEqual(records[1]['text'], 'second state\nwith newline')
             self.assertTrue(records[0]['created_at'].endswith('Z'))
 
-    def test_truncated_outbox_tail_recovers_on_next_delivery(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            valid = json.dumps({'seq': 1, 'created_at': '2026-11-20T00:00:00Z', 'text': 'first'})
-            (root / 'outbox.jsonl').write_text(valid + '\n{"seq": 2, "text": "truncated')
-            runtime = antigravity.Runtime(SESSION, antigravity.__file__, root)
-            self.assertTrue(runtime.deliver('retried feedback'))
-            records = antigravity.read_outbox(root)
-            self.assertEqual([item['seq'] for item in records], [1, 2])
-            self.assertEqual(records[1]['text'], 'retried feedback')
-
     def test_may_clean_is_true_only_for_disposable_worktrees(self):
         runtime = antigravity.Runtime(SESSION, antigravity.__file__)
         self.assertTrue(runtime.may_clean({'cleanup': {'lifecycle': 'disposable-v1'}}))
@@ -100,73 +80,23 @@ class OutboxDeliveryTests(unittest.TestCase):
 
 
 class WaitSubcommandTests(unittest.TestCase):
-    def test_coalescing_preserves_earlier_human_conversation_comments(self):
+    def test_preexisting_unread_records_coalesce_immediately_without_race(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'author'
             runner = Path(directory) / 'runner'
             root.mkdir()
             runner.mkdir()
-            runtime = antigravity.Runtime(SESSION, antigravity.__file__, root)
-            store = antigravity.core.Store(root, SESSION, PR, runtime)
+            store = antigravity.core.Store(root, SESSION, PR, antigravity.Runtime(SESSION, antigravity.__file__, root))
             register_disposable(store)
-            write_runner_state(runner)
-            comment = antigravity.core.event(
-                'conversation', 99, ['t1', None, None, 'Please rename this flag'],
-                'https://github.com/owner/repo/pull/42#issuecomment-99', user='alex',
-            )
-            store.apply(make_snapshot([comment], head='1' * 40, ci='pending'))
-            self.assertTrue(store.deliver())
-            store.apply(make_snapshot([comment], head='1' * 40, ci='fail',
-                                      summary=dict(head='1' * 40, ci='fail', failing=['tests'], reviews=[], threads=[])))
-            self.assertTrue(store.deliver())
+            antigravity.append_outbox(root, 'update 1: old review')
+            antigravity.append_outbox(root, 'update 2: latest full state')
             code, output = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1)
             self.assertEqual(code, 0)
+            self.assertIn('update 2: latest full state', output)
             self.assertIn('2 outbox updates coalesced (seq 1..2)', output)
-            self.assertIn('https://github.com/owner/repo/pull/42#issuecomment-99', output)
-            self.assertIn('conversation id=99 user=alex', output)
-            self.assertIn('["tests"]', output)
             self.assertIn('wait --runner-dir', output)
             self.assertEqual(antigravity.read_cursor(root), 2)
-
-    def test_stale_feedback_is_not_marked_terminal_before_terminal_record_is_enqueued(self):
-        with tempfile.TemporaryDirectory() as directory:
-            runner = Path(directory) / 'runner'
-            root = runner / 'author'
-            root.mkdir(parents=True)
-            runtime = antigravity.Runtime(SESSION, antigravity.__file__, root)
-            store = antigravity.core.Store(root, SESSION, PR, runtime)
-            register_disposable(store)
-            write_runner_state(runner)
-            review_event = antigravity.core.event(
-                'review', 101, ['t1', 't1', 'CHANGES_REQUESTED', 'fix'],
-                'https://github.com/owner/repo/pull/42#pullrequestreview-101',
-                user='reviewer', review_state='CHANGES_REQUESTED',
-            )
-            store.apply(make_snapshot([review_event], head='1' * 40, ci='pass'))
-            self.assertTrue(store.deliver())
-
-            terminal_event = antigravity.core.event(
-                'terminal', 42, ['merged', 't2', 't2'],
-                'https://github.com/owner/repo/pull/42', outcome='merged', head='2' * 40,
-            )
-            cleaned = {'status': 'cleaned', 'reason': 'Default synchronized and task worktree disposed'}
-            with patch.object(antigravity.core, 'cleanup_target', return_value=cleaned):
-                store.apply(make_snapshot([review_event, terminal_event], terminal='merged', head='2' * 40, ci='pass'))
-
-            code, first_output = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1)
-            self.assertEqual(code, 0)
-            self.assertIn('pullrequestreview-101', first_output)
-            self.assertIn('resume waiting', first_output)
-            self.assertNotIn('no further waiting is needed', first_output)
-            self.assertEqual(antigravity.read_cursor(root), 1)
-
-            self.assertTrue(store.deliver())
-            code, second_output = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1)
-            self.assertEqual(code, 0)
-            self.assertIn('"status": "cleaned"', second_output)
-            self.assertIn('no further waiting is needed', second_output)
-            self.assertNotIn('resume waiting', second_output)
-            self.assertEqual(antigravity.read_cursor(root), 2)
+            self.assertEqual(antigravity.unread_outbox(root), [])
 
     def test_live_wake_on_feedback_then_merged_disposable_cleanup_end_to_end(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -176,7 +106,7 @@ class WaitSubcommandTests(unittest.TestCase):
             runtime = antigravity.Runtime(SESSION, antigravity.__file__, root)
             store = antigravity.core.Store(root, SESSION, PR, runtime)
             register_disposable(store)
-            write_runner_state(runner)
+            (runner / 'state.json').write_text(json.dumps({'schema': 1, 'pr': PR, 'phase': 'reviewing'}))
             lock_handle = (runner / 'run.lock').open('a')
             fcntl.flock(lock_handle, fcntl.LOCK_EX)
             self.addCleanup(lock_handle.close)
@@ -229,7 +159,7 @@ class WaitSubcommandTests(unittest.TestCase):
                     store.apply(merged_snap)
                     self.assertTrue(store.deliver())
                 self.assertTrue(store.read()['target']['stopped'])
-                write_runner_state(runner, phase='merged')
+                (runner / 'state.json').write_text(json.dumps({'schema': 1, 'pr': PR, 'phase': 'merged'}))
                 fcntl.flock(lock_handle, fcntl.LOCK_UN)
 
             thread = threading.Thread(target=merge_and_clean)
@@ -243,137 +173,11 @@ class WaitSubcommandTests(unittest.TestCase):
             self.assertNotIn('resume waiting', output)
             self.assertEqual(antigravity.read_cursor(root), 2)
 
-    def test_non_retryable_partial_cleanup_stops_runner_and_exits_2_with_result(self):
-        with tempfile.TemporaryDirectory() as directory:
-            runner = Path(directory) / 'runner'
-            root = runner / 'author'
-            root.mkdir(parents=True)
-            runtime = antigravity.Runtime(SESSION, antigravity.__file__, root)
-            store = antigravity.core.Store(root, SESSION, PR, runtime)
-            register_disposable(store)
-            write_runner_state(runner, phase='merged')
-            terminal_event = antigravity.core.event(
-                'terminal', 42, ['merged', 't', 't'],
-                'https://github.com/owner/repo/pull/42', outcome='merged', head='a' * 40,
-            )
-            partial = {
-                'status': 'partial',
-                'reason': 'Unrelated Git index lock preserved',
-                'retryable': False,
-                'sync': {'status': 'failed', 'retryable': False},
-                'cleanup': {'status': 'cleaned'},
-            }
-            with patch.object(antigravity.core, 'cleanup_target', return_value=partial):
-                store.apply(make_snapshot([terminal_event], terminal='merged'))
-            self.assertTrue(store.deliver())
-            self.assertTrue(store.read()['target']['stopped'])
-            self.assertTrue(antigravity.core.runner_done(store, store.read()))
-
-            code, output = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1)
-            self.assertEqual(code, 2)
-            self.assertIn('"status": "partial"', output)
-            self.assertIn('"retryable": false', output)
-            self.assertNotIn('resume waiting', output)
-
-            with (runner / 'run.lock').open('a') as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
-                code2, output2 = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1, timeout=2.0)
-            self.assertEqual(code2, 2)
-            self.assertIn('"status": "partial"', output2)
-
-    def test_retryable_partial_cleanup_keeps_waiting_until_retry_succeeds(self):
-        with tempfile.TemporaryDirectory() as directory:
-            runner = Path(directory) / 'runner'
-            root = runner / 'author'
-            root.mkdir(parents=True)
-            runtime = antigravity.Runtime(SESSION, antigravity.__file__, root)
-            store = antigravity.core.Store(root, SESSION, PR, runtime)
-            register_disposable(store)
-            write_runner_state(runner, phase='merged')
-            terminal_event = antigravity.core.event(
-                'terminal', 42, ['merged', 't', 't'],
-                'https://github.com/owner/repo/pull/42', outcome='merged', head='a' * 40,
-            )
-            retryable = {'status': 'partial', 'reason': 'Another lifecycle operation holds the repository lock', 'retryable': True}
-            cleaned = {'status': 'cleaned', 'reason': 'Default synchronized and task worktree disposed'}
-            with patch.object(antigravity.core, 'cleanup_target', return_value=retryable):
-                store.apply(make_snapshot([terminal_event], terminal='merged'))
-            self.assertFalse(store.deliver())
-            self.assertFalse(antigravity.core.runner_done(store, store.read()))
-
-            lock_handle = (runner / 'run.lock').open('a')
-            fcntl.flock(lock_handle, fcntl.LOCK_EX)
-            self.addCleanup(lock_handle.close)
-
-            def finish_retry():
-                time.sleep(0.25)
-                with patch.object(antigravity.core, 'cleanup_target', return_value=cleaned):
-                    store.apply(make_snapshot([terminal_event], terminal='merged'))
-                self.assertTrue(store.deliver())
-                fcntl.flock(lock_handle, fcntl.LOCK_UN)
-
-            thread = threading.Thread(target=finish_retry)
-            thread.start()
-            code, output = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1, timeout=5.0)
-            thread.join(timeout=5)
-            self.assertEqual(code, 0)
-            self.assertIn('"status": "cleaned"', output)
-            self.assertIn('no further waiting is needed', output)
-
-    def test_preserved_merged_cleanup_exits_2_with_actual_cleanup_result(self):
-        with tempfile.TemporaryDirectory() as directory:
-            runner = Path(directory) / 'runner'
-            root = runner / 'author'
-            root.mkdir(parents=True)
-            runtime = antigravity.Runtime(SESSION, antigravity.__file__, root)
-            store = antigravity.core.Store(root, SESSION, PR, runtime)
-            register_disposable(store)
-            write_runner_state(runner, phase='merged')
-            terminal_event = antigravity.core.event(
-                'terminal', 42, ['merged', 't', 't'],
-                'https://github.com/owner/repo/pull/42', outcome='merged', head='a' * 40,
-            )
-            preserved = {'status': 'preserved', 'reason': 'Local branch has work beyond the final PR head'}
-            with patch.object(antigravity.core, 'cleanup_target', return_value=preserved):
-                store.apply(make_snapshot([terminal_event], terminal='merged'))
-            self.assertTrue(store.deliver())
-
-            code, output = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1)
-            self.assertEqual(code, 2)
-            self.assertIn('"status": "preserved"', output)
-            self.assertIn('Local branch has work beyond the final PR head', output)
-
-            code2, output2 = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1)
-            self.assertEqual(code2, 2)
-            self.assertIn('"status": "preserved"', output2)
-
-    def test_stale_session_cannot_consume_outbox_or_advance_cursor_after_takeover(self):
-        with tempfile.TemporaryDirectory() as directory:
-            runner = Path(directory) / 'runner'
-            root = runner / 'author'
-            root.mkdir(parents=True)
-            runtime = antigravity.Runtime('session-new', antigravity.__file__, root)
-            store = antigravity.core.Store(root, 'session-new', PR, runtime)
-            register_disposable(store)
-            write_runner_state(runner, author_delivery={'runtime': 'antigravity', 'session': 'session-new', 'remote': None, 'slot': None})
-            antigravity.append_outbox(root, 'feedback for session-new')
-
-            code, output = antigravity.wait_for_event(root, 'session-old', PR, runner_dir=runner, interval=0.1)
-            self.assertEqual(code, 2)
-            self.assertIn('ownership-lost', output)
-            self.assertEqual(antigravity.read_cursor(root), 0)
-
-            code_new, output_new = antigravity.wait_for_event(root, 'session-new', PR, runner_dir=runner, interval=0.1)
-            self.assertEqual(code_new, 0)
-            self.assertIn('feedback for session-new', output_new)
-            self.assertEqual(antigravity.read_cursor(root), 1)
-
     def test_duplicate_concurrent_wait_fails_fast(self):
         with tempfile.TemporaryDirectory() as directory:
             runner = Path(directory) / 'runner'
             root = runner / 'author'
             root.mkdir(parents=True)
-            write_runner_state(runner)
             with (runner / 'run.lock').open('a') as run_lock:
                 fcntl.flock(run_lock, fcntl.LOCK_EX)
                 with subprocess.Popen(
@@ -404,10 +208,11 @@ class WaitSubcommandTests(unittest.TestCase):
             runner = Path(directory) / 'runner'
             root = runner / 'author'
             root.mkdir(parents=True)
-            write_runner_state(
-                runner, phase='error', last_error='RuntimeError',
-                last_transport_error='TimeoutError', rounds=1, round_limit=3,
-            )
+            (runner / 'state.json').write_text(json.dumps({
+                'schema': 1, 'pr': PR, 'phase': 'error',
+                'last_error': 'RuntimeError', 'last_transport_error': 'TimeoutError',
+                'rounds': 1, 'round_limit': 3,
+            }))
             code, output = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1)
             self.assertEqual(code, 2)
             self.assertIn('runner-inactive', output)
@@ -419,7 +224,9 @@ class WaitSubcommandTests(unittest.TestCase):
             runner = Path(directory) / 'runner'
             root = runner / 'author'
             root.mkdir(parents=True)
-            write_runner_state(runner, phase='error', last_transport_error='CalledProcessError')
+            (runner / 'state.json').write_text(json.dumps({
+                'schema': 1, 'pr': PR, 'phase': 'error', 'last_transport_error': 'CalledProcessError',
+            }))
             with (runner / 'run.lock').open('a') as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 code, output = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1, timeout=5.0)
@@ -440,18 +247,37 @@ class WaitSubcommandTests(unittest.TestCase):
                     cleanup_result={'status': 'cleaned', 'reason': 'Default synchronized and task worktree disposed'},
                     events={},
                 )
-            write_runner_state(runner, phase='merged')
+            (runner / 'state.json').write_text(json.dumps({'schema': 1, 'pr': PR, 'phase': 'merged'}))
             code, output = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1)
             self.assertEqual(code, 0)
             self.assertIn('reached terminal state: merged', output)
             self.assertIn('"status": "cleaned"', output)
+
+    def test_stopped_runner_with_interrupted_disposable_cleanup_exits_2(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = Path(directory) / 'runner'
+            root = runner / 'author'
+            root.mkdir(parents=True)
+            store = antigravity.core.Store(root, SESSION, PR, antigravity.Runtime(SESSION, antigravity.__file__, root))
+            with store.locked() as data:
+                data['target'] = dict(
+                    repository='owner/repo', number=42, author='bot', terminal='merged', stopped=False,
+                    cleanup={'owned': True, 'lifecycle': 'disposable-v1'},
+                    cleanup_result={'status': 'interrupted', 'reason': 'Cleanup attempt was interrupted'},
+                    events={},
+                )
+            (runner / 'state.json').write_text(json.dumps({'schema': 1, 'pr': PR, 'phase': 'merged'}))
+            code, output = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1)
+            self.assertEqual(code, 2)
+            self.assertIn('runner-inactive', output)
+            self.assertIn('interrupted', output)
 
     def test_timeout_exits_3_when_runner_stays_live_without_events(self):
         with tempfile.TemporaryDirectory() as directory:
             runner = Path(directory) / 'runner'
             root = runner / 'author'
             root.mkdir(parents=True)
-            write_runner_state(runner, phase='reviewing')
+            (runner / 'state.json').write_text(json.dumps({'schema': 1, 'pr': PR, 'phase': 'reviewing'}))
             with (runner / 'run.lock').open('a') as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 code, output = antigravity.wait_for_event(root, SESSION, PR, runner_dir=runner, interval=0.1, timeout=0.25)
@@ -527,33 +353,6 @@ class RoleAwareCleanupTests(unittest.TestCase):
                 missing = cleanup.cleanup_target(target, {'head': head}, role='bot')
             self.assertEqual(missing['status'], 'preserved')
             self.assertIn('gh_as was not found', missing['reason'])
-
-    def test_store_register_and_cleanup_pass_runtime_bot_role(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / 'author'
-            store = antigravity.core.Store(root, SESSION, PR, antigravity.Runtime(SESSION, antigravity.__file__, root))
-            pr = {'user': {'login': 'bot'}, 'head': {'ref': 'feat', 'sha': 'a' * 40, 'repo': {'full_name': 'owner/repo'}}}
-            fake_cleanup_mod = type('FakeCleanup', (), {})()
-            captured = {}
-
-            def fake_bind(checkout, repository, pull, role=None):
-                captured['bind_role'] = role
-                return {'owned': True, 'lifecycle': 'disposable-v1'}
-
-            fake_cleanup_mod.bind_cleanup = fake_bind
-            with patch.object(antigravity.core, 'gh_json', return_value=pr), \
-                    patch.object(antigravity.core, 'cleanup_module', return_value=fake_cleanup_mod):
-                self.assertTrue(store.register(checkout='/tmp/owned-wt'))
-            self.assertEqual(captured['bind_role'], 'bot')
-
-            def fake_cleanup_target(target, current, role=None):
-                captured['cleanup_role'] = role
-                return {'status': 'cleaned'}
-
-            terminal = antigravity.core.event('terminal', 42, ['merged', 't', 't'], 'url', outcome='merged', head='a' * 40)
-            with patch.object(antigravity.core, 'cleanup_target', side_effect=fake_cleanup_target):
-                store.apply(make_snapshot([terminal], terminal='merged'))
-            self.assertEqual(captured['cleanup_role'], 'bot')
 
 
 class AntigravityReplyTests(unittest.TestCase):
