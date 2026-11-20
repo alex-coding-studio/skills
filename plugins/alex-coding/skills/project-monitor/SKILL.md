@@ -35,7 +35,7 @@ python3 <implement>/scripts/delivery.py open --runtime claude --session <stable-
 
 The review runtime comes from `review_runtime` in the head's `.ci/config.json`; pass `--review-runtime` only for a repository without it.
 
-A Codex worker uses `--runtime codex --session <existing-task-uuid>` with the same `--slot`. Its runner is detached and delivers the current PR state to the task through the native Codex queue (or `--session-remote` when the host supplies one), without acknowledgement.
+A Codex worker uses `--runtime codex --session <existing-task-uuid>` with the same `--slot`. Its runner is detached and delivers the current PR state to the task through the native Codex queue (or `--session-remote` when the host supplies one), without acknowledgement. An Antigravity session uses `--runtime antigravity --session <stable-session-id>` with the same `--slot`: its detached runner writes state deliveries to the local outbox and returns `wait_command` to run in the background.
 
 It binds the PR to the slot in the pool, so only this PR or its holder can release it (PR identities compare case-insensitively on owner and repository and are stored in canonical lowercase form), and starts the PR's single runner: independent review, state delivery to this session and the slot release below. Without a host endpoint the receipt says `native-monitor-required`: start its `monitor_command` through the `Monitor` tool, then repeat `delivery.py start --pr owner/repo#123 --slot <slot-path>` with the same arguments to confirm it is active. Pass `--session-remote` when the host supplies an endpoint. A PR registered with `project_pr_monitor.py` before this version keeps that listener until the PR ends.
 
@@ -55,7 +55,7 @@ python3 <skill>/scripts/project_pr_monitor.py --session <stable-session-id> --pr
   --state-dir <runner-state-directory>/author complete
 ```
 
-A Codex worker passes `--thread <task-uuid>` instead of `--session`. The runner's status (`review_pr.py status --pr owner/repo#123`) names its `state_directory`. For a PR registered before this version, omit `--state-dir`.
+A Codex worker passes `--thread <task-uuid>` instead of `--session`; an Antigravity session passes `--runtime antigravity --session <stable-session-id>`. The runner's status (`review_pr.py status --pr owner/repo#123`) names its `state_directory`. For a PR registered before this version, omit `--state-dir`.
 
 `open` and `start` run the review-exemption check themselves. A `review-exempt` receipt means the repository's `.shared-config` exemption or a coordinator/human-applied `ci-skip-approved` label covers the PR: no reviewer starts, a standalone `project_pr_monitor.py` listener follows the PR (start the receipt's `monitor_command` through the `Monitor` tool), and you merge with `delivery.py pin-merge` under the applicable declared-exemption or coordinator approval checks; the listener then releases the slot. For labeled mechanical source changes, use the Implement [coordinator-approved path](../implement/references/delivery.md#coordinator-approved-mechanical-changes-and-pending-ci): label before `start`, explicit `--allow-pending-ci` at merge, no failed checks or branch-protection bypass, then `complete`/release. The script never adds the label. See also the [declared exemptions](../implement/references/delivery.md#declared-review-exemptions).
 

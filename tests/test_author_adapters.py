@@ -20,6 +20,7 @@ def load(name):
 
 claude = load('claude_pr_monitor')
 codex = load('codex_pr_monitor')
+antigravity = load('antigravity_pr_monitor')
 THREAD = '12345678-1234-1234-1234-123456789abc'
 
 
@@ -27,12 +28,15 @@ class RoleTests(unittest.TestCase):
     def test_both_runtimes_read_github_as_the_bot(self):
         self.assertEqual(claude.Runtime.role, 'bot')
         self.assertEqual(codex.Runtime.role, 'bot')
+        self.assertEqual(antigravity.Runtime.role, 'bot')
 
     def test_each_runtime_carries_its_own_marker_and_delivery_name(self):
         self.assertEqual(claude.Runtime.marker, 'From Claude 🤖')
         self.assertEqual(codex.Runtime.marker, 'From Codex 🤖')
+        self.assertEqual(antigravity.Runtime.marker, 'From Antigravity 🤖')
         self.assertEqual(claude.Runtime.delivery_name, 'stdout')
         self.assertEqual(codex.Runtime.delivery_name, 'queue')
+        self.assertEqual(antigravity.Runtime.delivery_name, 'outbox')
 
 
 class ClaudeDeliveryTests(unittest.TestCase):
@@ -185,11 +189,21 @@ class EntrypointTests(unittest.TestCase):
                 codex.main()
 
     def test_both_refuse_a_malformed_pull_request_target(self):
-        for module, identity in ((claude, ['--session', 'session-one']), (codex, ['--thread', THREAD])):
+        for module, identity in (
+            (claude, ['--session', 'session-one']),
+            (codex, ['--thread', THREAD]),
+            (antigravity, ['--session', 'session-one']),
+        ):
             with tempfile.TemporaryDirectory() as directory:
                 argv = ['s.py', *identity, '--pr', 'owner/repo', '--state-dir', directory, 'status']
                 with patch.object(sys, 'argv', argv), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                     module.main()
+
+    def test_antigravity_refuses_a_malformed_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            argv = ['s.py', '--session', 'has space', '--pr', 'owner/repo#1', '--state-dir', directory, 'status']
+            with patch.object(sys, 'argv', argv), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                antigravity.main()
 
 
 if __name__ == '__main__':

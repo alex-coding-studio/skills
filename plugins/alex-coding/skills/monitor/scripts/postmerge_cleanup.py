@@ -19,6 +19,15 @@ def _run(args, cwd=None):
     return subprocess.run(args, cwd=cwd, text=True, capture_output=True, check=True, timeout=60).stdout.strip()
 
 
+def _gh_command(role=None):
+    if role is None:
+        return ['gh']
+    executable = shutil.which('gh_as')
+    if not executable:
+        raise RuntimeError('gh_as was not found on PATH; refusing to fall back to the active account')
+    return [executable, role]
+
+
 def _git(path, *args):
     return _run(['git', '-C', str(path), *args])
 
@@ -95,15 +104,15 @@ def _discard_derived_data(checkout, actions):
         actions.append(f'Removed {removed} Xcode DerivedData folder(s) of the disposed and other removed worktrees')
 
 
-def cleanup_target(target, snapshot):
+def cleanup_target(target, snapshot, role=None):
     actions = []
     try:
-        return _cleanup(target, snapshot, actions)
-    except (OSError, TypeError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        return _cleanup(target, snapshot, actions, role=role)
+    except (OSError, TypeError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
         return _result('preserved', f'Cleanup could not be verified: {error}', actions)
 
 
-def _cleanup(target, snapshot, actions):
+def _cleanup(target, snapshot, actions, role=None):
     metadata = target.get('cleanup') or {}
     required = ('common_dir', 'remote', 'remote_url', 'default_branch', 'default_checkout')
     if metadata.get('owned') is not True or not all(metadata.get(key) for key in required):
@@ -120,16 +129,17 @@ def _cleanup(target, snapshot, actions):
         return _result('preserved', 'Default or protected branch cannot be cleaned')
     if (target.get('head_repository') or '').casefold() != repository.casefold():
         return _result('preserved', 'Fork or mismatched head repository cannot be cleaned')
-    pr = json.loads(_run(['gh', 'api', f'repos/{repository}/pulls/{number}']))
+    gh = _gh_command(role)
+    pr = json.loads(_run([*gh, 'api', f'repos/{repository}/pulls/{number}']))
     if not pr.get('merged'):
         return _result('preserved', 'PR is not freshly verified as merged')
     head = pr['head']['sha']
-    repository_info = json.loads(_run(['gh', 'api', f'repos/{repository}']))
+    repository_info = json.loads(_run([*gh, 'api', f'repos/{repository}']))
     if (repository_info['full_name'].casefold() != repository.casefold()
             or repository_info['default_branch'] != default):
         return _result('preserved', 'Repository identity or default branch changed since registration')
     try:
-        branch_info = json.loads(_run(['gh', 'api', f'repos/{repository}/branches/{quote(branch, safe="")}']))
+        branch_info = json.loads(_run([*gh, 'api', f'repos/{repository}/branches/{quote(branch, safe="")}']))
     except subprocess.CalledProcessError as error:
         if 'HTTP 404' not in (error.stderr or '') or metadata.get('head_protected') is not False:
             return _result('preserved', 'Current branch protection is unknown')
@@ -317,7 +327,7 @@ def _locked(target, metadata, checkout, primary, common, branch, default, remote
     return _result('cleaned', 'Owned local PR state cleaned', actions)
 
 
-def bind_cleanup(checkout, repository, pr):
+def bind_cleanup(checkout, repository, pr, role=None):
     path = Path(checkout).resolve()
     if Path(_git(path, 'rev-parse', '--show-toplevel')).resolve() != path:
         raise ValueError('Checkout must name the repository root')
@@ -334,11 +344,12 @@ def bind_cleanup(checkout, repository, pr):
     if len(matches) != 1:
         raise ValueError('Exactly one remote must match the PR repository')
     remote, url = matches[0]
-    info = json.loads(_run(['gh', 'api', f'repos/{repository}']))
+    gh = _gh_command(role)
+    info = json.loads(_run([*gh, 'api', f'repos/{repository}']))
     if info['full_name'].casefold() != repository.casefold():
         raise ValueError('Repository API identity does not match')
     default = info['default_branch']
-    branch_info = json.loads(_run(['gh', 'api', f'repos/{repository}/branches/{quote(pr["head"]["ref"], safe="")}']))
+    branch_info = json.loads(_run([*gh, 'api', f'repos/{repository}/branches/{quote(pr["head"]["ref"], safe="")}']))
     if branch_info.get('name') != pr['head']['ref'] or not isinstance(branch_info.get('protected'), bool):
         raise ValueError('Branch protection could not be captured')
     result = {'owned': True, 'head_protected': branch_info['protected'], 'common_dir': str(common), 'remote': remote, 'remote_url': url,

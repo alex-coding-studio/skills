@@ -770,6 +770,124 @@ class OnePullRequestRunnerTests(unittest.TestCase):
         self.assertTrue(store.runtime.may_clean({}))
         self.assertFalse(store.runtime.foreground_cleanup)
 
+    def test_antigravity_author_uses_outbox_delivery_and_detached_launch(self):
+        runner.save(self.root, self.state)
+        args = SimpleNamespace(author_runtime='antigravity', author_session='a08f0871-e684-4b6f-bda5-d2e95d5f9f76',
+                               session_remote=None, checkout=Path(self.temp.name), slot=None, codex='codex')
+        registered = []
+        real = runner.author_store
+
+        def author_store(root, state):
+            store, module = real(root, state)
+            store.register = lambda checkout=None: registered.append(checkout)
+            return store, module
+
+        with patch.object(runner, 'author_store', side_effect=author_store):
+            runner.attach_author(args, self.root, self.state)
+        self.assertFalse(runner.stdout_delivery(self.state))
+        store, module = runner.author_store(self.root, self.state)
+        self.assertEqual(store.runtime.delivery_name, 'outbox')
+        self.assertEqual(store.runtime.outbox_root, (self.root / 'author').resolve())
+        wait_cmd = runner.antigravity_wait_command(self.root, self.state)
+        self.assertIn('antigravity_pr_monitor.py', wait_cmd)
+        self.assertIn('--runner-dir', wait_cmd)
+        self.assertIn(str(self.root.resolve()), wait_cmd)
+        args.session_remote = 'unix:///tmp/nope.sock'
+        with self.assertRaisesRegex(ValueError, 'not supported'):
+            runner.attach_author(args, self.root, core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 3))
+
+    def test_antigravity_status_includes_wait_command_only_when_active_or_unread_outbox(self):
+        self.state['author_delivery'] = {'runtime': 'antigravity', 'session': 'conv-1', 'remote': None, 'slot': None}
+        runner.save(self.root, self.state)
+        base = self.root.parents[2]
+        real_root = runner.state_root('owner/repo#1', base)
+        real_root.mkdir(parents=True, exist_ok=True)
+        runner.save(real_root, self.state)
+        argv = ['review_pr.py', 'status', '--pr', 'owner/repo#1', '--state-base', str(base)]
+
+        def read_status():
+            buf = io.StringIO()
+            with patch.object(sys, 'argv', argv), contextlib.redirect_stdout(buf):
+                runner.main()
+            return json.loads(buf.getvalue())
+
+        self.assertNotIn('wait_command', read_status())
+        with runner.lock(real_root, 'run.lock'):
+            active_status = read_status()
+            self.assertIn('wait_command', active_status)
+            self.assertIn('--runner-dir', active_status['wait_command'])
+        ag = runner.author_adapter({'runtime': 'antigravity'})
+        ag.append_outbox(real_root / 'author', 'merged + cleaned')
+        unread_status = read_status()
+        self.assertFalse(unread_status['active'])
+        self.assertIn('wait_command', unread_status)
+        ag.write_cursor(real_root / 'author', 1)
+        self.assertNotIn('wait_command', read_status())
+
+    def test_antigravity_retry_and_continue_return_wait_command(self):
+        self.state['author_delivery'] = {'runtime': 'antigravity', 'session': 'conv-1', 'remote': None, 'slot': None}
+        self.state['phase'] = 'error'
+        base = self.root.parents[2]
+        real_root = runner.state_root('owner/repo#1', base)
+        real_root.mkdir(parents=True, exist_ok=True)
+        runner.save(real_root, self.state)
+        decision = Path(self.temp.name) / 'decision.md'
+        decision.write_text('Continue review with one extra round.')
+
+        def run_cli(argv):
+            buf = io.StringIO()
+            with patch.object(sys, 'argv', argv), \
+                    patch.object(runner, 'launch', return_value={**self.state, 'phase': 'starting'}), \
+                    patch.object(runner, 'running', return_value=True), \
+                    contextlib.redirect_stdout(buf):
+                runner.main()
+            return json.loads(buf.getvalue())
+
+        with patch.object(runner, 'stop_runner'):
+            retried = run_cli(['review_pr.py', 'retry', '--pr', 'owner/repo#1', '--state-base', str(base)])
+        self.assertIn('wait_command', retried)
+        self.assertIn('--runner-dir', retried['wait_command'])
+
+        with patch.object(runner, 'continue_review', return_value={**self.state, 'phase': 'starting'}):
+            continued = run_cli(['review_pr.py', 'continue', '--pr', 'owner/repo#1', '--state-base', str(base),
+                                 '--decision-file', str(decision)])
+        self.assertIn('wait_command', continued)
+        self.assertIn('--runner-dir', continued['wait_command'])
+
+    def test_antigravity_session_remote_is_rejected_before_creating_review_state(self):
+        base = Path(self.temp.name) / 'fresh-state'
+        argv = ['review_pr.py', 'start', '--pr', 'owner/repo#1', '--state-base', str(base),
+                '--runtime', 'codex', '--reviewer', 'reviewer',
+                '--author-runtime', 'antigravity', '--author-session', 'conv-1',
+                '--checkout', str(self.temp.name), '--session-remote', 'unix:///tmp/nope.sock']
+        stderr = io.StringIO()
+        with patch.object(sys, 'argv', argv), patch.object(runner, 'register') as register, \
+                contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as exited:
+            runner.main()
+        self.assertNotEqual(exited.exception.code, 0)
+        self.assertIn('--session-remote is not supported', stderr.getvalue())
+        register.assert_not_called()
+        self.assertFalse(base.exists())
+
+    def test_antigravity_slot_attaches_project_store_with_outbox(self):
+        runner.save(self.root, self.state)
+        args = SimpleNamespace(author_runtime='antigravity', author_session='conv-1',
+                               session_remote=None, checkout=None, slot=Path(self.temp.name), codex='codex')
+        real = runner.author_store
+
+        def author_store(root, state):
+            store, module = real(root, state)
+            store.register_slot = lambda slot: None
+            return store, module
+
+        with patch.object(runner, 'author_store', side_effect=author_store):
+            runner.attach_author(args, self.root, self.state)
+        store, module = runner.author_store(self.root, self.state)
+        self.assertEqual(type(store).__name__, 'ProjectStore')
+        self.assertEqual(store.runtime.delivery_name, 'outbox')
+        self.assertTrue(store.runtime.may_clean({}))
+        self.assertFalse(store.runtime.foreground_cleanup)
+
 
 class TakeoverTests(unittest.TestCase):
     OLD = '00000000-0000-0000-0000-000000000001'
@@ -886,6 +1004,20 @@ class TakeoverTests(unittest.TestCase):
         self.assertEqual(self.registered, [self.slot])
         store, module = runner.author_store(self.root, state)
         self.assertEqual(store.read()['target']['events'], ledger['target']['events'])
+
+    def test_takeover_from_codex_to_antigravity_rebinds_state_keys_and_preserves_history(self):
+        args = SimpleNamespace(author_runtime='antigravity', author_session='ag-conv-1', session_remote=None,
+                               checkout=None, slot=self.slot, codex='codex', takeover=True)
+        runner.attach_author(args, self.root, self.state)
+        state = runner.read(self.root, 'owner/repo#1')
+        self.assertEqual(state['author_delivery']['runtime'], 'antigravity')
+        self.assertEqual(state['author_delivery']['session'], 'ag-conv-1')
+        ledger = json.loads((self.root / 'author/state.json').read_text())
+        self.assertEqual(ledger['session'], 'ag-conv-1')
+        self.assertEqual(ledger['pr'], 'owner/repo#1')
+        self.assertNotIn('thread', ledger)
+        store, _ = runner.author_store(self.root, state)
+        self.assertEqual(store.read()['target']['events'], {'review:1': {'kind': 'review', 'status': 'handled'}})
 
 
 class OwnDiffFingerprintTests(unittest.TestCase):
