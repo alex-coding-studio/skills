@@ -428,6 +428,19 @@ class ConfiguredRuntimeTests(unittest.TestCase):
 
     def test_the_project_config_names_the_review_runtime(self):
         self.assertEqual(self.resolve({'review_runtime': 'codex'}), 'codex')
+        self.assertEqual(self.resolve({'review_runtime': 'antigravity'}), 'antigravity')
+
+    def test_the_project_config_may_name_review_model_and_rejects_empty_values(self):
+        with patch.object(remote.shared, 'gh_json', return_value={'head': {'sha': 'a' * 40}}), \
+                patch.object(remote.shared, 'ci_config',
+                             return_value={'review_runtime': 'antigravity', 'review_model': 'neon'}):
+            self.assertEqual(runner.configured_review('owner/repo#1'), ('antigravity', 'neon'))
+        for bad in ('', '   ', 123):
+            with self.subTest(bad=bad), \
+                    patch.object(remote.shared, 'gh_json', return_value={'head': {'sha': 'a' * 40}}), \
+                    patch.object(remote.shared, 'ci_config', return_value={'review_model': bad}), \
+                    self.assertRaises(ValueError):
+                runner.configured_review('owner/repo#1')
 
     def test_a_project_without_the_setting_or_config_leaves_the_choice_to_the_caller(self):
         self.assertIsNone(self.resolve({}))
@@ -545,6 +558,21 @@ class PublicationTests(unittest.TestCase):
         self.assertIsNone(github.latest_checkpoint([foreign]))
         self.assertEqual(github.latest_checkpoint([owned, foreign])[0]['token'], 'owned')
 
+    def test_antigravity_publication_uses_its_runtime_attribution_marker(self):
+        state = core.initial_state('owner/repo#1', 'reviewer', 'author', 'antigravity', 2)
+        patch_text = 'diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-old\n+new\n'
+        pending = runner.make_pending(state, current(), {
+            'outcome': 'changes-requested', 'body': 'Fix the boundary check.',
+            'comments': [{'path': 'a.py', 'line': 1, 'side': 'RIGHT', 'body': 'Check empty input.'}],
+        }, 'agy-token')
+        github = remote.GitHub('owner/repo#1', 'reviewer')
+        with patch.object(github, 'history', return_value=[]), \
+                patch.object(github, 'post', return_value={'html_url': 'review-url'}) as post:
+            self.assertEqual(github.publish(state, pending, patch_text), 'review-url')
+        payload = post.call_args.args[1]
+        self.assertTrue(payload['body'].endswith('From Antigravity 🤖'))
+        self.assertTrue(payload['comments'][0]['body'].endswith('From Antigravity 🤖'))
+
 
 class RuntimeTests(unittest.TestCase):
     def test_PRL_06_codex_resume_keeps_read_only_permissions_and_exact_session(self):
@@ -622,6 +650,108 @@ class RuntimeTests(unittest.TestCase):
         command = runtime.command(state, Path('/state'), Path('/state/result'))
         self.assertIn('--add-dir', command)
         self.assertEqual(command[command.index('--add-dir') + 1], '/state')
+
+    def test_antigravity_model_families_and_allowlist_resolution(self):
+        expected = [
+            ('low', None, 'claude-opus-5-5-low'),
+            ('medium', None, 'claude-opus-5-5-medium'),
+            ('high', None, 'claude-opus-5-5-high'),
+            ('deterministic', None, 'claude-sonnet-5-5-high'),
+            ('low', 'claude', 'claude-opus-5-5-low'),
+            ('deterministic', 'claude', 'claude-sonnet-5-5-high'),
+            ('low', 'neon', 'gemini-4-neon-low'),
+            ('medium', 'neon', 'gemini-4-neon-medium'),
+            ('high', 'neon', 'gemini-4-neon-high'),
+            ('deterministic', 'neon', 'gemini-4-neon-low'),
+            ('high', 'gemini-4-neon-xhigh', 'gemini-4-neon-xhigh'),
+            ('medium', 'claude-sonnet-5-5-low', 'claude-sonnet-5-5-low'),
+            ('low', 'gemini-4-hydrogen-high', 'gemini-4-hydrogen-high'),
+        ]
+        for complexity, requested, model in expected:
+            with self.subTest(complexity=complexity, requested=requested):
+                settings = runtime.review_settings('antigravity', complexity, requested)
+                self.assertEqual(settings, {'model': model, 'effort': model.rsplit('-', 1)[-1]})
+        for bad in ('gpt-6.2-sol', 'gemini-3.8-flash-high', 'claude-opus-5', 'unknown'):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                runtime.review_settings('antigravity', 'high', bad)
+            with self.subTest(pinned_bad=bad), self.assertRaises(ValueError):
+                runtime.settings_for({'runtime': 'antigravity', 'complexity': 'high', 'model': bad})
+        with self.assertRaises(ValueError):
+            runtime.review_settings('antigravity', 'max')
+        with self.assertRaises(ValueError):
+            runtime.review_settings('codex', 'high', 'claude')
+
+    def test_antigravity_command_enforces_read_only_settings_stream_json_and_resume(self):
+        state = {'runtime': 'antigravity', 'executable': '/agy', 'session': None,
+                 'complexity': 'high', 'model': 'claude-opus-5-5-high'}
+        initial = runtime.command(state, Path('/state'), Path('/state/result'))
+        self.assertEqual(initial[0], '/agy')
+        self.assertEqual(initial[initial.index('--model') + 1], 'claude-opus-5-5-high')
+        self.assertEqual(initial[initial.index('--input-format') + 1], 'stream-json')
+        self.assertEqual(initial[initial.index('--output-format') + 1], 'stream-json')
+        self.assertEqual(initial[initial.index('--json-schema') + 1], '/state/result-schema.json')
+        self.assertEqual(initial[initial.index('--settings') + 1], '/state/agy-settings.json')
+        self.assertEqual(initial[initial.index('--add-dir') + 1], '/state')
+        self.assertNotIn('--conversation', initial)
+        self.assertNotIn('--dangerously-skip-permissions', initial)
+        self.assertNotIn('--mode', initial)
+        self.assertNotIn('--effort', initial)
+        state['session'] = 'conv-123'
+        resumed = runtime.command(state, Path('/state'), Path('/state/result'))
+        self.assertEqual(resumed[-2:], ['--conversation', 'conv-123'])
+
+    def test_antigravity_preflight_checks_agy_binary_and_stderr_help(self):
+        help_text = 'Usage of agy: --model --conversation --input-format --output-format --json-schema --add-dir --settings'
+        completed = subprocess.CompletedProcess(['/bin/agy', '--help'], 0, stdout='', stderr=help_text)
+        with patch.object(runtime.shutil, 'which', return_value='/bin/agy') as which, \
+                patch.object(runtime.subprocess, 'run', return_value=completed):
+            self.assertEqual(runtime.preflight('antigravity'), str(Path('/bin/agy').resolve()))
+        which.assert_called_once_with('agy')
+        incomplete = subprocess.CompletedProcess(['/bin/agy', '--help'], 0, stdout='', stderr='--model')
+        with patch.object(runtime.shutil, 'which', return_value='/bin/agy'), \
+                patch.object(runtime.subprocess, 'run', return_value=incomplete), \
+                self.assertRaises(RuntimeError):
+            runtime.preflight('antigravity')
+
+    def test_antigravity_execute_and_collect_roundtrip_and_session_guards(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'checkout').mkdir()
+            fake_agy = root / 'fake_agy.py'
+            fake_agy.write_text(
+                'import json, sys\n'
+                'msg = json.loads(sys.stdin.readline())\n'
+                'assert msg["event"] == "user" and "Check PR" in msg["message"]["content"]\n'
+                'print(json.dumps({"event": "init", "conversation_id": "conv-1"}))\n'
+                'print(json.dumps({"event": "result", "result": {"conversation_id": "conv-1", '
+                '"status": "SUCCESS", "structured_output": {"outcome": "approved", "body": "Looks good.", "comments": []}, '
+                '"usage": {"total_tokens": 42}}}))\n')
+            wrapper = root / 'agy'
+            wrapper.write_text(f'#!/bin/sh\nexec {sys.executable} {fake_agy} "$@"\n')
+            wrapper.chmod(0o755)
+            state = {'runtime': 'antigravity', 'executable': str(wrapper), 'session': None,
+                     'complexity': 'low', 'model': 'gemini-4-neon-low',
+                     'pending': {'token': 'tok1'}, 'worker_timeout': 30, 'interval': 10}
+            saved = []
+            got = runtime.execute(state, root, 'Check PR diff.', lambda s: saved.append(dict(s)))
+            self.assertEqual(got['outcome'], 'approved')
+            self.assertEqual(state['session'], 'conv-1')
+            self.assertEqual(state['last_usage'], {'total_tokens': 42})
+            settings = json.loads((root / 'agy-settings.json').read_text())
+            self.assertEqual(settings['agentMode'], '')
+            self.assertFalse(settings['allowNonWorkspaceAccess'])
+            self.assertTrue(settings['disableSlashCommands'])
+            self.assertEqual(set(settings['permissions']['deny']),
+                             {'write_file(*)', 'command(*)', 'mcp(*)', 'read_url(*)', 'execute_url(*)', 'download_url(*)'})
+            # Mismatched conversation_id on resume is refused
+            state['session'] = 'conv-other'
+            with self.assertRaisesRegex(RuntimeError, 'different review session'):
+                runtime.collect(state, root, 'tok1', lambda s: None)
+            # Non-SUCCESS result is refused
+            (root / 'tok2.events.jsonl').write_text(
+                json.dumps({'event': 'result', 'result': {'conversation_id': 'conv-1', 'status': 'ERROR'}}) + '\n')
+            with self.assertRaisesRegex(RuntimeError, 'did not complete'):
+                runtime.collect(state, root, 'tok2', lambda s: None)
 
 
 

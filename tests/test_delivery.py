@@ -34,6 +34,15 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(runtime(runtime='antigravity', review_runtime='claude'), 'claude')
         with patch.object(delivery.review, 'configured_runtime', return_value='claude'):
             self.assertEqual(runtime(runtime='antigravity'), 'claude')
+        with patch.object(delivery.review, 'configured_runtime', return_value='antigravity'):
+            self.assertEqual(runtime(runtime='antigravity'), 'antigravity')
+        command = delivery.review_command(SimpleNamespace(**{
+            **vars(args), 'runtime': 'antigravity', 'review_runtime': 'antigravity', 'review_model': 'neon'}))
+        self.assertEqual(command[command.index('--runtime') + 1], 'antigravity')
+        self.assertEqual(command[command.index('--model') + 1], 'neon')
+        default_command = delivery.review_command(SimpleNamespace(**{**vars(args), 'runtime': 'antigravity'}))
+        self.assertEqual(default_command[default_command.index('--runtime') + 1], 'codex')
+        self.assertNotIn('--model', default_command)
 
     def test_pin_only_accepts_lockfiles_and_version_lines_only(self):
         resolved = {'filename': 'App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved',
@@ -381,6 +390,21 @@ class DeliveryTests(unittest.TestCase):
             delivery.open_pr(args)
             self.assertEqual(args.pr, 'owner/repo#1')
             self.assertFalse(any('create' in call.args[0] for call in invoke.call_args_list))
+
+    def test_antigravity_reviewed_start_forwards_explicit_review_runtime_and_model(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = delivery.parser().parse_args(['start', '--runtime', 'antigravity', '--session', 'conv-1',
+                '--pr', 'owner/repo#1', '--checkout', directory, '--reviewer', 'reviewer',
+                '--review-runtime', 'antigravity', '--review-model', 'claude', '--complexity', 'high'])
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
+                    patch.object(delivery, 'invoke', return_value={'active': True, 'wait_command': 'wait'}) as invoke:
+                result = delivery.start(args)
+            self.assertEqual(result['status'], 'started')
+            command = invoke.call_args.args[0]
+            self.assertEqual(command[command.index('--runtime') + 1], 'antigravity')
+            self.assertEqual(command[command.index('--model') + 1], 'claude')
+            self.assertEqual(command[command.index('--complexity') + 1], 'high')
 
     def test_antigravity_reviewed_start_defaults_reviewer_to_codex_and_returns_wait_command(self):
         with tempfile.TemporaryDirectory() as directory:

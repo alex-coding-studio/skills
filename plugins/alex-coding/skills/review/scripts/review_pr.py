@@ -25,13 +25,21 @@ MONITOR = Path(__file__).resolve().parents[2] / 'monitor/scripts'
 PROJECT = Path(__file__).resolve().parents[2] / 'project-monitor/scripts/project_pr_monitor.py'
 
 
-def configured_runtime(pr):
+def configured_review(pr):
     repository, number = remote.shared.parse_target(pr)
     head = remote.shared.gh_json(f'repos/{repository}/pulls/{number}', 'admin')['head']['sha']
-    value = (remote.shared.ci_config(repository, head, 'admin') or {}).get('review_runtime')
-    if value not in (None, 'codex', 'claude'):
-        raise ValueError(f'{remote.shared.CI_CONFIG} review_runtime must be codex or claude, not {value!r}')
-    return value
+    config = remote.shared.ci_config(repository, head, 'admin') or {}
+    value = config.get('review_runtime')
+    if value not in (None, 'codex', 'claude', 'antigravity'):
+        raise ValueError(f'{remote.shared.CI_CONFIG} review_runtime must be codex, claude or antigravity, not {value!r}')
+    model = config.get('review_model')
+    if model is not None and (not isinstance(model, str) or not model.strip()):
+        raise ValueError(f'{remote.shared.CI_CONFIG} review_model must be a non-empty string, not {model!r}')
+    return value, model.strip() if model else None
+
+
+def configured_runtime(pr):
+    return configured_review(pr)[0]
 
 
 def refuse_slot_checkout(checkout):
@@ -555,23 +563,33 @@ def register(args, root, pr):
     author = pull['user']['login'].casefold()
     github.verify_writer(author)
     executable = runtime.preflight(args.runtime, args.executable)
+    requested_model = getattr(args, 'model', None)
+    selected_model = requested_model or getattr(args, 'configured_model', None)
     if (root / 'state.json').exists():
         state = read(root, pr)
         if state['reviewer'] != args.reviewer.casefold() or state['runtime'] != args.runtime:
             raise ValueError('existing PR reviewer ownership differs; explicitly continue after stopping it')
         if args.complexity and state.get('complexity', 'high') != args.complexity:
             raise ValueError('existing reviewer complexity differs; preserve its configuration until explicit continuation')
+        if requested_model:
+            expected = runtime.review_settings(state['runtime'], state.get('complexity', 'high'), requested_model)['model']
+            if runtime.settings_for(state)['model'] != expected:
+                raise ValueError('existing reviewer model differs; preserve its configuration until explicit continuation')
         return state
     state = core.initial_state(pr, args.reviewer, author, args.runtime, args.max_rounds)
     state.update(executable=executable, acceptance=args.acceptance_file.read_text() if args.acceptance_file else None, interval=args.interval,
                  worker_timeout=args.worker_timeout, complexity=args.complexity or 'high')
-    state['model'] = runtime.review_settings(state['runtime'], state['complexity'])['model']
+    state['model'] = runtime.review_settings(state['runtime'], state['complexity'], selected_model)['model']
     found = github.latest_checkpoint(github.history())
     if found:
         core.restore(state, found[0])
-        runtime.settings_for(state)
+        restored_settings = runtime.settings_for(state)
         if args.complexity and state['complexity'] != args.complexity:
             raise ValueError('checkpoint complexity differs; use explicit continuation to change it')
+        if requested_model:
+            expected = runtime.review_settings(state['runtime'], state['complexity'], requested_model)['model']
+            if restored_settings['model'] != expected:
+                raise ValueError('checkpoint model differs; use explicit continuation to change it')
         state['last_review_url'] = found[1].get('html_url')
     else:
         previous = [row for row in github.history() if row['kind'] == 'review'
@@ -616,6 +634,14 @@ def continue_review(args, root, pr):
         raise PermissionError('PR author identity changed')
     github.verify_writer(previous['author'])
     selected_runtime = args.runtime or previous['runtime']
+    selected_complexity = args.complexity or previous.get('complexity', 'high')
+    requested_model = getattr(args, 'model', None)
+    if (requested_model is None and selected_runtime == 'antigravity'
+            and previous['runtime'] == 'antigravity' and not args.complexity
+            and previous.get('model') in runtime.ANTIGRAVITY_MODELS):
+        resolved_model = previous['model']
+    else:
+        resolved_model = runtime.review_settings(selected_runtime, selected_complexity, requested_model)['model']
     executable = runtime.preflight(selected_runtime, args.executable)
     stop_runner(root, pr)
     with lock(root, 'run.lock'):
@@ -636,8 +662,8 @@ def continue_review(args, root, pr):
         state.update(decision=decision, session=None, pending=None, phase='starting',
                      head=None, base=None, review_phase=None, last_review_url=None,
                      previous_review=archive, round_limit=limit, runtime=selected_runtime,
-                     executable=executable, complexity=args.complexity or previous.get('complexity', 'high'))
-        state['model'] = runtime.review_settings(state['runtime'], state['complexity'])['model']
+                     executable=executable, complexity=selected_complexity)
+        state['model'] = resolved_model
         for key in ('last_error', 'last_transport_error', 'worker_pid', 'pid', 'started_at', 'next_session'):
             state.pop(key, None)
         save(root, state)
@@ -649,7 +675,8 @@ def main():
     parser.add_argument('action', choices=['start', 'run', 'status', 'continue', 'retry'])
     parser.add_argument('--pr', required=True)
     parser.add_argument('--state-base', type=Path)
-    parser.add_argument('--runtime', choices=['codex', 'claude'])
+    parser.add_argument('--runtime', choices=['codex', 'claude', 'antigravity'])
+    parser.add_argument('--model')
     parser.add_argument('--executable')
     parser.add_argument('--complexity', choices=['deterministic', 'low', 'medium', 'high'])
     parser.add_argument('--reviewer')
@@ -690,7 +717,14 @@ def main():
     else:
         with lock(root, 'launch.lock'):
             if args.action == 'start':
-                args.runtime = args.runtime or configured_runtime(pr)
+                if not args.runtime or (args.runtime == 'antigravity' and not args.model and not (root / 'state.json').exists()):
+                    config_runtime, config_model = configured_review(pr)
+                else:
+                    config_runtime, config_model = None, None
+                args.runtime = args.runtime or config_runtime
+                args.configured_model = (config_model
+                                         if config_model and (config_runtime is None or config_runtime == args.runtime)
+                                         else None)
                 if not args.runtime or not args.reviewer:
                     parser.error(f'start requires --reviewer and --runtime unless {remote.shared.CI_CONFIG} sets review_runtime')
                 state = register(args, root, pr)
