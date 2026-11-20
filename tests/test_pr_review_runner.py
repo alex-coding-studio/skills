@@ -721,9 +721,11 @@ class RuntimeTests(unittest.TestCase):
             fake_agy = root / 'fake_agy.py'
             fake_agy.write_text(
                 'import json, sys\n'
+                'agent = sys.argv[sys.argv.index("--agent") + 1]\n'
                 'msg = json.loads(sys.stdin.readline())\n'
                 'assert msg["event"] == "user" and "Check PR" in msg["message"]["content"]\n'
-                'print(json.dumps({"event": "init", "conversation_id": "conv-1"}))\n'
+                'print(json.dumps({"event": "init", "conversation_id": "conv-1", '
+                '"init": {"agent": agent, "permission_mode": "request-review"}}))\n'
                 'print(json.dumps({"event": "result", "result": {"conversation_id": "conv-1", '
                 '"status": "SUCCESS", "structured_output": {"outcome": "approved", "body": "Looks good.", "comments": []}, '
                 '"usage": {"total_tokens": 42}}}))\n')
@@ -738,7 +740,8 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(got['outcome'], 'approved')
             self.assertEqual(state['session'], 'conv-1')
             self.assertEqual(state['last_usage'], {'total_tokens': 42})
-            agent_file = root / '.agents' / 'agents' / f'{runtime.antigravity_agent_name(root)}.md'
+            agent_name = state['antigravity_agent']
+            agent_file = root / '.agents' / 'agents' / f'{agent_name}.md'
             agent_text = agent_file.read_text()
             self.assertIn('tools:\n  - read_file\n  - finish\n', agent_text)
             self.assertIn('subagent: false\n', agent_text)
@@ -748,13 +751,34 @@ class RuntimeTests(unittest.TestCase):
             self.assertTrue(settings['disableSlashCommands'])
             self.assertEqual(set(settings['permissions']['deny']),
                              {'write_file(*)', 'command(*)', 'unsandboxed(*)', 'mcp(*)', 'read_url(*)', 'execute_url(*)'})
+            # Checkout file shadowing the reserved agent name is refused before spawning agy
+            shadow = root / 'checkout' / '.agents' / 'agents'
+            shadow.mkdir(parents=True)
+            (shadow / f'{agent_name}.md').write_text('malicious override')
+            with self.assertRaisesRegex(RuntimeError, 'shadows reserved Antigravity agent'):
+                runtime.write_antigravity_agent(root, agent_name)
             # Mismatched conversation_id on resume is refused
             state['session'] = 'conv-other'
             with self.assertRaisesRegex(RuntimeError, 'different review session'):
                 runtime.collect(state, root, 'tok1', lambda s: None)
+            state['session'] = 'conv-1'
+            # Missing or mismatched init.agent or non-request-review permission_mode is refused fail-closed
+            for bad_init in (
+                {'permission_mode': 'request-review'},
+                {'agent': 'default', 'permission_mode': 'request-review'},
+                {'agent': agent_name, 'permission_mode': 'always-proceed'},
+            ):
+                (root / 'tok_bad.events.jsonl').write_text(
+                    json.dumps({'event': 'init', 'conversation_id': 'conv-1', 'init': bad_init}) + '\n'
+                    + json.dumps({'event': 'result', 'result': {'conversation_id': 'conv-1', 'status': 'SUCCESS',
+                                  'structured_output': {'outcome': 'approved', 'body': 'ok', 'comments': []}}}) + '\n')
+                with self.subTest(bad_init=bad_init), self.assertRaisesRegex(RuntimeError, 'expected read-only review agent'):
+                    runtime.collect(state, root, 'tok_bad', lambda s: None)
             # Non-SUCCESS result is refused
             (root / 'tok2.events.jsonl').write_text(
-                json.dumps({'event': 'result', 'result': {'conversation_id': 'conv-1', 'status': 'ERROR'}}) + '\n')
+                json.dumps({'event': 'init', 'conversation_id': 'conv-1',
+                            'init': {'agent': agent_name, 'permission_mode': 'request-review'}}) + '\n'
+                + json.dumps({'event': 'result', 'result': {'conversation_id': 'conv-1', 'status': 'ERROR'}}) + '\n')
             with self.assertRaisesRegex(RuntimeError, 'did not complete'):
                 runtime.collect(state, root, 'tok2', lambda s: None)
 

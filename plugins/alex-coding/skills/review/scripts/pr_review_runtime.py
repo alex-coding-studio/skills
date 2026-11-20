@@ -55,13 +55,19 @@ def antigravity_family(model):
     return None
 
 
-def antigravity_agent_name(root):
+def antigravity_agent_name(root, state=None):
+    if state and state.get('antigravity_agent'):
+        return state['antigravity_agent']
     digest = hashlib.sha256(str(Path(root)).encode()).hexdigest()[:12]
     return f'alex-coding-pr-reviewer-{digest}'
 
 
-def write_antigravity_agent(root):
-    name = antigravity_agent_name(root)
+def write_antigravity_agent(root, name):
+    checkout = Path(root) / 'checkout'
+    for folder in ('.agents', '.agent', '_agents', '_agent'):
+        agents = checkout / folder / 'agents'
+        if (agents / f'{name}.md').exists() or (agents / name).exists():
+            raise RuntimeError(f'review checkout shadows reserved Antigravity agent {name!r}')
     agents_dir = Path(root) / '.agents' / 'agents'
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / f'{name}.md').write_text(
@@ -172,7 +178,7 @@ def command(state, root, output):
         return arguments
     if state['runtime'] == 'antigravity':
         arguments = [executable, '--model', settings['model'],
-                     '--agent', antigravity_agent_name(root),
+                     '--agent', antigravity_agent_name(root, state),
                      '--input-format', 'stream-json', '--output-format', 'stream-json',
                      '--json-schema', str(root / 'result-schema.json'),
                      '--settings', str(root / 'agy-settings.json'),
@@ -195,7 +201,9 @@ def execute(state, root, prompt, persist, terminal_probe=None):
     (root / 'empty-mcp.json').write_text('{"mcpServers":{}}')
     (root / 'agy-settings.json').write_text(json.dumps(ANTIGRAVITY_SETTINGS))
     if state['runtime'] == 'antigravity':
-        write_antigravity_agent(root)
+        agent_name = state.get('antigravity_agent') or f'alex-coding-pr-reviewer-{uuid.uuid4().hex[:12]}'
+        state['antigravity_agent'] = agent_name
+        write_antigravity_agent(root, agent_name)
     state['next_session'] = str(uuid.uuid4())
     persist(state)
     prompt_path = root / f'{token}.prompt.txt'
@@ -277,13 +285,20 @@ def collect(state, root, token, persist):
             raise RuntimeError('Codex did not report its review session identity')
         result = json.loads(output.read_text())
     elif state['runtime'] == 'antigravity':
+        init = None
         envelope = None
         for line in events.read_text().splitlines():
             if not line.strip():
                 continue
             event = json.loads(line)
-            if event.get('event') == 'result':
+            if event.get('event') == 'init':
+                init = event.get('init')
+            elif event.get('event') == 'result':
                 envelope = event.get('result')
+        expected_agent = antigravity_agent_name(root, state)
+        if (not isinstance(init, dict) or init.get('agent') != expected_agent
+                or init.get('permission_mode') != 'request-review'):
+            raise RuntimeError('Antigravity did not run with the expected read-only review agent')
         if not isinstance(envelope, dict) or envelope.get('status') != 'SUCCESS':
             raise RuntimeError('Antigravity did not complete the review session')
         session = envelope.get('conversation_id')
