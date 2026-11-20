@@ -47,8 +47,8 @@ class RegistrationModelTests(unittest.TestCase):
 
     def test_new_registration_pins_the_current_model(self):
         state = runner.register(self.args, self.root, 'owner/repo#1')
-        self.assertEqual(state['model'], 'gpt-6.1-sol')
-        self.assertEqual(runner.read(self.root, 'owner/repo#1')['model'], 'gpt-6.1-sol')
+        self.assertEqual(state['model'], 'gpt-6.2-sol')
+        self.assertEqual(runner.read(self.root, 'owner/repo#1')['model'], 'gpt-6.2-sol')
 
     def test_recovered_legacy_checkpoint_keeps_the_previous_model(self):
         prior = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
@@ -56,6 +56,18 @@ class RegistrationModelTests(unittest.TestCase):
         state = runner.register(self.args, self.root, 'owner/repo#1')
         self.assertEqual(runtime.settings_for(state)['model'], 'gpt-5.6-sol')
         self.assertNotIn('model', state)
+
+    def test_recovered_pinned_checkpoint_keeps_its_model(self):
+        for model in ['gpt-6-sol', 'gpt-6.1-sol']:
+            with self.subTest(model=model):
+                root = self.root / model
+                root.mkdir()
+                prior = core.initial_state('owner/repo#1', 'reviewer', 'author', 'codex', 2)
+                prior['model'] = model
+                self.github.latest_checkpoint.return_value = (core.checkpoint(prior, 'prior'), {})
+                state = runner.register(self.args, root, 'owner/repo#1')
+                self.assertEqual(state['model'], model)
+                self.assertEqual(runtime.settings_for(state)['model'], model)
 
 
 class FreshReviewTests(unittest.TestCase):
@@ -142,8 +154,8 @@ class FreshReviewTests(unittest.TestCase):
 
     def test_explicit_continuation_moves_an_old_session_to_the_current_model(self):
         state = self.continue_review('--additional-rounds', '0')
-        self.assertEqual(state['model'], 'gpt-6.1-sol')
-        self.assertEqual(runtime.settings_for(state)['model'], 'gpt-6.1-sol')
+        self.assertEqual(state['model'], 'gpt-6.2-sol')
+        self.assertEqual(runtime.settings_for(state)['model'], 'gpt-6.2-sol')
         previous = json.loads((self.root / state['previous_review']).read_text())
         self.assertNotIn('model', previous)
 
