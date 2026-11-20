@@ -69,6 +69,35 @@ class RegistrationModelTests(unittest.TestCase):
                 self.assertEqual(state['model'], model)
                 self.assertEqual(runtime.settings_for(state)['model'], model)
 
+    def test_antigravity_registration_pins_model_and_enforces_immutability(self):
+        args = SimpleNamespace(**{**vars(self.args), 'runtime': 'antigravity', 'complexity': 'medium', 'model': 'neon'})
+        state = runner.register(args, self.root, 'owner/repo#1')
+        self.assertEqual(state['model'], 'gemini-4-neon-medium')
+        # Repeat start with same resolved model (alias or exact slug) or omitted model succeeds
+        self.assertEqual(runner.register(args, self.root, 'owner/repo#1')['model'], 'gemini-4-neon-medium')
+        same_exact = SimpleNamespace(**{**vars(args), 'model': 'gemini-4-neon-medium'})
+        self.assertEqual(runner.register(same_exact, self.root, 'owner/repo#1')['model'], 'gemini-4-neon-medium')
+        omitted = SimpleNamespace(**{**vars(args), 'model': None})
+        self.assertEqual(runner.register(omitted, self.root, 'owner/repo#1')['model'], 'gemini-4-neon-medium')
+        # Repeat start with a different model is refused
+        different = SimpleNamespace(**{**vars(args), 'model': 'claude'})
+        with self.assertRaisesRegex(ValueError, 'existing reviewer model differs'):
+            runner.register(different, self.root, 'owner/repo#1')
+
+    def test_antigravity_checkpoint_recovery_keeps_pinned_model_and_rejects_mismatch(self):
+        prior = core.initial_state('owner/repo#1', 'reviewer', 'author', 'antigravity', 2)
+        prior.update(complexity='high', model='gemini-4-neon-xhigh')
+        self.github.latest_checkpoint.return_value = (core.checkpoint(prior, 'prior'), {})
+        args = SimpleNamespace(**{**vars(self.args), 'runtime': 'antigravity', 'complexity': 'high',
+                                  'model': None, 'configured_model': 'claude'})
+        state = runner.register(args, self.root, 'owner/repo#1')
+        self.assertEqual(state['model'], 'gemini-4-neon-xhigh')
+        conflict_root = self.root / 'conflict'
+        conflict_root.mkdir()
+        conflict_args = SimpleNamespace(**{**vars(args), 'model': 'claude'})
+        with self.assertRaisesRegex(ValueError, 'checkpoint model differs'):
+            runner.register(conflict_args, conflict_root, 'owner/repo#1')
+
 
 class FreshReviewTests(unittest.TestCase):
     def setUp(self):
@@ -158,6 +187,26 @@ class FreshReviewTests(unittest.TestCase):
         self.assertEqual(runtime.settings_for(state)['model'], 'gpt-6.2-sol')
         previous = json.loads((self.root / state['previous_review']).read_text())
         self.assertNotIn('model', previous)
+
+    def test_explicit_continuation_switches_to_antigravity_and_preserves_pinned_model(self):
+        state = self.continue_review('--runtime', 'antigravity', '--model', 'neon', '--complexity', 'medium')
+        self.assertEqual((state['runtime'], state['model']), ('antigravity', 'gemini-4-neon-medium'))
+        # Routine continuation without changing runtime/complexity/model retains pinned Antigravity model
+        kept = self.continue_review('--additional-rounds', '1')
+        self.assertEqual((kept['runtime'], kept['model']), ('antigravity', 'gemini-4-neon-medium'))
+        # Complexity promotion preserves the neon family instead of silently switching to claude
+        promoted = self.continue_review('--complexity', 'high')
+        self.assertEqual((promoted['runtime'], promoted['model']), ('antigravity', 'gemini-4-neon-high'))
+        # Non-family pinned slug requires explicit --model when changing complexity
+        hydrogen = self.continue_review('--model', 'gemini-4-hydrogen-medium', '--complexity', 'medium')
+        self.assertEqual(hydrogen['model'], 'gemini-4-hydrogen-medium')
+        with self.assertRaisesRegex(ValueError, 'requires explicit --model'):
+            self.continue_review('--complexity', 'high')
+        # Invalid --model fails before stopping an active runner
+        self.running.return_value = True
+        with patch.object(runner, 'stop_runner') as stop, self.assertRaises(ValueError):
+            self.continue_review('--runtime', 'antigravity', '--model', 'not-a-model')
+        stop.assert_not_called()
 
     def test_fresh_request_preserves_interrupted_execution_without_replaying_it(self):
         self.state.update(phase='reviewing', pending={'stage': 'execution', 'token': 'interrupted',

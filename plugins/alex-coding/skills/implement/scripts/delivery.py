@@ -94,7 +94,11 @@ def review_command(args):
                  '--max-rounds', str(args.max_rounds)]
     if args.acceptance_file:
         arguments += ['--acceptance-file', str(args.acceptance_file.resolve())]
-    return arguments + (['--complexity', args.complexity] if args.complexity else [])
+    if args.complexity:
+        arguments += ['--complexity', args.complexity]
+    if getattr(args, 'review_model', None):
+        arguments += ['--model', args.review_model]
+    return arguments
 
 
 def start(args):
@@ -384,7 +388,8 @@ def parser():
     result.add_argument('--session-remote')
     result.add_argument('--takeover', action='store_true',
                         help='Rebind the PR to this session and checkout or slot after its previous runner stopped')
-    result.add_argument('--review-runtime', choices=['codex', 'claude'])
+    result.add_argument('--review-runtime', choices=['codex', 'claude', 'antigravity'])
+    result.add_argument('--review-model')
     result.add_argument('--expected-head')
     result.add_argument('--merge-method', choices=['squash', 'merge', 'rebase'])
     result.add_argument('--allow-pending-ci', action='store_true',

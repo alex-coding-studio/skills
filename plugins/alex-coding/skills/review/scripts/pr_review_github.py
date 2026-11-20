@@ -165,7 +165,10 @@ class GitHub:
                             f"{self.base}/git/refs/heads/{pr['head']['ref']}"], capture_output=True, timeout=30)
 
     def publish(self, state, pending, patch=''):
-        marker = 'From Codex 🤖' if state['runtime'] == 'codex' else 'From Claude 🤖'
+        markers = {'codex': 'From Codex 🤖', 'claude': 'From Claude 🤖', 'antigravity': 'From Antigravity 🤖'}
+        if state['runtime'] not in markers:
+            raise ValueError(f'unsupported review runtime: {state["runtime"]!r}')
+        marker = markers[state['runtime']]
         record = pending['checkpoint']
         locations = inline_locations(patch)
         body = pending['result']['body'].rstrip()
