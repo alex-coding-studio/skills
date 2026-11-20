@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import re
 import shlex
+import signal
+import subprocess
 import sys
 import time
 import uuid
@@ -16,15 +18,30 @@ core = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(core)
 
 
+class _OwnershipLost(RuntimeError):
+    pass
+
+
 def _utc_now():
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
 
 def _read_json(path):
     try:
-        return json.loads(Path(path).read_text())
+        return json.loads(Path(path).read_text(encoding='utf-8'))
     except (FileNotFoundError, OSError, ValueError):
         return None
+
+
+def _atomic_write_text(path, text):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f'.{path.name}.{uuid.uuid4().hex}.tmp')
+    with temporary.open('w', encoding='utf-8') as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temporary.replace(path)
 
 
 def read_cursor(root):
@@ -36,22 +53,15 @@ def read_cursor(root):
 
 
 def write_cursor(root, seq):
-    root = Path(root)
-    root.mkdir(parents=True, exist_ok=True)
-    temporary = root / ('cursor.' + uuid.uuid4().hex + '.tmp')
     payload = json.dumps({'last_seq': int(seq), 'updated_at': _utc_now()}, ensure_ascii=False) + '\n'
-    with temporary.open('w', encoding='utf-8') as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-    temporary.replace(root / 'cursor.json')
+    _atomic_write_text(Path(root) / 'cursor.json', payload)
 
 
 def _parse_outbox(path):
     records = []
     if not path.exists():
         return records
-    for line in path.read_text(encoding='utf-8').splitlines():
+    for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
         if not line.strip():
             continue
         try:
@@ -64,7 +74,7 @@ def _parse_outbox(path):
     return records
 
 
-def append_outbox(root, message):
+def append_outbox(root, message, terminal=None, cleanup_result=None, disposable=None, pool_slot=None, has_checkout=None):
     root = Path(root).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     with (root / 'outbox.lock').open('a') as lock:
@@ -73,11 +83,19 @@ def append_outbox(root, message):
         existing = _parse_outbox(outbox)
         next_seq = (existing[-1]['seq'] + 1) if existing else 1
         record = {'seq': next_seq, 'created_at': _utc_now(), 'text': message}
-        line = json.dumps(record, ensure_ascii=False) + '\n'
-        with outbox.open('a', encoding='utf-8') as handle:
-            handle.write(line)
-            handle.flush()
-            os.fsync(handle.fileno())
+        if terminal is not None:
+            record['terminal'] = terminal
+        if cleanup_result is not None:
+            record['cleanup_result'] = cleanup_result
+        if disposable is not None:
+            record['disposable'] = bool(disposable)
+        if pool_slot is not None:
+            record['pool_slot'] = bool(pool_slot)
+        if has_checkout is not None:
+            record['has_checkout'] = bool(has_checkout)
+        existing.append(record)
+        content = ''.join(json.dumps(item, ensure_ascii=False) + '\n' for item in existing)
+        _atomic_write_text(outbox, content)
     return record
 
 
@@ -123,6 +141,14 @@ def build_wait_command(script, session, pr, state_dir=None, runner_dir=None):
     return shlex.join(command)
 
 
+def _message_has_terminal_event(message):
+    lines = message.splitlines()
+    marker = 'New since the last delivery:'
+    if marker in lines:
+        lines = lines[lines.index(marker) + 1:]
+    return any(line.startswith('terminal id=') for line in lines)
+
+
 class Runtime:
     role = 'bot'
     state_delivery = True
@@ -144,7 +170,20 @@ class Runtime:
     def deliver(self, message):
         if self.outbox_root is None:
             raise ValueError('outbox_root is required for Antigravity outbox delivery')
-        append_outbox(self.outbox_root, message)
+        if _message_has_terminal_event(message):
+            state = _read_json(self.outbox_root / 'state.json') or {}
+            target = state.get('target') or {}
+            append_outbox(
+                self.outbox_root,
+                message,
+                terminal=target.get('terminal'),
+                cleanup_result=target.get('cleanup_result'),
+                disposable=core.disposable_target(target),
+                pool_slot=bool(target.get('pool_slot')),
+                has_checkout=bool(target.get('checkout')),
+            )
+        else:
+            append_outbox(self.outbox_root, message)
         return True
 
     def may_clean(self, target):
@@ -156,49 +195,166 @@ class Runtime:
             print(line, flush=True)
 
 
+def _ownership_mismatch(root, session, name, runner_dir=None, expected_takeovers=None):
+    author_state = _read_json(Path(root) / 'state.json')
+    if author_state is not None:
+        if author_state.get('session') != session or not core.same_pr(author_state.get('pr'), name):
+            return (f"author state is bound to another session or runtime "
+                    f"(pr={author_state.get('pr')!r}, session={author_state.get('session')!r})")
+        if expected_takeovers is not None:
+            current_takeovers = len(((author_state.get('target') or {}).get('takeovers')) or [])
+            if current_takeovers != expected_takeovers:
+                return f'author state was taken over (takeovers={current_takeovers}, expected={expected_takeovers})'
+    if runner_dir is not None:
+        runner_state = _read_json(Path(runner_dir) / 'state.json')
+        if runner_state is not None:
+            ad = runner_state.get('author_delivery') or {}
+            if (ad.get('runtime') != 'antigravity' or ad.get('session') != session
+                    or not core.same_pr(runner_state.get('pr'), name)):
+                return (f"runner author_delivery is bound to "
+                        f"{ad.get('runtime')!r}:{ad.get('session')!r} for {runner_state.get('pr')!r}")
+    return None
+
+
+def invalidate_waiter(root, timeout=2.0):
+    root = Path(root).expanduser().resolve()
+    owner = _read_json(root / 'wait.owner.json')
+    pid = owner.get('pid') if isinstance(owner, dict) else None
+    if not isinstance(pid, int) or pid <= 0 or pid == os.getpid() or not lock_held(root / 'wait.lock'):
+        return False
+    process = subprocess.run(['ps', '-p', str(pid), '-o', 'command='], capture_output=True, text=True, timeout=10)
+    cmdline = process.stdout.strip()
+    if process.returncode != 0 or 'antigravity_pr_monitor.py' not in cmdline or 'wait' not in cmdline or str(root) not in cmdline:
+        return False
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    deadline = time.monotonic() + timeout
+    while lock_held(root / 'wait.lock') and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return not lock_held(root / 'wait.lock')
+
+
 @contextmanager
-def wait_lock(root, name):
+def wait_lock(root, session, name, runner_dir=None, supersede_timeout=3.0):
     root = Path(root).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
+    mismatch = _ownership_mismatch(root, session, name, runner_dir)
+    if mismatch:
+        raise _OwnershipLost(mismatch)
+    owner_file = root / 'wait.owner.json'
     with (root / 'wait.lock').open('a') as lock:
+        deadline = time.monotonic() + supersede_timeout
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                holder = _read_json(owner_file)
+                superseded = isinstance(holder, dict) and holder.get('session') not in (None, session)
+                if not superseded or time.monotonic() >= deadline:
+                    raise SystemExit(f'{name} already has an active waiter; refusing duplicate wait')
+                mismatch = _ownership_mismatch(root, session, name, runner_dir)
+                if mismatch:
+                    raise _OwnershipLost(mismatch)
+                time.sleep(0.05)
+        _atomic_write_text(owner_file, json.dumps({'pid': os.getpid(), 'session': session, 'pr': name}) + '\n')
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise SystemExit(f'{name} already has an active waiter; refusing duplicate wait')
-        yield lock
+            yield lock
+        finally:
+            holder = _read_json(owner_file)
+            if isinstance(holder, dict) and holder.get('pid') == os.getpid():
+                owner_file.unlink(missing_ok=True)
 
 
-def _is_settled_terminal(target):
-    terminal = (target or {}).get('terminal')
+def consume_unread(root, session, name, runner_dir=None, expected_takeovers=None):
+    root = Path(root).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / 'outbox.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        mismatch = _ownership_mismatch(root, session, name, runner_dir, expected_takeovers=expected_takeovers)
+        if mismatch:
+            return 'ownership-lost', mismatch
+        last_seq = read_cursor(root)
+        unread = [item for item in _parse_outbox(root / 'outbox.jsonl') if item['seq'] > last_seq]
+        if unread:
+            write_cursor(root, unread[-1]['seq'])
+        return 'ok', unread
+
+
+def _classify_terminal(terminal, cleanup_result, disposable, pool_slot, has_checkout):
     if terminal not in ('merged', 'closed'):
-        return False
-    if core.disposable_target(target or {}) and terminal == 'merged':
-        status = ((target or {}).get('cleanup_result') or {}).get('status')
-        if status in (None, 'partial', 'interrupted', 'error'):
-            return False
-    return True
+        return 'none'
+    status = (cleanup_result or {}).get('status') if isinstance(cleanup_result, dict) else None
+    if terminal == 'closed':
+        if pool_slot:
+            if cleanup_result is None:
+                return 'retrying'
+            return 'cleaned' if status == 'released' else 'needs-attention'
+        return 'cleaned'
+    if pool_slot:
+        if cleanup_result is None:
+            return 'retrying'
+        return 'cleaned' if status == 'released' else 'needs-attention'
+    if status in ('cleaned', 'released'):
+        return 'cleaned'
+    if disposable:
+        if cleanup_result is None:
+            return 'retrying'
+        if status in ('partial', 'interrupted', 'error') and cleanup_result.get('retryable', True):
+            return 'retrying'
+        return 'needs-attention'
+    if not has_checkout and cleanup_result is None:
+        return 'cleaned'
+    return 'needs-attention'
 
 
-def _format_delivery(unread, author_state, next_cmd):
+def _extract_unread_events(text):
+    lines = text.splitlines()
+    marker = 'New since the last delivery:'
+    if marker in lines:
+        extracted = []
+        for line in lines[lines.index(marker) + 1:]:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(('After verifying the merge, run the protected foreground completion:',
+                                    'The pool slot ')):
+                break
+            extracted.append(stripped)
+        if extracted:
+            return extracted
+    return [line.strip() for line in lines if line.strip()]
+
+
+def _format_delivery(unread, next_cmd, terminal_state, terminal_outcome=None, cleanup_result=None):
     latest = unread[-1]
     parts = [latest['text']]
     if len(unread) > 1:
-        parts.append(
-            f"Note: {len(unread)} outbox updates coalesced (seq {unread[0]['seq']}..{latest['seq']}); "
-            'showing the latest full state.'
-        )
-    target = (author_state or {}).get('target') or {}
-    cleanup_result = target.get('cleanup_result')
-    if _is_settled_terminal(target):
+        earlier_lines = []
+        for item in unread[:-1]:
+            for line in _extract_unread_events(item['text']):
+                earlier_lines.append(f"[seq {item['seq']}] {line}")
+        header = (f"Note: {len(unread)} outbox updates coalesced (seq {unread[0]['seq']}..{latest['seq']}); "
+                  'showing the latest full state plus earlier unread events:')
+        parts.append('\n'.join([header, *earlier_lines]))
+    if terminal_state == 'cleaned':
         if cleanup_result is not None:
             parts.append(
-                f"Terminal outcome: {target.get('terminal')}; cleanup_result="
+                f'Terminal outcome: {terminal_outcome}; cleanup_result='
                 + json.dumps(cleanup_result, ensure_ascii=False)
             )
         parts.append('PR reached terminal state; no further waiting is needed.')
-    else:
-        parts.append('After handling this update, resume waiting in the background with:\n' + next_cmd)
-    return '\n\n'.join(parts)
+        return 0, '\n\n'.join(parts)
+    if terminal_state == 'needs-attention':
+        parts.append(
+            f'Terminal cleanup requires attention (terminal={terminal_outcome}); cleanup_result='
+            + json.dumps(cleanup_result, ensure_ascii=False)
+        )
+        return 2, '\n\n'.join(parts)
+    parts.append('After handling this update, resume waiting in the background with:\n' + next_cmd)
+    return 0, '\n\n'.join(parts)
 
 
 def _format_terminal_summary(name, author_state, runner_state):
@@ -231,9 +387,42 @@ def _format_inactive_diagnostic(name, root, runner_dir, active, author_state, ru
         if target.get('cleanup_result') is not None:
             detail['cleanup_result'] = target.get('cleanup_result')
     return (
-        f'{name} runner-inactive: the PR runner is not healthy or stopped before reaching a terminal state.\n'
+        f'{name} runner-inactive: the PR runner is not healthy, stopped before clean completion, or cleanup requires attention.\n'
         + json.dumps(detail, indent=2, ensure_ascii=False)
     )
+
+
+def _handle_unread(unread, next_cmd, author_state=None):
+    terminal_record = next((item for item in reversed(unread) if item.get('terminal') in ('merged', 'closed')), None)
+    if terminal_record is not None:
+        terminal_state = _classify_terminal(
+            terminal_record.get('terminal'),
+            terminal_record.get('cleanup_result'),
+            bool(terminal_record.get('disposable')),
+            bool(terminal_record.get('pool_slot')),
+            bool(terminal_record.get('has_checkout')),
+        )
+        return _format_delivery(
+            unread, next_cmd, terminal_state,
+            terminal_outcome=terminal_record.get('terminal'),
+            cleanup_result=terminal_record.get('cleanup_result'),
+        )
+    if any(_message_has_terminal_event(item['text']) for item in unread):
+        target = (author_state or {}).get('target') or {}
+        if target.get('terminal') in ('merged', 'closed'):
+            terminal_state = _classify_terminal(
+                target.get('terminal'),
+                target.get('cleanup_result'),
+                core.disposable_target(target),
+                bool(target.get('pool_slot')),
+                bool(target.get('checkout')),
+            )
+            return _format_delivery(
+                unread, next_cmd, terminal_state,
+                terminal_outcome=target.get('terminal'),
+                cleanup_result=target.get('cleanup_result'),
+            )
+    return _format_delivery(unread, next_cmd, 'none')
 
 
 def wait_for_event(root, session, name, runner_dir=None, interval=1.0, timeout=0.0, script=__file__):
@@ -242,38 +431,73 @@ def wait_for_event(root, session, name, runner_dir=None, interval=1.0, timeout=0
     lock_path = (runner_dir / 'run.lock') if runner_dir is not None else (root / 'run.lock')
     next_cmd = build_wait_command(script, session, name, state_dir=root, runner_dir=runner_dir)
     deadline = (time.monotonic() + timeout) if timeout > 0 else None
-    with wait_lock(root, name):
-        while True:
-            last_seq = read_cursor(root)
-            unread = read_outbox(root, last_seq)
-            if unread:
-                write_cursor(root, unread[-1]['seq'])
+    try:
+        with wait_lock(root, session, name, runner_dir=runner_dir):
+            initial_author = _read_json(root / 'state.json')
+            expected_takeovers = (
+                len(((initial_author.get('target') or {}).get('takeovers')) or [])
+                if isinstance(initial_author, dict) and initial_author.get('target') is not None else None
+            )
+            while True:
+                status, payload = consume_unread(
+                    root, session, name, runner_dir=runner_dir, expected_takeovers=expected_takeovers
+                )
+                if status == 'ownership-lost':
+                    return 2, f'{name} ownership-lost: {payload}'
+                if payload:
+                    return _handle_unread(payload, next_cmd, _read_json(root / 'state.json'))
+                live = lock_held(lock_path)
                 author_state = _read_json(root / 'state.json')
-                return 0, _format_delivery(unread, author_state, next_cmd)
-            live = lock_held(lock_path)
-            runner_state = _read_json(runner_dir / 'state.json') if runner_dir is not None else None
-            errored = bool(runner_state and runner_state.get('phase') == 'error')
-            if not live or errored:
-                unread = read_outbox(root, last_seq)
-                if unread:
-                    write_cursor(root, unread[-1]['seq'])
-                    author_state = _read_json(root / 'state.json')
-                    return 0, _format_delivery(unread, author_state, next_cmd)
-                author_state = _read_json(root / 'state.json')
+                runner_state = _read_json(runner_dir / 'state.json') if runner_dir is not None else None
+                mismatch = _ownership_mismatch(root, session, name, runner_dir, expected_takeovers=expected_takeovers)
+                if mismatch:
+                    return 2, f'{name} ownership-lost: {mismatch}'
                 target = (author_state or {}).get('target')
-                settled = _is_settled_terminal(target) if target is not None else (
-                    (runner_state or {}).get('phase') in ('merged', 'closed')
+                target_state = (
+                    _classify_terminal(
+                        target.get('terminal'),
+                        target.get('cleanup_result'),
+                        core.disposable_target(target),
+                        bool(target.get('pool_slot')),
+                        bool(target.get('checkout')),
+                    )
+                    if target is not None else 'none'
                 )
-                if not live and settled:
-                    return 0, _format_terminal_summary(name, author_state, runner_state)
-                return 2, _format_inactive_diagnostic(name, root, runner_dir, live, author_state, runner_state)
-            if deadline is not None and time.monotonic() >= deadline:
-                return 3, (
-                    f'{name} wait timed out after {timeout}s with no new events; runner is still active.\n'
-                    'Resume waiting in the background with:\n' + next_cmd
-                )
-            remaining = (deadline - time.monotonic()) if deadline is not None else interval
-            time.sleep(min(interval, max(0.0, remaining)))
+                errored = bool(runner_state and runner_state.get('phase') == 'error')
+                if not live or errored or target_state == 'needs-attention':
+                    status, payload = consume_unread(
+                        root, session, name, runner_dir=runner_dir, expected_takeovers=expected_takeovers
+                    )
+                    if status == 'ownership-lost':
+                        return 2, f'{name} ownership-lost: {payload}'
+                    if payload:
+                        return _handle_unread(payload, next_cmd, _read_json(root / 'state.json'))
+                    author_state = _read_json(root / 'state.json')
+                    runner_state = _read_json(runner_dir / 'state.json') if runner_dir is not None else None
+                    target = (author_state or {}).get('target')
+                    target_state = (
+                        _classify_terminal(
+                            target.get('terminal'),
+                            target.get('cleanup_result'),
+                            core.disposable_target(target),
+                            bool(target.get('pool_slot')),
+                            bool(target.get('checkout')),
+                        )
+                        if target is not None else 'none'
+                    )
+                    settled_without_author = target is None and (runner_state or {}).get('phase') in ('merged', 'closed')
+                    if not live and (target_state == 'cleaned' or settled_without_author):
+                        return 0, _format_terminal_summary(name, author_state, runner_state)
+                    return 2, _format_inactive_diagnostic(name, root, runner_dir, live, author_state, runner_state)
+                if deadline is not None and time.monotonic() >= deadline:
+                    return 3, (
+                        f'{name} wait timed out after {timeout}s with no new events; runner is still active.\n'
+                        'Resume waiting in the background with:\n' + next_cmd
+                    )
+                remaining = (deadline - time.monotonic()) if deadline is not None else interval
+                time.sleep(min(interval, max(0.0, remaining)))
+    except _OwnershipLost as error:
+        return 2, f'{name} ownership-lost: {error}'
 
 
 def main():
@@ -348,4 +572,8 @@ def main():
 
 
 if __name__ == '__main__':
+    def terminate(signum, frame):
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, terminate)
     main()

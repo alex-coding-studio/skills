@@ -203,21 +203,25 @@ def take_over(args, root, state, author):
     for key in ('checkout', 'cleanup', 'pool_slot', 'session_remote', 'foreground_cleanup', 'codex_executable'):
         target.pop(key, None)
     target['takeovers'] = target.get('takeovers', []) + [record]
-    with (store.root / 'state.lock').open('a') as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        store.persist(ledger)
-    try:
-        bind_author(store, module, author, args)
-    except BaseException:
+    with (store.root / 'outbox.lock').open('a') as outbox_lock:
+        fcntl.flock(outbox_lock, fcntl.LOCK_EX)
         with (store.root / 'state.lock').open('a') as handle:
             fcntl.flock(handle, fcntl.LOCK_EX)
-            (store.root / 'state.json').write_text(original)
-        raise
-    state['author_delivery'] = author
-    state['takeovers'] = state.get('takeovers', []) + [record]
-    if state['phase'] == 'error':
-        state['phase'] = 'starting'
-    save(root, state)
+            store.persist(ledger)
+        try:
+            bind_author(store, module, author, args)
+        except BaseException:
+            with (store.root / 'state.lock').open('a') as handle:
+                fcntl.flock(handle, fcntl.LOCK_EX)
+                (store.root / 'state.json').write_text(original)
+            raise
+        state['author_delivery'] = author
+        state['takeovers'] = state.get('takeovers', []) + [record]
+        if state['phase'] == 'error':
+            state['phase'] = 'starting'
+        save(root, state)
+    if previous.get('runtime') == 'antigravity':
+        author_adapter({'runtime': 'antigravity'}).invalidate_waiter(store.root)
     remote.shared.note(root, f"{state['pr']}: author delivery taken over by {author['runtime']} "
                              f"{author['session']} from {previous['runtime']} {previous['session']}")
 
@@ -670,6 +674,8 @@ def main():
                         help='Rebind this PR to a new author session and checkout or slot after its previous runner stopped')
     parser.add_argument('--codex', default='codex')
     args = parser.parse_args()
+    if args.author_runtime == 'antigravity' and args.session_remote:
+        parser.error('--session-remote is not supported for antigravity author delivery')
     try:
         refuse_slot_checkout(args.checkout)
     except ValueError as error:

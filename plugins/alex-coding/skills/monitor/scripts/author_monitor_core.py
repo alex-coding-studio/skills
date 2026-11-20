@@ -29,8 +29,8 @@ def cleanup_module():
     return module
 
 
-def cleanup_target(target, current):
-    return cleanup_module().cleanup_target(target, current)
+def cleanup_target(target, current, role=None):
+    return cleanup_module().cleanup_target(target, current, role=role)
 
 
 def disposable_target(target):
@@ -351,7 +351,7 @@ class Store:
         ownership = None
         if checkout:
             try:
-                ownership = cleanup_module().bind_cleanup(checkout, repository, pr)
+                ownership = cleanup_module().bind_cleanup(checkout, repository, pr, role=self.role)
             except Exception as error:
                 ownership = dict(owned=False, reason=str(error))
         if author and author.casefold() != actual.casefold():
@@ -406,8 +406,7 @@ class Store:
 
     @staticmethod
     def _stop_when_settled(target):
-        if (disposable_target(target) and target.get('terminal') == 'merged'
-                and (target.get('cleanup_result') or {}).get('status') in ('partial', 'interrupted', 'error')):
+        if target.get('terminal') == 'merged' and retryable_cleanup(target):
             target['stopped'] = False
             return
         if target['terminal'] and all(e['status'] in ('handled', 'settled') for e in target['events'].values()):
@@ -421,7 +420,7 @@ class Store:
         target['cleanup_result'] = dict(status='interrupted', reason='Cleanup attempt was interrupted; inspect before any retry')
         self.persist(data)
         try:
-            outcome = cleanup_target(copy.deepcopy(target), result) if target.get('checkout') else dict(
+            outcome = cleanup_target(copy.deepcopy(target), result, role=self.role) if target.get('checkout') else dict(
                 status='preserved', reason='No explicit task-owned checkout was registered')
         except Exception as error:
             outcome = dict(status='error', reason=type(error).__name__)
@@ -644,7 +643,7 @@ def runner_done(store, current):
     target = current['target']
     return bool(target and target['terminal'] and not needs_snapshot(store, current)
                 and not awaiting_cleanup(store, current)
-                and (target.get('cleanup_result') or {}).get('status') not in ('partial', 'interrupted', 'error')
+                and not retryable_cleanup(target)
                 and (current['batch'] is not None
                      or all(e['status'] in ('handled', 'settled') for e in target['events'].values())))
 

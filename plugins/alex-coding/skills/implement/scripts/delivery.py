@@ -98,6 +98,8 @@ def review_command(args):
 
 
 def start(args):
+    if args.runtime == 'antigravity' and args.session_remote:
+        raise ValueError('--session-remote is not supported for antigravity author delivery')
     if not (args.checkout or args.slot) or not args.reviewer:
         raise ValueError('start requires a checkout or pool slot and an independent reviewer')
     if args.acceptance_file and not args.acceptance_file.read_text().strip():
@@ -184,6 +186,8 @@ def start_monitor(args, exemption):
 
 
 def open_pr(args):
+    if args.runtime == 'antigravity' and args.session_remote:
+        raise ValueError('--session-remote is not supported for antigravity author delivery')
     args.checkout = args.checkout or args.slot
     if not all([args.repository, args.checkout, args.title, args.body_file, args.reviewer]):
         raise ValueError('open requires repository, checkout, title, body file and reviewer')
@@ -393,6 +397,8 @@ def main():
     try:
         if args.allow_pending_ci and args.action != 'pin-merge':
             raise ValueError('--allow-pending-ci is only available for pin-merge')
+        if args.runtime == 'antigravity' and args.session_remote:
+            raise ValueError('--session-remote is not supported for antigravity author delivery')
         review.refuse_slot_checkout(args.checkout)
         if args.action != 'open' and not args.pr:
             raise ValueError(f'{args.action} requires the exact PR')

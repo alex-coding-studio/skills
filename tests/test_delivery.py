@@ -429,6 +429,28 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(command[5], 'owner/repo#1')
         self.assertEqual(command[-2:], ['--runtime', 'antigravity'])
 
+    def test_antigravity_session_remote_is_rejected_before_any_pr_creation_or_state(self):
+        for argv in (
+            ['delivery.py', 'open', '--runtime', 'antigravity', '--session', 'conv-1',
+             '--repository', 'owner/repo', '--checkout', '/tmp/wt', '--title', 'Fix',
+             '--body-file', __file__, '--reviewer', 'reviewer', '--session-remote', 'unix:///tmp/a.sock'],
+            ['delivery.py', 'start', '--runtime', 'antigravity', '--session', 'conv-1',
+             '--pr', 'owner/repo#1', '--checkout', '/tmp/wt', '--reviewer', 'reviewer',
+             '--session-remote', 'unix:///tmp/a.sock'],
+        ):
+            with self.subTest(action=argv[1]), patch.object(delivery.sys, 'argv', argv), \
+                    patch.object(delivery, 'invoke') as invoke, \
+                    patch.object(delivery, 'pin_check') as pin_check, \
+                    patch.object(delivery.subprocess, 'run') as sub, \
+                    patch('builtins.print') as printed:
+                with self.assertRaises(SystemExit) as exited:
+                    delivery.main()
+                self.assertEqual(exited.exception.code, 1)
+                self.assertIn('--session-remote is not supported', printed.call_args.args[0])
+                invoke.assert_not_called()
+                pin_check.assert_not_called()
+                sub.assert_not_called()
+
 
 class PendingCIMergeTests(unittest.TestCase):
     def setUp(self):

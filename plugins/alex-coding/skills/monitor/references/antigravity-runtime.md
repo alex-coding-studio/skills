@@ -47,10 +47,10 @@ Each delivery appended to `outbox.jsonl` has the form:
 
 `wait` enforces single-waiter safety via a non-blocking `wait.lock`; a duplicate concurrent `wait` exits immediately with status `1`.
 
-- **Zero race:** if records with `seq > cursor.json.last_seq` already exist when `wait` starts, `wait` advances `cursor.json` atomically to the latest sequence number, prints the latest full-state delivery (noting how many updates coalesced if more than one arrived), and exits `0` immediately.
-- **Next wait:** when the PR has not reached a settled terminal state, `wait` prints the exact next `wait` command to run in the background after handling the feedback.
-- **Terminal completion:** when the PR merges with a `disposable-v1` worktree, the runner automatically synchronizes the primary default checkout, force-removes the task worktree, deletes the merged local branch, discards its Xcode DerivedData, and writes the final `merged + cleanup` event to `outbox.jsonl` before stopping. `wait` prints the terminal state and `cleanup_result` and exits `0` without emitting a next `wait` command. If the runner already exited terminally with no unread outbox records, `wait` still prints a terminal + cleanup summary and exits `0`.
-- **Dead or errored runner:** if the runner stops non-terminally or enters `phase == 'error'`, and a final re-check finds no unread outbox record, `wait` prints a `runner-inactive` diagnostic (including `phase`, `last_error`, `last_transport_error`, and log path) and exits `2` so the session wakes up immediately instead of hanging.
+- **Zero race:** if records with `seq > cursor.json.last_seq` already exist when `wait` starts, `wait` verifies session and PR ownership under `outbox.lock`, advances `cursor.json` atomically to the latest sequence number, prints the latest full-state delivery (preserving all earlier unread event lines when multiple updates coalesced), and exits `0` immediately.
+- **Next wait:** when the consumed record(s) do not carry a settled terminal state, `wait` prints the exact next `wait` command to run in the background after handling the feedback.
+- **Terminal completion:** when the PR merges with a `disposable-v1` worktree, the runner automatically verifies the repository/branch under `gh_as bot`, synchronizes the primary default checkout, force-removes the task worktree, deletes the merged local branch, discards its Xcode DerivedData, and writes the final `merged + cleanup` event to `outbox.jsonl` before stopping. `wait` exits `0` only when the terminal outcome actually cleaned/released (or closed an ordinary worktree) without requiring manual attention.
+- **Cleanup attention, dead/errored runner, or takeover:** if post-merge cleanup is `preserved`, fails with `retryable: false` (such as an unowned Git index lock), fails to release a pool slot, or if the runner stops non-terminally / enters `phase == 'error'` / is taken over by another session or runtime, `wait` prints the actual cleanup result or diagnostic and exits `2` immediately (while continuing to wait when a disposable cleanup failure is still `retryable: true` and the runner is live).
 - **Timeout:** passing `--timeout <seconds>` (default `0`, unlimited) exits `3` if no event arrives before the deadline while the runner remains live.
 
 ## Events and state delivery
@@ -72,7 +72,7 @@ python3 <monitor>/scripts/antigravity_reply.py owner/repo 123 \
   --expected-login <verified-writer-login> --body-file <file> --inline-comment <comment-id>
 ```
 
-This helper appends `From Antigravity 🤖`, validates that an inline reply belongs to this PR, requires the expected writer to match the real PR author, and verifies `gh auth status`, repository push permission and the actual API login immediately before POST.
+This helper uses `gh_as bot` for all GitHub reads, permission/identity checks, and the POST write (refusing to fall back to bare `gh` if `gh_as` is unavailable), appends `From Antigravity 🤖`, validates that an inline reply belongs to this PR, requires the expected writer to match the real PR author, and verifies repository push permission and the actual API login immediately before POST.
 
 ## Complete after the Agent merges
 
