@@ -8,11 +8,11 @@ import time
 import uuid
 
 
-MODELS = {'codex': ('gpt-6.1-sol', 'gpt-6-luna'),
+MODELS = {'codex': ('gpt-6.2-sol', 'gpt-6-luna'),
           'claude': ('claude-opus-5-5', 'claude-sonnet-5-5')}
 LEGACY_MODELS = {'codex': ('gpt-5.6-sol', 'gpt-5.6-luna'),
                  'claude': ('claude-opus-5', 'claude-sonnet-5')}
-PINNED_MODELS = {'codex': (('gpt-6-sol',), ()),
+PINNED_MODELS = {'codex': (('gpt-6-sol', 'gpt-6.1-sol'), ()),
                  'claude': ((), ())}
 
 

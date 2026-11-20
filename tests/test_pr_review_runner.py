@@ -567,7 +567,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(command[command.index('--effort') + 1], 'high')
 
     def test_new_sessions_use_the_same_review_models_as_resumes(self):
-        for name, model in [('codex', 'gpt-6.1-sol'), ('claude', 'claude-opus-5-5')]:
+        for name, model in [('codex', 'gpt-6.2-sol'), ('claude', 'claude-opus-5-5')]:
             state = {'runtime': name, 'executable': '/' + name, 'session': None, 'next_session': 'new',
                      'model': model}
             initial = runtime.command(state, Path('/state'), Path('/state/result'))
@@ -597,14 +597,16 @@ class RuntimeTests(unittest.TestCase):
         command = runtime.command(state, Path('/state'), Path('/state/result'))
         self.assertEqual(command[command.index('--model') + 1], 'claude-sonnet-5')
 
-    def test_codex_review_pinned_to_gpt_6_sol_keeps_its_model(self):
-        state = {'runtime': 'codex', 'executable': '/codex', 'session': 'existing',
-                 'complexity': 'high', 'model': 'gpt-6-sol'}
-        command = runtime.command(state, Path('/state'), Path('/state/result'))
-        self.assertEqual(command[command.index('--model') + 1], 'gpt-6-sol')
+    def test_codex_review_pinned_to_previous_sol_models_keeps_its_model(self):
+        for model in ['gpt-6-sol', 'gpt-6.1-sol']:
+            with self.subTest(model=model):
+                state = {'runtime': 'codex', 'executable': '/codex', 'session': 'existing',
+                         'complexity': 'high', 'model': model}
+                command = runtime.command(state, Path('/state'), Path('/state/result'))
+                self.assertEqual(command[command.index('--model') + 1], model)
 
     def test_regular_review_effort_is_bounded_at_high(self):
-        for name, model in [('codex', 'gpt-6.1-sol'), ('claude', 'claude-opus-5-5')]:
+        for name, model in [('codex', 'gpt-6.2-sol'), ('claude', 'claude-opus-5-5')]:
             for effort in ['low', 'medium', 'high']:
                 self.assertEqual(runtime.review_settings(name, effort), {'model': model, 'effort': effort})
             with self.assertRaises(ValueError):
