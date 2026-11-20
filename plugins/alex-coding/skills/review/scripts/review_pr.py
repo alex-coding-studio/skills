@@ -53,6 +53,8 @@ def author_adapter(author):
 def author_owner(author):
     if author['runtime'] == 'codex':
         base = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
+    elif author['runtime'] == 'antigravity':
+        base = Path(os.environ.get('ANTIGRAVITY_HOME') or Path.home() / '.gemini/antigravity')
     else:
         base = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
     return base / ('state/project-pr-monitor' if author.get('slot') else 'state/author-pr-monitor') / author['session']
@@ -62,16 +64,23 @@ def author_store(root, state):
     author = state['author_delivery']
     module = author_adapter(author)
     script = str(author_script(author))
-    delivery = 'session' if author.get('remote') else 'queued' if author['runtime'] == 'codex' else 'stdout'
+    outbox_root = root / 'author'
+    if author['runtime'] == 'antigravity':
+        delivery = 'outbox'
+    else:
+        delivery = 'session' if author.get('remote') else 'queued' if author['runtime'] == 'codex' else 'stdout'
     if author.get('slot'):
         runtime_adapter = module.slot_runtime(author['runtime'], author['session'], script, delivery,
-                                              author.get('remote'), author.get('executable'))
-        return module.ProjectStore(root / 'author', author['session'], state['pr'], runtime_adapter), module
+                                              author.get('remote'), author.get('executable'),
+                                              outbox_root=outbox_root)
+        return module.ProjectStore(outbox_root, author['session'], state['pr'], runtime_adapter), module
     if author['runtime'] == 'codex':
         runtime_adapter = module.Runtime(author['session'], script, author.get('executable'), delivery, author.get('remote'))
+    elif author['runtime'] == 'antigravity':
+        runtime_adapter = module.Runtime(author['session'], script, outbox_root)
     else:
         runtime_adapter = module.Runtime(author['session'], script, delivery, author.get('remote'))
-    return module.core.Store(root / 'author', author['session'], state['pr'], runtime_adapter), module
+    return module.core.Store(outbox_root, author['session'], state['pr'], runtime_adapter), module
 
 
 def author_poll(store, module):
@@ -88,13 +97,33 @@ def run_command(root, pr):
                        '--state-base', str(root.parents[2])])
 
 
+def antigravity_wait_command(root, state):
+    author = state.get('author_delivery') or {}
+    if author.get('runtime') != 'antigravity':
+        return None
+    script = MONITOR / 'antigravity_pr_monitor.py'
+    return shlex.join([sys.executable, str(script.resolve()), '--session', author['session'],
+                       '--pr', state['pr'], '--state-dir', str((root / 'author').resolve()),
+                       'wait', '--runner-dir', str(root.resolve())])
+
+
+def has_unread_outbox(root, state):
+    author = state.get('author_delivery') or {}
+    if author.get('runtime') != 'antigravity':
+        return False
+    module = author_adapter({'runtime': 'antigravity'})
+    return bool(module.unread_outbox(root / 'author'))
+
+
 def attach_author(args, root, state):
     if args.author_runtime == 'codex':
         session = str(uuid.UUID(args.author_session))
     elif re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', args.author_session or ''):
         session = args.author_session
     else:
-        raise ValueError('invalid existing Claude session identity')
+        raise ValueError(f'invalid existing {args.author_runtime} session identity')
+    if args.author_runtime == 'antigravity' and args.session_remote:
+        raise ValueError('--session-remote is not supported for antigravity author delivery')
     author = {'runtime': args.author_runtime, 'session': session, 'remote': args.session_remote,
               'slot': str(args.slot.resolve()) if args.slot else None}
     author['checkout'] = str(args.checkout.resolve()) if args.checkout and not author['slot'] else None
@@ -632,7 +661,7 @@ def main():
     parser.add_argument('--interval', type=int, default=45)
     parser.add_argument('--worker-timeout', type=int, default=1800)
     parser.add_argument('--once', action='store_true')
-    parser.add_argument('--author-runtime', choices=['codex', 'claude'])
+    parser.add_argument('--author-runtime', choices=['codex', 'claude', 'antigravity'])
     parser.add_argument('--author-session')
     parser.add_argument('--checkout', type=Path)
     parser.add_argument('--slot', type=Path)
@@ -683,14 +712,19 @@ def main():
                 save(root, state)
             if state['phase'] not in core.TERMINAL:
                 state = launch(root, pr)
+    active = running(root)
+    wait_cmd = (antigravity_wait_command(root, state)
+                if (state.get('author_delivery') or {}).get('runtime') == 'antigravity'
+                and (active or has_unread_outbox(root, state)) else None)
     print(json.dumps({key: state.get(key) for key in ('pr', 'phase', 'runtime', 'rounds', 'round_limit',
                                                     'session', 'pid', 'started_at', 'last_review_url',
                                                     'last_transport_error', 'last_usage', 'complexity')} | {
                                                         'review_settings': runtime.settings_for(state),
-                                                        'active': running(root), 'state_directory': str(root),
+                                                        'active': active, 'state_directory': str(root),
                                                         'author_delivery': (state.get('author_delivery') or {}).get('runtime')}
           | ({'monitor_command': run_command(root, pr)}
-             if stdout_delivery(state) and not running(root) and state['phase'] not in core.TERMINAL else {}), indent=2))
+             if stdout_delivery(state) and not active and state['phase'] not in core.TERMINAL else {})
+          | ({'wait_command': wait_cmd} if wait_cmd else {}), indent=2))
 
 
 if __name__ == '__main__':

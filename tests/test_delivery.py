@@ -27,9 +27,13 @@ class DeliveryTests(unittest.TestCase):
             command = delivery.review_command(SimpleNamespace(**{**vars(args), **changes}))
             return command[command.index('--runtime') + 1]
         self.assertEqual(runtime(), 'claude')
+        self.assertEqual(runtime(runtime='antigravity'), 'codex')
         with patch.object(delivery.review, 'configured_runtime', return_value='codex'):
             self.assertEqual(runtime(), 'codex')
             self.assertEqual(runtime(review_runtime='claude'), 'claude')
+            self.assertEqual(runtime(runtime='antigravity', review_runtime='claude'), 'claude')
+        with patch.object(delivery.review, 'configured_runtime', return_value='claude'):
+            self.assertEqual(runtime(runtime='antigravity'), 'claude')
 
     def test_pin_only_accepts_lockfiles_and_version_lines_only(self):
         resolved = {'filename': 'App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved',
@@ -377,6 +381,53 @@ class DeliveryTests(unittest.TestCase):
             delivery.open_pr(args)
             self.assertEqual(args.pr, 'owner/repo#1')
             self.assertFalse(any('create' in call.args[0] for call in invoke.call_args_list))
+
+    def test_antigravity_reviewed_start_defaults_reviewer_to_codex_and_returns_wait_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = delivery.parser().parse_args(['start', '--runtime', 'antigravity', '--session', 'conv-1',
+                '--pr', 'owner/repo#1', '--checkout', directory, '--reviewer', 'reviewer'])
+            wait_cmd = "python3 antigravity_pr_monitor.py --session conv-1 --pr owner/repo#1 wait --runner-dir /state"
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-required'}), \
+                    patch.object(delivery, 'invoke', return_value={'active': True, 'wait_command': wait_cmd}) as invoke, \
+                    patch.object(delivery.subprocess, 'Popen') as popen:
+                result = delivery.start(args)
+            self.assertEqual(result['status'], 'started')
+            self.assertEqual(result['wait_command'], wait_cmd)
+            self.assertIn('WaitMsBeforeAsync=500', result['next'])
+            command = invoke.call_args.args[0]
+            self.assertEqual(command[command.index('--runtime') + 1], 'codex')
+            self.assertEqual(command[command.index('--author-runtime') + 1], 'antigravity')
+            popen.assert_not_called()
+
+    def test_antigravity_review_exempt_start_launches_standalone_monitor_and_returns_wait_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = delivery.parser().parse_args(['start', '--runtime', 'antigravity', '--session', 'conv-1',
+                '--pr', 'owner/repo#1', '--checkout', directory, '--reviewer', 'reviewer'])
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'pin_check', return_value={'status': 'review-exempt', 'head': 'h'}), \
+                    patch.object(delivery, 'monitor_live', side_effect=[False, True]), \
+                    patch.object(delivery, 'invoke', return_value={}) as invoke, \
+                    patch.object(delivery.subprocess, 'Popen') as popen:
+                popen.return_value.poll.return_value = None
+                result = delivery.start(args)
+            self.assertEqual(result['status'], 'review-exempt')
+            self.assertTrue(result['monitor_active'])
+            self.assertFalse(result['reviewer_active'])
+            self.assertIn('antigravity_pr_monitor.py', result['wait_command'])
+            self.assertIn(' wait', result['wait_command'])
+            self.assertIn('WaitMsBeforeAsync=500', result['next'])
+            popen.assert_called_once()
+            self.assertIn('antigravity_pr_monitor.py', invoke.call_args.args[0][1])
+
+    def test_antigravity_slot_monitor_command_keeps_monitor_live_argument_positions(self):
+        args = delivery.parser().parse_args(['start', '--runtime', 'antigravity', '--session', 'conv-1',
+            '--pr', 'owner/repo#1', '--slot', '/tmp/slot-1', '--reviewer', 'reviewer'])
+        command = delivery.monitor_command(args)
+        self.assertTrue(command[1].endswith('project_pr_monitor.py'))
+        self.assertEqual(command[3], 'conv-1')
+        self.assertEqual(command[5], 'owner/repo#1')
+        self.assertEqual(command[-2:], ['--runtime', 'antigravity'])
 
 
 class PendingCIMergeTests(unittest.TestCase):

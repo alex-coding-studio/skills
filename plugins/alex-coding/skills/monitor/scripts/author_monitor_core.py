@@ -427,9 +427,16 @@ class Store:
             outcome = dict(status='error', reason=type(error).__name__)
         target['cleanup_result'] = outcome
         if outcome.get('status') == 'cleaned':
-            for existing in target['events'].values():
-                if not disposable_target(target) or existing['kind'] == 'terminal':
-                    existing.update(status='settled', disposition='merged-cleanup')
+            if not explicit and getattr(self.runtime, 'deliver_cleaned_terminal', False):
+                for existing in target['events'].values():
+                    if not disposable_target(target) and existing['kind'] != 'terminal':
+                        existing.update(status='settled', disposition='merged-cleanup')
+                    elif existing['kind'] == 'terminal' and existing['status'] == 'pending':
+                        existing['cleanup'] = outcome
+            else:
+                for existing in target['events'].values():
+                    if not disposable_target(target) or existing['kind'] == 'terminal':
+                        existing.update(status='settled', disposition='merged-cleanup')
             self._stop_when_settled(target)
         else:
             for existing in target['events'].values():

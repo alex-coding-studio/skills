@@ -41,6 +41,12 @@ def monitor_root(args):
         identity = str(uuid.UUID(args.session))
         base = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
         slug = review.remote.shared.hashed_slug(name)
+    elif args.runtime == 'antigravity':
+        if not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', args.session):
+            raise ValueError('invalid existing Antigravity session identity')
+        identity = args.session
+        base = Path(os.environ.get('ANTIGRAVITY_HOME') or Path.home() / '.gemini/antigravity')
+        slug = review.remote.shared.readable_slug(name)
     else:
         if not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', args.session):
             raise ValueError('invalid existing Claude session identity')
@@ -51,10 +57,22 @@ def monitor_root(args):
 
 
 def monitor_command(args):
-    script = (PLUGIN / 'skills/project-monitor/scripts/project_pr_monitor.py' if args.slot
-              else PLUGIN / f'skills/monitor/scripts/{args.runtime}_pr_monitor.py')
+    name = review.remote.shared.canonical(args.pr)
+    if args.slot:
+        script = PLUGIN / 'skills/project-monitor/scripts/project_pr_monitor.py'
+        command = [sys.executable, str(script), '--thread' if args.runtime == 'codex' else '--session',
+                   args.session, '--pr', name]
+        return command + (['--runtime', 'antigravity'] if args.runtime == 'antigravity' else [])
+    script = PLUGIN / f'skills/monitor/scripts/{args.runtime}_pr_monitor.py'
     return [sys.executable, str(script), '--thread' if args.runtime == 'codex' else '--session',
-            args.session, '--pr', review.remote.shared.canonical(args.pr)]
+            args.session, '--pr', name]
+
+
+def standalone_wait_command(args, root):
+    script = PLUGIN / 'skills/monitor/scripts/antigravity_pr_monitor.py'
+    return shlex.join([sys.executable, str(script.resolve()), '--session', args.session,
+                       '--pr', review.remote.shared.canonical(args.pr),
+                       '--state-dir', str(Path(root).expanduser().resolve()), 'wait'])
 
 
 def monitor_live(root, command):
@@ -69,9 +87,10 @@ def monitor_live(root, command):
 
 
 def review_command(args):
+    default_runtime = 'codex' if args.runtime == 'antigravity' else args.runtime
     arguments = [sys.executable, str(PLUGIN / 'skills/review/scripts/review_pr.py'),
                  'start', '--pr', args.pr, '--runtime',
-                 args.review_runtime or review.configured_runtime(args.pr) or args.runtime, '--reviewer', args.reviewer,
+                 args.review_runtime or review.configured_runtime(args.pr) or default_runtime, '--reviewer', args.reviewer,
                  '--max-rounds', str(args.max_rounds)]
     if args.acceptance_file:
         arguments += ['--acceptance-file', str(args.acceptance_file.resolve())]
@@ -103,11 +122,18 @@ def start(args):
         return {'status': 'native-monitor-required', 'pr': args.pr, 'reviewer_active': False,
                 'monitor_command': result['monitor_command'], 'persistent': True,
                 'next': 'Start this command with the native Monitor tool, then repeat start.'}
-    return {'status': 'started' if result['active'] else 'reviewer-inactive', 'pr': args.pr,
-            'monitor_active': result['active'], 'reviewer_active': result['active'], 'reviewer': result}
+    receipt = {'status': 'started' if result['active'] else 'reviewer-inactive', 'pr': args.pr,
+               'monitor_active': result['active'], 'reviewer_active': result['active'], 'reviewer': result}
+    if args.runtime == 'antigravity' and result.get('wait_command'):
+        receipt['wait_command'] = result['wait_command']
+        receipt['next'] = ('Run wait_command as a background command (WaitMsBeforeAsync=500) '
+                           'and end your turn to wake on PR feedback or post-merge cleanup.')
+    return receipt
 
 
 def start_monitor(args, exemption):
+    if args.runtime == 'antigravity' and args.session_remote:
+        raise ValueError('--session-remote is not supported for antigravity author delivery')
     command = monitor_command(args)
     root = monitor_root(args)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -140,11 +166,21 @@ def start_monitor(args, exemption):
                     raise RuntimeError(f'monitor startup is unverified; inspect {root / "startup.log"}')
                 time.sleep(0.1)
         if exemption['status'] == 'review-exempt':
-            return {**exemption, 'monitor_active': True, 'reviewer_active': False,
-                    'next': 'Merge with pin-merge at this head once checks pass.'}
+            receipt = {**exemption, 'monitor_active': True, 'reviewer_active': False,
+                       'next': 'Merge with pin-merge at this head once checks pass.'}
+            if args.runtime == 'antigravity':
+                receipt['wait_command'] = standalone_wait_command(args, root)
+                receipt['next'] = ('Run wait_command as a background command (WaitMsBeforeAsync=500) '
+                                   'and end your turn, or merge with pin-merge at this head once checks pass.')
+            return receipt
         result = invoke(review_command(args))
-        return {'status': 'started' if result['active'] else 'reviewer-inactive', 'pr': args.pr,
-                'monitor_active': True, 'reviewer_active': result['active'], 'reviewer': result}
+        receipt = {'status': 'started' if result['active'] else 'reviewer-inactive', 'pr': args.pr,
+                   'monitor_active': True, 'reviewer_active': result['active'], 'reviewer': result}
+        if args.runtime == 'antigravity':
+            receipt['wait_command'] = standalone_wait_command(args, root)
+            receipt['next'] = ('Run wait_command as a background command (WaitMsBeforeAsync=500) '
+                               'and end your turn to wake on PR feedback or post-merge cleanup.')
+        return receipt
 
 
 def open_pr(args):
@@ -329,7 +365,7 @@ def pin_merge(args):
 def parser():
     result = argparse.ArgumentParser(description='Open a PR and start its single runner, or check and merge a declared review exemption.')
     result.add_argument('action', choices=['open', 'start', 'pin-check', 'pin-merge'])
-    result.add_argument('--runtime', choices=['codex', 'claude'])
+    result.add_argument('--runtime', choices=['codex', 'claude', 'antigravity'])
     result.add_argument('--session')
     result.add_argument('--pr')
     result.add_argument('--repository')

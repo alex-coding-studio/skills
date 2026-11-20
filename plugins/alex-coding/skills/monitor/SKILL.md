@@ -13,6 +13,7 @@ A PR opened through Implement's delivery helper gets author delivery from its si
 
 - **Codex:** read [runtime.md](references/runtime.md). Submit directly to the existing session's native queue, or its host-provided persistent endpoint. The host owns scheduling; do not inspect desktop busy/idle state. Never invent an endpoint, replacement executor or task.
 - **Claude:** read [claude-runtime.md](references/claude-runtime.md). Submit to the host-provided persistent endpoint when the execution host supplies one; otherwise use the session's own persistent `Monitor` tool, where background Bash does not provide per-event notification. Never invent an endpoint.
+- **Antigravity:** read [antigravity-runtime.md](references/antigravity-runtime.md). Run the detached listener/runner with local outbox delivery (`outbox.jsonl`), then start its single-event `wait` command as a background command and end the turn so Antigravity wakes automatically on feedback, runner failure, or post-merge cleanup. Never invent a `--session-remote` endpoint.
 
 Read only the runtime in use. Report unsupported transport, failed startup or rejected submissions accurately. Do not substitute a Scheduled task or silently switch hosts. Codex queue submission is the normal authorized delivery path; no additional approval for queued mode is needed.
 
@@ -26,7 +27,7 @@ Use the runtime's startup procedure and verify the stored target, process and lo
 
 ## Wait by ending the turn
 
-Once the listener is verified and any required reviewer has started, report and end the turn. Never wait inside a turn: no sleep loops and no repeated polling of PR, review, CI or monitor status to see whether something arrived. Codex holds queued notifications until the current turn ends, so an in-turn wait delays them and leaves stale notifications behind. A late notification describes an older state; refetch the PR instead of reprocessing it.
+Once the listener is verified and any required reviewer has started, report and end the turn (for Antigravity, after starting the returned `wait_command` in the background). Never wait inside a turn: no sleep loops and no repeated polling of PR, review, CI or monitor status to see whether something arrived. Codex holds queued notifications until the current turn ends, so an in-turn wait delays them and leaves stale notifications behind. A late notification describes an older state; refetch the PR instead of reprocessing it.
 
 ## Handle events and finish
 

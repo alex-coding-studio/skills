@@ -22,6 +22,7 @@ def load(name, path):
 core = load('author_monitor_core', MONITOR / 'author_monitor_core.py')
 claude = load('claude_pr_monitor', MONITOR / 'claude_pr_monitor.py')
 codex = load('codex_pr_monitor', MONITOR / 'codex_pr_monitor.py')
+antigravity = load('antigravity_pr_monitor', MONITOR / 'antigravity_pr_monitor.py')
 pool = load('worktree_pool', HERE / 'worktree_pool.py')
 
 
@@ -34,9 +35,24 @@ class CodexSlotRuntime(codex.Runtime):
         return True
 
 
-def slot_runtime(runtime, identity, script, delivery=None, remote=None, executable=None):
+class AntigravitySlotRuntime(antigravity.Runtime):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.foreground_cleanup = False
+
+    @property
+    def identity_arguments(self):
+        return ['--runtime', 'antigravity', '--session', self.session]
+
+    def may_clean(self, target):
+        return True
+
+
+def slot_runtime(runtime, identity, script, delivery=None, remote=None, executable=None, outbox_root=None):
     if runtime == 'codex':
         return CodexSlotRuntime(identity, script, executable, delivery or 'queued', remote)
+    if runtime == 'antigravity':
+        return AntigravitySlotRuntime(identity, script, outbox_root)
     return claude.Runtime(identity, script, delivery or 'stdout', remote)
 
 
@@ -125,10 +141,12 @@ class ProjectStore(core.Store):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='One PR listener per pull request for a Claude Project thread or Codex worker in a pooled worktree slot')
+    parser = argparse.ArgumentParser(description='One PR listener per pull request for a Claude Project thread, Codex worker or Antigravity session in a pooled worktree slot')
     identity = parser.add_mutually_exclusive_group(required=True)
-    identity.add_argument('--session', help='Claude session identity')
+    identity.add_argument('--session', help='Claude or Antigravity session identity')
     identity.add_argument('--thread', help='Existing Codex task UUID')
+    parser.add_argument('--runtime', choices=('claude', 'codex', 'antigravity'),
+                        help='Author runtime; defaults to codex with --thread, otherwise claude')
     parser.add_argument('--pr', required=True, help='owner/repo#number or a pull request URL')
     parser.add_argument('--state-dir', type=Path)
     commands = parser.add_subparsers(dest='command', required=True)
@@ -146,8 +164,8 @@ def main():
     run = commands.add_parser('run')
     run.add_argument('--interval', type=int, default=45)
     run.add_argument('--once', action='store_true')
-    run.add_argument('--delivery', choices=('stdout', 'queued', 'session'),
-                     help='Defaults to the owning session endpoint when bound, otherwise stdout (Claude) or the native queue (Codex)')
+    run.add_argument('--delivery', choices=('stdout', 'queued', 'session', 'outbox'),
+                     help='Defaults to the owning session endpoint when bound, otherwise stdout (Claude), outbox (Antigravity) or the native queue (Codex)')
     run.add_argument('--codex', default='codex')
     args = parser.parse_args()
     try:
@@ -155,6 +173,8 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     if args.thread:
+        if args.runtime not in (None, 'codex'):
+            parser.error('--thread is only valid for codex')
         try:
             args.thread = str(uuid.UUID(args.thread))
         except ValueError:
@@ -164,15 +184,26 @@ def main():
         root = args.state_dir or owner / core.hashed_slug(name)
         store = ProjectStore(root, identity, name, slot_runtime('codex', identity, __file__))
     else:
+        if args.runtime == 'codex':
+            parser.error('codex requires --thread, not --session')
         if not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', args.session):
             parser.error('--session must be a stable identifier of letters, digits, dot, underscore or hyphen')
-        identity, adapter = args.session, claude
-        base = os.environ.get('CLAUDE_CONFIG_DIR') or str(Path.home() / '.claude')
-        owner = Path(base) / 'state' / 'project-pr-monitor' / identity
-        root = args.state_dir or owner / core.readable_slug(name)
-        store = ProjectStore(root, identity, name, slot_runtime('claude', identity, __file__))
+        if args.runtime == 'antigravity':
+            identity, adapter = args.session, antigravity
+            base = os.environ.get('ANTIGRAVITY_HOME') or str(Path.home() / '.gemini' / 'antigravity')
+            owner = Path(base) / 'state' / 'project-pr-monitor' / identity
+            root = (args.state_dir or owner / core.readable_slug(name)).expanduser().resolve()
+            store = ProjectStore(root, identity, name, slot_runtime('antigravity', identity, __file__, outbox_root=root))
+        else:
+            identity, adapter = args.session, claude
+            base = os.environ.get('CLAUDE_CONFIG_DIR') or str(Path.home() / '.claude')
+            owner = Path(base) / 'state' / 'project-pr-monitor' / identity
+            root = args.state_dir or owner / core.readable_slug(name)
+            store = ProjectStore(root, identity, name, slot_runtime('claude', identity, __file__))
     try:
         if args.command == 'register':
+            if args.session_remote and adapter is antigravity:
+                parser.error('--session-remote is not supported for antigravity')
             print('registered' if store.register_slot(args.slot, args.author) else 'already registered')
             if args.session_remote:
                 adapter.bind_session_route(store, owner, args.session_remote)
@@ -198,7 +229,14 @@ def main():
             target = store.read()['target']
             if target is None or not target.get('pool_slot'):
                 parser.error('register this pull request with its pool slot before running')
+            if adapter is antigravity:
+                if args.delivery not in (None, 'outbox'):
+                    parser.error('antigravity uses outbox delivery')
+                core.run(store, args.interval, args.once)
+                return
             if adapter is codex:
+                if args.delivery == 'outbox':
+                    parser.error('outbox delivery is for Antigravity sessions')
                 codex.configure_delivery(store, owner, args, parser)
                 configured = store.runtime
                 store.runtime = slot_runtime('codex', identity, __file__, configured.delivery_name,
@@ -209,6 +247,8 @@ def main():
             delivery = args.delivery or ('session' if remote else 'stdout')
             if delivery == 'queued':
                 parser.error('queued delivery is for Codex workers')
+            if delivery == 'outbox':
+                parser.error('outbox delivery is for Antigravity sessions')
             if remote and delivery != 'session':
                 parser.error('a bound session must use its owning endpoint, not stdout delivery')
             if delivery == 'session':
