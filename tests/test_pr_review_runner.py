@@ -747,6 +747,8 @@ class RuntimeTests(unittest.TestCase):
             self.assertIn('subagent: false\n', agent_text)
             settings = json.loads((root / 'agy-settings.json').read_text())
             self.assertEqual(settings['agentMode'], '')
+            self.assertEqual(settings['toolPermission'], 'request-review')
+            self.assertEqual(settings['permissions']['allow'], [f'read_file({root.resolve()})'])
             self.assertFalse(settings['allowNonWorkspaceAccess'])
             self.assertTrue(settings['disableSlashCommands'])
             self.assertEqual(set(settings['permissions']['deny']),
