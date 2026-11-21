@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import os
 import subprocess
 import sys
 import time
@@ -22,6 +23,10 @@ class DisposableWorktreeTests(unittest.TestCase):
 
     def setUp(self):
         fixtures.CleanupTests.setUp(self)
+        env_patch = patch.dict('os.environ')
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        os.environ.pop('ALEX_WORKTREE_ROOT', None)
         self.target['cleanup']['lifecycle'] = 'disposable-v1'
         self.pr['base']['ref'] = 'main'
 
