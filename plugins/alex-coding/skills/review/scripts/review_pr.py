@@ -23,6 +23,7 @@ import worktree_pool
 
 MONITOR = Path(__file__).resolve().parents[2] / 'monitor/scripts'
 PROJECT = Path(__file__).resolve().parents[2] / 'project-monitor/scripts/project_pr_monitor.py'
+CHECKOUT_RETENTION_DAYS = 7
 
 
 def configured_review(pr):
@@ -269,19 +270,74 @@ def git(checkout, *arguments):
                           text=True, timeout=120, check=True).stdout
 
 
+def safe_to_discard_checkout(root):
+    checkout = root / 'checkout'
+    if checkout.is_symlink() or not checkout.exists():
+        return True
+    if not checkout.is_dir() or (checkout / '.git').is_symlink() or not (checkout / '.git').is_dir():
+        return False
+    try:
+        status = subprocess.run(['git', '-C', str(checkout), 'status', '--porcelain',
+                                 '--untracked-files=all', '--ignored'],
+                                capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return status.returncode == 0 and not status.stdout.strip()
+
+
 def discard_checkout(root):
+    if not safe_to_discard_checkout(root):
+        return False
     checkout = root / 'checkout'
     if checkout.is_symlink():
         checkout.unlink()
     elif checkout.exists():
         shutil.rmtree(checkout)
+    return True
 
 
 def finish(root, state, phase):
     state.update(phase=phase, pending=None)
     save(root, state)
-    if phase in {'merged', 'closed'}:
+    if phase in core.TERMINAL:
         discard_checkout(root)
+
+
+def prune_stale_checkouts(review_dir, active_root=None, max_age_s=CHECKOUT_RETENTION_DAYS * 86400, clock=None):
+    now = time.time() if clock is None else clock
+    active = active_root.resolve() if active_root is not None else None
+    try:
+        entries = list(review_dir.iterdir())
+    except OSError:
+        return
+    for pr_dir in entries:
+        try:
+            if pr_dir.is_symlink() or not pr_dir.is_dir() or not pr_dir.name.startswith('pr-'):
+                continue
+            if active is not None and pr_dir.resolve() == active:
+                continue
+            checkout = pr_dir / 'checkout'
+            if not (checkout.exists() or checkout.is_symlink()):
+                continue
+            pr_mtime = pr_dir.stat().st_mtime
+            checkout_mtime = checkout.lstat().st_mtime
+            with lock(pr_dir, 'run.lock'):
+                state = None
+                state_file = pr_dir / 'state.json'
+                if state_file.is_file():
+                    try:
+                        state = json.loads(state_file.read_text())
+                    except (OSError, ValueError):
+                        state = None
+                if isinstance(state, dict) and runtime.worker_alive(state, pr_dir):
+                    continue
+                phase = state.get('phase') if isinstance(state, dict) else None
+                terminal = isinstance(phase, str) and phase in core.TERMINAL
+                stale = now - pr_mtime > max_age_s and now - checkout_mtime > max_age_s
+                if terminal or stale:
+                    discard_checkout(pr_dir)
+        except (BlockingIOError, OSError):
+            continue
 
 
 def prepare_checkout(root, current, repository):
@@ -422,6 +478,8 @@ def step(root, state, github, execute=None):
         core.restore(state, pending['checkpoint'])
         state['pending'] = None
         save(root, state)
+        if state['phase'] in core.TERMINAL:
+            discard_checkout(root)
         return state['phase'] not in core.TERMINAL
     reason = core.next_event(state, current)
     if (reason in {None, 'ci'} and current.get('ci_required') and current['ci'] == 'pass'
@@ -497,6 +555,7 @@ def run(root, pr, once=False):
         state['pid'] = os.getpid()
         state['started_at'] = time.time()
         save(root, state)
+        prune_stale_checkouts(root.parent, active_root=root)
         github = remote.GitHub(pr, state['reviewer'])
         author = author_store(root, state) if state.get('author_delivery') else None
         if stdout_delivery(state):
@@ -523,6 +582,10 @@ def run(root, pr, once=False):
                     if failures >= 3:
                         state['phase'] = 'error'
                         save(root, state)
+                        try:
+                            discard_checkout(root)
+                        except OSError as cleanup_error:
+                            say(f'{pr}: failed to discard review checkout ({type(cleanup_error).__name__}); retained for retry')
                         if author is None:
                             raise RuntimeError('reviewer inactive after repeated transport/publication failure; retry retained state') from error
                         continuing = False
@@ -602,6 +665,7 @@ def register(args, root, pr):
             state['last_review_url'] = previous[-1].get('html_url')
     if pull.get('merged') or pull['state'] == 'closed':
         state['phase'] = 'merged' if pull.get('merged') else 'closed'
+        discard_checkout(root)
     save(root, state)
     return state
 
