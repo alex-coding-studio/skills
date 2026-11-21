@@ -24,6 +24,8 @@ import worktree_pool
 MONITOR = Path(__file__).resolve().parents[2] / 'monitor/scripts'
 PROJECT = Path(__file__).resolve().parents[2] / 'project-monitor/scripts/project_pr_monitor.py'
 CHECKOUT_RETENTION_DAYS = 7
+DEFAULT_RUNTIME = 'antigravity'
+DEFAULT_FALLBACK_MODEL = 'gemini-4-hydrogen-high'
 
 
 def configured_review(pr):
@@ -786,16 +788,20 @@ def main():
     else:
         with lock(root, 'launch.lock'):
             if args.action == 'start':
+                if not args.reviewer:
+                    parser.error('start requires --reviewer')
                 if not args.runtime or (args.runtime == 'antigravity' and not args.model and not (root / 'state.json').exists()):
                     config_runtime, config_model = configured_review(pr)
                 else:
                     config_runtime, config_model = None, None
-                args.runtime = args.runtime or config_runtime
-                args.configured_model = (config_model
-                                         if config_model and (config_runtime is None or config_runtime == args.runtime)
-                                         else None)
-                if not args.runtime or not args.reviewer:
-                    parser.error(f'start requires --reviewer and --runtime unless {remote.shared.CI_CONFIG} sets review_runtime')
+                used_fallback = not args.runtime and not config_runtime
+                args.runtime = args.runtime or config_runtime or DEFAULT_RUNTIME
+                if config_model and (config_runtime is None or config_runtime == args.runtime):
+                    args.configured_model = config_model
+                elif used_fallback and not args.model:
+                    args.configured_model = DEFAULT_FALLBACK_MODEL
+                else:
+                    args.configured_model = None
                 state = register(args, root, pr)
                 if args.author_runtime:
                     attach_author(args, root, state)
