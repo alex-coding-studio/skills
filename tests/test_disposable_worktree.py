@@ -173,6 +173,20 @@ class DisposableWorktreeTests(unittest.TestCase):
             cleanup.lifecycle.create_worktree(self.repo, None, 'task')
         self.assertFalse((outside / 'task').exists())
 
+    def test_default_prefers_outermost_ancestor_worktrees_over_nested_containers(self):
+        nested = self.root / 'Shared' / 'repo'
+        (self.root / '.worktrees').mkdir()
+        (self.root / 'Shared/.worktrees').mkdir(parents=True)
+        destination = cleanup.lifecycle.default_destination(nested.resolve(), 'fix/outer')
+        self.assertEqual(destination, self.root.resolve() / '.worktrees/tasks/repo/fix%2Fouter')
+
+    def test_default_uses_alex_worktree_root_override(self):
+        override = self.root / 'custom-worktrees'
+        override.mkdir()
+        with patch.dict('os.environ', {'ALEX_WORKTREE_ROOT': str(override)}):
+            destination = cleanup.lifecycle.default_destination(self.repo, 'fix/override')
+        self.assertEqual(destination, override.resolve() / 'tasks' / self.repo.name / 'fix%2Foverride')
+
     def test_two_successive_deliveries_create_merge_sync_and_dispose(self):
         self.git(self.remote, 'symbolic-ref', 'HEAD', 'refs/heads/main')
         writer = self.root / 'integration'

@@ -87,8 +87,15 @@ def synchronize(primary, remote, default, run_git=None, lock_fd=None):
 
 
 def default_destination(primary, branch):
-    root = next((parent / '.worktrees' for parent in primary.parents
-                 if (parent / '.worktrees').is_dir()), None)
+    override = os.environ.get('ALEX_WORKTREE_ROOT', '').strip()
+    if override:
+        candidate = Path(override).expanduser()
+        if candidate.is_symlink() or not candidate.is_dir():
+            raise ValueError('ALEX_WORKTREE_ROOT must be an existing non-symlink directory')
+        root = candidate.resolve()
+    else:
+        root = next((parent / '.worktrees' for parent in reversed(primary.parents)
+                     if (parent / '.worktrees').is_dir() and not (parent / '.worktrees').is_symlink()), None)
     if root is None:
         raise ValueError('No ancestor workspace has a .worktrees directory; pass --destination')
     destination = root / 'tasks' / primary.name / quote(branch, safe='')
