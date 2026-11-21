@@ -932,6 +932,36 @@ class RuntimeTests(unittest.TestCase):
                 runtime.collect(state, root, 'tok2', lambda s: None)
 
 
+    def test_antigravity_resumes_once_when_a_denied_read_ends_the_turn_without_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'checkout').mkdir()
+            fake_agy = root / 'fake_agy.py'
+            fake_agy.write_text(
+                'import json, sys\n'
+                'agent = sys.argv[sys.argv.index("--agent") + 1]\n'
+                'msg = json.loads(sys.stdin.readline())["message"]["content"]\n'
+                'resumed = "--conversation" in sys.argv\n'
+                'print(json.dumps({"event": "init", "conversation_id": "conv-1", '
+                '"init": {"agent": agent, "permission_mode": "request-review"}}))\n'
+                'if not resumed:\n'
+                '    print(json.dumps({"event": "result", "result": {"conversation_id": "conv-1", "status": "SUCCESS", '
+                '"response": "", "denied_actions": [{"action": "read_file"}]}}))\n'
+                'else:\n'
+                '    assert sys.argv[sys.argv.index("--conversation") + 1] == "conv-1" and "denied" in msg\n'
+                '    print(json.dumps({"event": "result", "result": {"conversation_id": "conv-1", "status": "SUCCESS", '
+                '"structured_output": {"outcome": "approved", "body": "Looks good.", "comments": []}}}))\n')
+            wrapper = root / 'agy'
+            wrapper.write_text(f'#!/bin/sh\nexec {sys.executable} {fake_agy} "$@"\n')
+            wrapper.chmod(0o755)
+            state = {'runtime': 'antigravity', 'executable': str(wrapper), 'session': None,
+                     'complexity': 'low', 'model': 'gemini-4-neon-low',
+                     'pending': {'token': 'tok1'}, 'worker_timeout': 30, 'interval': 10}
+            got = runtime.execute(state, root, 'Check PR diff.', lambda s: None)
+            self.assertEqual(got['outcome'], 'approved')
+            self.assertEqual(state['session'], 'conv-1')
+            self.assertTrue((root / 'tok1.events.1.jsonl').exists())
+
 
 
 class OnePullRequestRunnerTests(unittest.TestCase):

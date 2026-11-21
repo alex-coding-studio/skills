@@ -196,27 +196,7 @@ def command(state, root, output):
     return arguments + (['--resume', session] if session else ['--session-id', state['next_session']])
 
 
-def execute(state, root, prompt, persist, terminal_probe=None):
-    root = Path(root)
-    token = state['pending']['token']
-    output = root / f'{token}.result.json'
-    events = root / f'{token}.events.jsonl'
-    (root / 'result-schema.json').write_text(json.dumps(schema()))
-    (root / 'empty-mcp.json').write_text('{"mcpServers":{}}')
-    if state['runtime'] == 'antigravity':
-        (root / 'agy-settings.json').write_text(json.dumps(antigravity_settings(root)))
-        agent_name = state.get('antigravity_agent') or f'alex-coding-pr-reviewer-{uuid.uuid4().hex[:12]}'
-        state['antigravity_agent'] = agent_name
-        write_antigravity_agent(root, agent_name)
-    state['next_session'] = str(uuid.uuid4())
-    persist(state)
-    prompt_path = root / f'{token}.prompt.txt'
-    prompt_path.write_text(prompt)
-    if state['runtime'] == 'antigravity':
-        input_path = root / f'{token}.input.jsonl'
-        input_path.write_text(json.dumps({'event': 'user', 'message': {'content': prompt}}) + '\n')
-    else:
-        input_path = prompt_path
+def run_worker(state, root, input_path, events, output, persist, terminal_probe):
     with input_path.open() as source, events.open('w') as target, (root / 'runtime.log').open('a') as errors:
         environment = dict(os.environ)
         if state['runtime'] == 'antigravity':
@@ -253,6 +233,65 @@ def execute(state, root, prompt, persist, terminal_probe=None):
                     process.wait()
             state['worker_pid'] = None
             persist(state)
+
+
+ANTIGRAVITY_DENIED_READ_RESUMES = 2
+ANTIGRAVITY_DENIED_READ_NUDGE = (
+    'A read outside the review directory was denied and ended your turn. Do not retry it or read '
+    'outside the review directory. Finish the review from the evidence you have and return the '
+    'structured result.'
+)
+
+
+def antigravity_denied_without_output(state, events):
+    if state['runtime'] != 'antigravity':
+        return None
+    envelope = None
+    for line in events.read_text().splitlines():
+        if line.strip():
+            event = json.loads(line)
+            if event.get('event') == 'result':
+                envelope = event.get('result')
+    if (isinstance(envelope, dict) and envelope.get('status') == 'SUCCESS'
+            and not isinstance(envelope.get('structured_output'), dict)
+            and envelope.get('denied_actions') and envelope.get('conversation_id')
+            and state['session'] in {None, envelope['conversation_id']}):
+        return envelope
+    return None
+
+
+def execute(state, root, prompt, persist, terminal_probe=None):
+    root = Path(root)
+    token = state['pending']['token']
+    output = root / f'{token}.result.json'
+    events = root / f'{token}.events.jsonl'
+    (root / 'result-schema.json').write_text(json.dumps(schema()))
+    (root / 'empty-mcp.json').write_text('{"mcpServers":{}}')
+    if state['runtime'] == 'antigravity':
+        (root / 'agy-settings.json').write_text(json.dumps(antigravity_settings(root)))
+        agent_name = state.get('antigravity_agent') or f'alex-coding-pr-reviewer-{uuid.uuid4().hex[:12]}'
+        state['antigravity_agent'] = agent_name
+        write_antigravity_agent(root, agent_name)
+    state['next_session'] = str(uuid.uuid4())
+    persist(state)
+    prompt_path = root / f'{token}.prompt.txt'
+    prompt_path.write_text(prompt)
+    if state['runtime'] == 'antigravity':
+        input_path = root / f'{token}.input.jsonl'
+        input_path.write_text(json.dumps({'event': 'user', 'message': {'content': prompt}}) + '\n')
+    else:
+        input_path = prompt_path
+    run_worker(state, root, input_path, events, output, persist, terminal_probe)
+    for attempt in range(1, ANTIGRAVITY_DENIED_READ_RESUMES + 1):
+        envelope = antigravity_denied_without_output(state, events)
+        if envelope is None:
+            break
+        events.rename(root / f'{token}.events.{attempt}.jsonl')
+        state['session'] = envelope['conversation_id']
+        persist(state)
+        resume_path = root / f'{token}.resume.{attempt}.jsonl'
+        resume_path.write_text(json.dumps({'event': 'user', 'message': {'content': ANTIGRAVITY_DENIED_READ_NUDGE}}) + '\n')
+        run_worker(state, root, resume_path, events, output, persist, terminal_probe)
     return collect(state, root, token, persist)
 
 
