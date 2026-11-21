@@ -163,6 +163,54 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertFalse((self.root / 'checkout').exists())
         self.assertEqual(json.loads((self.root / 'state.json').read_text())['phase'], 'merged')
 
+    def test_needs_user_attention_publication_discards_review_checkout_and_keeps_state(self):
+        self.execute = lambda state, root, prompt, persist: result('needs-user-attention')
+        (self.root / 'checkout/.git').mkdir(parents=True)
+        self.assertTrue(self.step())
+        self.assertFalse(self.step())
+        self.assertFalse((self.root / 'checkout').exists())
+        self.assertEqual(json.loads((self.root / 'state.json').read_text())['phase'], 'needs-user-attention')
+
+    def test_prune_stale_checkouts_cleans_terminal_and_abandoned_siblings_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            now = 2_000_000_000.0
+            old = now - (runner.CHECKOUT_RETENTION_DAYS + 1) * 86400
+
+            def make_pr(name, state_payload, mtime=now):
+                root = base / name
+                (root / 'checkout/.git').mkdir(parents=True)
+                if isinstance(state_payload, str):
+                    (root / 'state.json').write_text(state_payload)
+                elif state_payload is not None:
+                    (root / 'state.json').write_text(json.dumps(state_payload))
+                os.utime(root / 'checkout', (mtime, mtime))
+                os.utime(root, (mtime, mtime))
+                return root
+
+            active = make_pr('pr-active', {'phase': 'merged'})
+            running_pr = make_pr('pr-running', {'phase': 'merged'}, mtime=old)
+            attention_pr = make_pr('pr-attention', {'phase': 'needs-user-attention'})
+            error_pr = make_pr('pr-error', {'phase': 'error'})
+            abandoned_old = make_pr('pr-abandoned-old', {'phase': 'reviewing'}, mtime=old)
+            recent_open = make_pr('pr-recent-open', {'phase': 'reviewing'})
+            corrupt_recent = make_pr('pr-corrupt-recent', '{bad')
+            corrupt_old = make_pr('pr-corrupt-old', '{bad', mtime=old)
+
+            with runner.lock(running_pr, 'run.lock'):
+                runner.prune_stale_checkouts(base, active_root=active, clock=now)
+
+            self.assertTrue((active / 'checkout').exists())
+            self.assertTrue((running_pr / 'checkout').exists())
+            self.assertFalse((attention_pr / 'checkout').exists())
+            self.assertTrue((attention_pr / 'state.json').exists())
+            self.assertFalse((error_pr / 'checkout').exists())
+            self.assertFalse((abandoned_old / 'checkout').exists())
+            self.assertTrue((abandoned_old / 'state.json').exists())
+            self.assertTrue((recent_open / 'checkout').exists())
+            self.assertTrue((corrupt_recent / 'checkout').exists())
+            self.assertFalse((corrupt_old / 'checkout').exists())
+
     def test_successful_ci_reuses_published_review_without_model_or_publication(self):
         self.step()
         self.step()
