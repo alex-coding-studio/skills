@@ -27,22 +27,26 @@ ANTIGRAVITY_MODELS = frozenset({
     'gemini-4-neon-low', 'gemini-4-neon-medium', 'gemini-4-neon-high', 'gemini-4-neon-xhigh',
     'gemini-4-hydrogen-low', 'gemini-4-hydrogen-medium', 'gemini-4-hydrogen-high', 'gemini-4-hydrogen-xhigh',
 })
-ANTIGRAVITY_SETTINGS = {
-    'agentMode': '',
-    'toolPermission': 'request-review',
-    'allowNonWorkspaceAccess': False,
-    'disableSlashCommands': True,
-    'permissions': {
-        'deny': [
-            'write_file(*)',
-            'command(*)',
-            'unsandboxed(*)',
-            'mcp(*)',
-            'read_url(*)',
-            'execute_url(*)',
-        ],
-    },
-}
+
+
+def antigravity_settings(root):
+    return {
+        'agentMode': '',
+        'toolPermission': 'request-review',
+        'allowNonWorkspaceAccess': False,
+        'disableSlashCommands': True,
+        'permissions': {
+            'allow': [f'read_file({root.resolve()})'],
+            'deny': [
+                'write_file(*)',
+                'command(*)',
+                'unsandboxed(*)',
+                'mcp(*)',
+                'read_url(*)',
+                'execute_url(*)',
+            ],
+        },
+    }
 
 
 def antigravity_family(model):
@@ -199,8 +203,8 @@ def execute(state, root, prompt, persist, terminal_probe=None):
     events = root / f'{token}.events.jsonl'
     (root / 'result-schema.json').write_text(json.dumps(schema()))
     (root / 'empty-mcp.json').write_text('{"mcpServers":{}}')
-    (root / 'agy-settings.json').write_text(json.dumps(ANTIGRAVITY_SETTINGS))
     if state['runtime'] == 'antigravity':
+        (root / 'agy-settings.json').write_text(json.dumps(antigravity_settings(root)))
         agent_name = state.get('antigravity_agent') or f'alex-coding-pr-reviewer-{uuid.uuid4().hex[:12]}'
         state['antigravity_agent'] = agent_name
         write_antigravity_agent(root, agent_name)
