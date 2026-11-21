@@ -1359,5 +1359,63 @@ class OwnDiffFingerprintTests(unittest.TestCase):
             changed = commit('own.txt', 'feature v2')
             self.assertNotEqual(runner.own_diff_fingerprint(root, {'base': main, 'head': changed}), first)
 
+
+class StartFallbackTests(unittest.TestCase):
+    def start_cli(self, extra_args, configured=(None, None)):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            github = SimpleNamespace(
+                pull=lambda: {'state': 'open', 'merged': False, 'user': {'login': 'author'}},
+                verify_writer=lambda author: None,
+                history=lambda: [],
+                latest_checkpoint=lambda history: None,
+            )
+            stdout = io.StringIO()
+            argv = ['review_pr.py', 'start', '--pr', 'owner/repo#1', '--state-base', str(base),
+                    '--reviewer', 'admin', *extra_args]
+            with patch.object(sys, 'argv', argv), \
+                    patch.object(runner, 'configured_review', return_value=configured), \
+                    patch.object(runner.remote, 'GitHub', return_value=github), \
+                    patch.object(runtime, 'preflight', return_value='/agy'), \
+                    patch.object(runner, 'launch', side_effect=lambda root, pr: runner.read(root, pr)), \
+                    patch.object(runner, 'running', return_value=True), \
+                    contextlib.redirect_stdout(stdout):
+                runner.main()
+            return json.loads(stdout.getvalue())
+
+    def test_start_without_runtime_or_config_falls_back_to_antigravity_hydrogen_high(self):
+        for extra, expected in (
+            (['--complexity', 'low'], {'model': 'gemini-4-hydrogen-high', 'effort': 'high'}),
+            (['--runtime', 'antigravity', '--complexity', 'low'], {'model': 'claude-opus-5-5-low', 'effort': 'low'}),
+            (['--model', 'neon', '--complexity', 'low'], {'model': 'gemini-4-neon-low', 'effort': 'low'}),
+        ):
+            with self.subTest(extra=extra):
+                got = self.start_cli(extra)
+                self.assertEqual(got['runtime'], 'antigravity')
+                self.assertEqual(got['review_settings'], expected)
+
+    def test_start_honors_configured_runtime_and_model_over_fallback(self):
+        for configured, expected in (
+            (('antigravity', None), {'model': 'claude-opus-5-5-low', 'effort': 'low'}),
+            ((None, 'neon'), {'model': 'gemini-4-neon-low', 'effort': 'low'}),
+        ):
+            with self.subTest(configured=configured):
+                got = self.start_cli(['--complexity', 'low'], configured=configured)
+                self.assertEqual(got['runtime'], 'antigravity')
+                self.assertEqual(got['review_settings'], expected)
+
+    def test_start_requires_reviewer_before_reading_project_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stderr = io.StringIO()
+            argv = ['review_pr.py', 'start', '--pr', 'owner/repo#1', '--state-base', directory]
+            with patch.object(sys, 'argv', argv), \
+                    patch.object(runner, 'configured_review') as configured, \
+                    contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as exited:
+                runner.main()
+            self.assertNotEqual(exited.exception.code, 0)
+            self.assertIn('start requires --reviewer', stderr.getvalue())
+            configured.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

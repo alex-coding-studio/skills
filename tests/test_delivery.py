@@ -16,33 +16,55 @@ spec.loader.exec_module(delivery)
 
 class DeliveryTests(unittest.TestCase):
     def setUp(self):
-        configured = patch.object(delivery.review, 'configured_runtime', return_value=None)
+        configured = patch.object(delivery.review, 'configured_review', return_value=(None, None))
         configured.start()
         self.addCleanup(configured.stop)
 
-    def test_review_runtime_prefers_the_argument_then_the_project_config_then_the_author(self):
+    def test_review_runtime_prefers_argument_then_project_config_then_antigravity_hydrogen_fallback(self):
         args = SimpleNamespace(pr='o/r#7', runtime='claude', review_runtime=None, reviewer='admin', max_rounds=3,
                                acceptance_file=None, complexity=None)
-        def runtime(**changes):
-            command = delivery.review_command(SimpleNamespace(**{**vars(args), **changes}))
-            return command[command.index('--runtime') + 1]
-        self.assertEqual(runtime(), 'claude')
-        self.assertEqual(runtime(runtime='antigravity'), 'codex')
-        with patch.object(delivery.review, 'configured_runtime', return_value='codex'):
-            self.assertEqual(runtime(), 'codex')
-            self.assertEqual(runtime(review_runtime='claude'), 'claude')
-            self.assertEqual(runtime(runtime='antigravity', review_runtime='claude'), 'claude')
-        with patch.object(delivery.review, 'configured_runtime', return_value='claude'):
-            self.assertEqual(runtime(runtime='antigravity'), 'claude')
-        with patch.object(delivery.review, 'configured_runtime', return_value='antigravity'):
-            self.assertEqual(runtime(runtime='antigravity'), 'antigravity')
-        command = delivery.review_command(SimpleNamespace(**{
-            **vars(args), 'runtime': 'antigravity', 'review_runtime': 'antigravity', 'review_model': 'neon'}))
-        self.assertEqual(command[command.index('--runtime') + 1], 'antigravity')
-        self.assertEqual(command[command.index('--model') + 1], 'neon')
-        default_command = delivery.review_command(SimpleNamespace(**{**vars(args), 'runtime': 'antigravity'}))
-        self.assertEqual(default_command[default_command.index('--runtime') + 1], 'codex')
-        self.assertNotIn('--model', default_command)
+
+        def command(**changes):
+            return delivery.review_command(SimpleNamespace(**{**vars(args), **changes}))
+
+        for author in ('claude', 'codex', 'antigravity'):
+            for complexity in (None, 'low'):
+                with self.subTest(author=author, complexity=complexity):
+                    cmd = command(runtime=author, complexity=complexity)
+                    self.assertEqual(cmd[cmd.index('--runtime') + 1], 'antigravity')
+                    self.assertEqual(cmd[cmd.index('--model') + 1], 'gemini-4-hydrogen-high')
+
+        for configured in ('codex', 'claude', 'antigravity'):
+            with self.subTest(configured=configured), \
+                    patch.object(delivery.review, 'configured_review', return_value=(configured, None)):
+                cmd = command(runtime='antigravity')
+                self.assertEqual(cmd[cmd.index('--runtime') + 1], configured)
+                self.assertNotIn('--model', cmd)
+
+        with patch.object(delivery.review, 'configured_review', return_value=('codex', None)):
+            cmd = command(review_runtime='claude')
+            self.assertEqual(cmd[cmd.index('--runtime') + 1], 'claude')
+            self.assertNotIn('--model', cmd)
+            cmd = command(runtime='antigravity', review_runtime='claude')
+            self.assertEqual(cmd[cmd.index('--runtime') + 1], 'claude')
+            self.assertNotIn('--model', cmd)
+
+        with patch.object(delivery.review, 'configured_review', return_value=(None, 'neon')):
+            cmd = command()
+            self.assertEqual(cmd[cmd.index('--runtime') + 1], 'antigravity')
+            self.assertNotIn('--model', cmd)
+
+        explicit_ag = command(review_runtime='antigravity')
+        self.assertEqual(explicit_ag[explicit_ag.index('--runtime') + 1], 'antigravity')
+        self.assertNotIn('--model', explicit_ag)
+
+        explicit_model = command(review_model='neon')
+        self.assertEqual(explicit_model[explicit_model.index('--runtime') + 1], 'antigravity')
+        self.assertEqual(explicit_model[explicit_model.index('--model') + 1], 'neon')
+
+        full_explicit = command(runtime='antigravity', review_runtime='antigravity', review_model='neon')
+        self.assertEqual(full_explicit[full_explicit.index('--runtime') + 1], 'antigravity')
+        self.assertEqual(full_explicit[full_explicit.index('--model') + 1], 'neon')
 
     def test_pin_only_accepts_lockfiles_and_version_lines_only(self):
         resolved = {'filename': 'App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved',
@@ -406,7 +428,7 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(command[command.index('--model') + 1], 'claude')
             self.assertEqual(command[command.index('--complexity') + 1], 'high')
 
-    def test_antigravity_reviewed_start_defaults_reviewer_to_codex_and_returns_wait_command(self):
+    def test_antigravity_reviewed_start_defaults_reviewer_to_antigravity_hydrogen_high_and_returns_wait_command(self):
         with tempfile.TemporaryDirectory() as directory:
             args = delivery.parser().parse_args(['start', '--runtime', 'antigravity', '--session', 'conv-1',
                 '--pr', 'owner/repo#1', '--checkout', directory, '--reviewer', 'reviewer'])
@@ -420,7 +442,8 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(result['wait_command'], wait_cmd)
             self.assertIn('WaitMsBeforeAsync=500', result['next'])
             command = invoke.call_args.args[0]
-            self.assertEqual(command[command.index('--runtime') + 1], 'codex')
+            self.assertEqual(command[command.index('--runtime') + 1], 'antigravity')
+            self.assertEqual(command[command.index('--model') + 1], 'gemini-4-hydrogen-high')
             self.assertEqual(command[command.index('--author-runtime') + 1], 'antigravity')
             popen.assert_not_called()
 

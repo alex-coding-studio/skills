@@ -87,17 +87,20 @@ def monitor_live(root, command):
 
 
 def review_command(args):
-    default_runtime = 'codex' if args.runtime == 'antigravity' else args.runtime
+    config_runtime, config_model = (None, None) if args.review_runtime else review.configured_review(args.pr)
+    selected_runtime = args.review_runtime or config_runtime or review.DEFAULT_RUNTIME
+    selected_model = getattr(args, 'review_model', None)
+    if not selected_model and not args.review_runtime and not config_runtime and not config_model:
+        selected_model = review.DEFAULT_FALLBACK_MODEL
     arguments = [sys.executable, str(PLUGIN / 'skills/review/scripts/review_pr.py'),
-                 'start', '--pr', args.pr, '--runtime',
-                 args.review_runtime or review.configured_runtime(args.pr) or default_runtime, '--reviewer', args.reviewer,
+                 'start', '--pr', args.pr, '--runtime', selected_runtime, '--reviewer', args.reviewer,
                  '--max-rounds', str(args.max_rounds)]
     if args.acceptance_file:
         arguments += ['--acceptance-file', str(args.acceptance_file.resolve())]
     if args.complexity:
         arguments += ['--complexity', args.complexity]
-    if getattr(args, 'review_model', None):
-        arguments += ['--model', args.review_model]
+    if selected_model:
+        arguments += ['--model', selected_model]
     return arguments
 
 
