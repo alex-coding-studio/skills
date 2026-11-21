@@ -218,8 +218,11 @@ def execute(state, root, prompt, persist, terminal_probe=None):
     else:
         input_path = prompt_path
     with input_path.open() as source, events.open('w') as target, (root / 'runtime.log').open('a') as errors:
+        environment = dict(os.environ)
+        if state['runtime'] == 'antigravity':
+            environment['AGY_DART_DISABLE_READ_HOOK'] = '1'
         process = subprocess.Popen(command(state, root, output), cwd=root / 'checkout', stdin=source,
-                                   stdout=target, stderr=errors, start_new_session=True)
+                                   stdout=target, stderr=errors, start_new_session=True, env=environment)
         state['worker_pid'] = process.pid
         state['worker_deadline'] = time.time() + state['worker_timeout']
         persist(state)

@@ -866,7 +866,8 @@ class RuntimeTests(unittest.TestCase):
             (root / 'checkout').mkdir()
             fake_agy = root / 'fake_agy.py'
             fake_agy.write_text(
-                'import json, sys\n'
+                'import json, os, sys\n'
+                'assert os.environ.get("AGY_DART_DISABLE_READ_HOOK") == "1"\n'
                 'agent = sys.argv[sys.argv.index("--agent") + 1]\n'
                 'msg = json.loads(sys.stdin.readline())\n'
                 'assert msg["event"] == "user" and "Check PR" in msg["message"]["content"]\n'
