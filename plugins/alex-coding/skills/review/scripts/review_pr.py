@@ -270,12 +270,30 @@ def git(checkout, *arguments):
                           text=True, timeout=120, check=True).stdout
 
 
+def safe_to_discard_checkout(root):
+    checkout = root / 'checkout'
+    if checkout.is_symlink() or not checkout.exists():
+        return True
+    if not checkout.is_dir() or (checkout / '.git').is_symlink() or not (checkout / '.git').is_dir():
+        return False
+    try:
+        status = subprocess.run(['git', '-C', str(checkout), 'status', '--porcelain',
+                                 '--untracked-files=all', '--ignored'],
+                                capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return status.returncode == 0 and not status.stdout.strip()
+
+
 def discard_checkout(root):
+    if not safe_to_discard_checkout(root):
+        return False
     checkout = root / 'checkout'
     if checkout.is_symlink():
         checkout.unlink()
     elif checkout.exists():
         shutil.rmtree(checkout)
+    return True
 
 
 def finish(root, state, phase):
@@ -294,7 +312,7 @@ def prune_stale_checkouts(review_dir, active_root=None, max_age_s=CHECKOUT_RETEN
         return
     for pr_dir in entries:
         try:
-            if not pr_dir.is_dir() or not pr_dir.name.startswith('pr-'):
+            if pr_dir.is_symlink() or not pr_dir.is_dir() or not pr_dir.name.startswith('pr-'):
                 continue
             if active is not None and pr_dir.resolve() == active:
                 continue
@@ -303,20 +321,22 @@ def prune_stale_checkouts(review_dir, active_root=None, max_age_s=CHECKOUT_RETEN
                 continue
             pr_mtime = pr_dir.stat().st_mtime
             checkout_mtime = checkout.lstat().st_mtime
-            if running(pr_dir):
-                continue
-            state = None
-            state_file = pr_dir / 'state.json'
-            if state_file.is_file():
-                try:
-                    state = json.loads(state_file.read_text())
-                except (OSError, ValueError):
-                    state = None
-            terminal = isinstance(state, dict) and state.get('phase') in core.TERMINAL
-            stale = now - pr_mtime > max_age_s and now - checkout_mtime > max_age_s
-            if terminal or stale:
-                discard_checkout(pr_dir)
-        except OSError:
+            with lock(pr_dir, 'run.lock'):
+                state = None
+                state_file = pr_dir / 'state.json'
+                if state_file.is_file():
+                    try:
+                        state = json.loads(state_file.read_text())
+                    except (OSError, ValueError):
+                        state = None
+                if isinstance(state, dict) and runtime.worker_alive(state, pr_dir):
+                    continue
+                phase = state.get('phase') if isinstance(state, dict) else None
+                terminal = isinstance(phase, str) and phase in core.TERMINAL
+                stale = now - pr_mtime > max_age_s and now - checkout_mtime > max_age_s
+                if terminal or stale:
+                    discard_checkout(pr_dir)
+        except (BlockingIOError, OSError):
             continue
 
 
@@ -562,7 +582,10 @@ def run(root, pr, once=False):
                     if failures >= 3:
                         state['phase'] = 'error'
                         save(root, state)
-                        discard_checkout(root)
+                        try:
+                            discard_checkout(root)
+                        except OSError as cleanup_error:
+                            say(f'{pr}: failed to discard review checkout ({type(cleanup_error).__name__}); retained for retry')
                         if author is None:
                             raise RuntimeError('reviewer inactive after repeated transport/publication failure; retry retained state') from error
                         continuing = False

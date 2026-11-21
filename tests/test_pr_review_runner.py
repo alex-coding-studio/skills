@@ -155,9 +155,15 @@ class PRReviewRunnerTests(unittest.TestCase):
         self.assertEqual(self.state['ci'], 'fail')
         self.assertEqual(len(self.github.published), 1)
 
+    def init_clean_checkout(self, root):
+        checkout = root / 'checkout'
+        checkout.mkdir(parents=True, exist_ok=True)
+        subprocess.run(['git', '-C', str(checkout), 'init', '-q'], check=True)
+        return checkout
+
     def test_merged_pr_discards_its_review_checkout_and_keeps_state(self):
         self.step()
-        (self.root / 'checkout/.git').mkdir(parents=True)
+        self.init_clean_checkout(self.root)
         self.github.current['terminal'] = 'merged'
         self.assertFalse(self.step())
         self.assertFalse((self.root / 'checkout').exists())
@@ -165,7 +171,7 @@ class PRReviewRunnerTests(unittest.TestCase):
 
     def test_needs_user_attention_publication_discards_review_checkout_and_keeps_state(self):
         self.execute = lambda state, root, prompt, persist: result('needs-user-attention')
-        (self.root / 'checkout/.git').mkdir(parents=True)
+        self.init_clean_checkout(self.root)
         self.assertTrue(self.step())
         self.assertFalse(self.step())
         self.assertFalse((self.root / 'checkout').exists())
@@ -179,12 +185,12 @@ class PRReviewRunnerTests(unittest.TestCase):
 
             def make_pr(name, state_payload, mtime=now):
                 root = base / name
-                (root / 'checkout/.git').mkdir(parents=True)
+                checkout = self.init_clean_checkout(root)
                 if isinstance(state_payload, str):
                     (root / 'state.json').write_text(state_payload)
                 elif state_payload is not None:
                     (root / 'state.json').write_text(json.dumps(state_payload))
-                os.utime(root / 'checkout', (mtime, mtime))
+                os.utime(checkout, (mtime, mtime))
                 os.utime(root, (mtime, mtime))
                 return root
 
@@ -210,6 +216,98 @@ class PRReviewRunnerTests(unittest.TestCase):
             self.assertTrue((recent_open / 'checkout').exists())
             self.assertTrue((corrupt_recent / 'checkout').exists())
             self.assertFalse((corrupt_old / 'checkout').exists())
+
+    def test_prune_stale_checkouts_skips_symlinks_live_workers_and_unhashable_phases(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp) / 'review'
+            external = Path(temp) / 'external'
+            base.mkdir()
+            self.init_clean_checkout(external)
+            (external / 'state.json').write_text(json.dumps({'phase': 'merged'}))
+            (base / 'pr-symlink').symlink_to(external)
+
+            now = 2_000_000_000.0
+            old = now - (runner.CHECKOUT_RETENTION_DAYS + 1) * 86400
+
+            live_worker = base / 'pr-live-worker'
+            self.init_clean_checkout(live_worker)
+            (live_worker / 'state.json').write_text(json.dumps({'phase': 'merged', 'worker_pid': 424242}))
+
+            bad_phase_recent = base / 'pr-bad-phase-recent'
+            self.init_clean_checkout(bad_phase_recent)
+            (bad_phase_recent / 'state.json').write_text(json.dumps({'phase': []}))
+            os.utime(bad_phase_recent / 'checkout', (now, now))
+            os.utime(bad_phase_recent, (now, now))
+
+            bad_phase_old = base / 'pr-bad-phase-old'
+            self.init_clean_checkout(bad_phase_old)
+            (bad_phase_old / 'state.json').write_text(json.dumps({'phase': []}))
+            os.utime(bad_phase_old / 'checkout', (old, old))
+            os.utime(bad_phase_old, (old, old))
+
+            with patch.object(runtime, 'worker_alive', side_effect=lambda state, root: root == live_worker):
+                runner.prune_stale_checkouts(base, clock=now)
+
+            self.assertTrue((external / 'checkout').exists())
+            self.assertTrue((live_worker / 'checkout').exists())
+            self.assertTrue((bad_phase_recent / 'checkout').exists())
+            self.assertFalse((bad_phase_old / 'checkout').exists())
+
+    def test_prune_stale_checkouts_holds_run_lock_during_cleanup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            target = base / 'pr-locked'
+            self.init_clean_checkout(target)
+            (target / 'state.json').write_text(json.dumps({'phase': 'merged'}))
+            seen = []
+            real_discard = runner.discard_checkout
+
+            def locked_discard(root):
+                seen.append(runner.running(root))
+                return real_discard(root)
+
+            with patch.object(runner, 'discard_checkout', side_effect=locked_discard):
+                runner.prune_stale_checkouts(base)
+
+            self.assertEqual(seen, [True])
+            self.assertFalse((target / 'checkout').exists())
+
+    def test_checkout_with_untracked_files_is_preserved_across_discard_and_prune(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            target = base / 'pr-dirty'
+            checkout = self.init_clean_checkout(target)
+            (checkout / 'local.txt').write_text('keep me')
+            (target / 'state.json').write_text(json.dumps({'phase': 'merged'}))
+            self.assertFalse(runner.discard_checkout(target))
+            runner.prune_stale_checkouts(base)
+            self.assertTrue((checkout / 'local.txt').exists())
+
+    def test_run_error_cleanup_failure_still_executes_author_poll(self):
+        prev_cwd = os.getcwd()
+        self.addCleanup(os.chdir, prev_cwd)
+        self.state.update(interval=0, author_delivery={'runtime': 'antigravity', 'session': 'conv-1', 'remote': None, 'slot': None})
+        runner.save(self.root, self.state)
+        self.init_clean_checkout(self.root)
+        polled = []
+
+        class FailingGitHub:
+            def __init__(self, pr, reviewer):
+                self.repository = 'owner/repo'
+
+            def snapshot(self, author):
+                raise RuntimeError('transient failure')
+
+        with patch.object(remote, 'GitHub', FailingGitHub), \
+                patch.object(runner, 'prune_stale_checkouts'), \
+                patch.object(runner, 'author_store', return_value=(object(), object())), \
+                patch.object(runner, 'author_poll', side_effect=lambda *_: polled.append(True) or True), \
+                patch.object(runner, 'discard_checkout', side_effect=OSError('permission denied')):
+            runner.run(self.root, 'owner/repo#1')
+
+        self.assertGreaterEqual(len(polled), 1)
+        self.assertEqual(runner.read(self.root, 'owner/repo#1')['phase'], 'error')
+        self.assertTrue((self.root / 'checkout').exists())
 
     def test_successful_ci_reuses_published_review_without_model_or_publication(self):
         self.step()
