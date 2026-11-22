@@ -905,6 +905,8 @@ class RuntimeTests(unittest.TestCase):
             self.assertLessEqual({'write_file(*)', 'command(*)', 'unsandboxed(*)', 'read_url(*)', 'execute_url(*)'}, deny)
             self.assertNotIn('mcp(*)', deny)
             self.assertIn('mcp(semina/semina_update_task)', deny)
+            self.assertIn('mcp(migrated-settings_semina/semina_update_task)', deny)
+            self.assertIn('mcp(agy-dart_fast/*)', deny)
             # Checkout file shadowing the reserved agent name is refused before spawning agy
             shadow = root / 'checkout' / '.agents' / 'agents'
             shadow.mkdir(parents=True)

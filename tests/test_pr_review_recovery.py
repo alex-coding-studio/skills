@@ -186,6 +186,11 @@ class FreshReviewTests(unittest.TestCase):
         acceptance.write_text('Semina snapshot')
         self.assertEqual(self.continue_review('--acceptance-file', str(acceptance))['acceptance'], 'Semina snapshot')
 
+    def test_unreadable_acceptance_file_leaves_the_running_review_alone(self):
+        with patch.object(runner, 'stop_runner') as stop, self.assertRaises(FileNotFoundError):
+            self.continue_review('--acceptance-file', str(self.root / 'missing.md'))
+        stop.assert_not_called()
+
     def test_explicit_continuation_moves_an_old_session_to_the_current_model(self):
         state = self.continue_review('--additional-rounds', '0')
         self.assertEqual(state['model'], 'gpt-6.2-sol')
