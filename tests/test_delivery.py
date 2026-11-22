@@ -700,6 +700,96 @@ class PendingCIMergeTests(unittest.TestCase):
         self.assertEqual(self.merge(), {'status': 'merged', 'head': self.head})
 
 
+class PureTextMergeTests(unittest.TestCase):
+    def setUp(self):
+        self.head = 'a' * 40
+        self.args = SimpleNamespace(pr='o/r#7', expected_head=self.head, merge_method='merge', allow_pending_ci=False)
+        self.pull = {'state': 'open', 'draft': False, 'mergeable': True, 'mergeable_state': 'clean',
+                     'labels': [], 'merged': False,
+                     'head': {'sha': self.head, 'ref': 'docs-only', 'repo': {'full_name': 'o/r'}}}
+        self.checks = [{'__typename': 'CheckRun', 'name': 'ios-plan', 'status': 'QUEUED'}]
+        self.runs = [{'id': 11, 'head_sha': self.head, 'head_branch': 'docs-only',
+                      'head_repository': {'full_name': 'o/r'}, 'status': 'in_progress'},
+                     {'id': 12, 'head_sha': self.head, 'head_branch': 'docs-only',
+                      'head_repository': {'full_name': 'o/r'}, 'status': 'completed'}]
+        self.permission = True
+        self.required_checks = delivery.review.remote.shared.CI_REQUIRED_CHECKS
+        self.calls = []
+
+    def merge(self, kinds):
+        github = SimpleNamespace(number=7, repository='o/r', base='repos/o/r', pull=lambda: self.pull.copy(),
+                                 json=lambda endpoint, paginate=False: {'permissions': {'push': self.permission}})
+
+        def invoke(command, cwd=None):
+            self.calls.append(command)
+            if 'view' in command:
+                return {'headRefOid': self.head, 'statusCheckRollup': self.checks}
+            if 'merge' in command:
+                self.pull['merged'] = True
+                return ''
+            if any('/cancel' in str(value) for value in command):
+                return {}
+            if any('/actions/runs' in str(value) for value in command):
+                return [{'workflow_runs': self.runs}]
+            raise AssertionError(command)
+
+        with patch.object(delivery, 'pin_check', return_value={'status': 'review-exempt', 'head': self.head, 'kinds': kinds}), \
+                patch.object(delivery.review.remote, 'GitHub', return_value=github), \
+                patch.object(delivery.review.remote.shared, 'gh_command', return_value=['gh_as', 'admin']), \
+                patch.object(delivery.review.remote.shared, 'ci_required', return_value=self.required_checks), \
+                patch.object(delivery, 'invoke', side_effect=invoke):
+            return delivery.pin_merge(self.args)
+
+    def test_pure_text_merges_with_pending_failing_or_absent_ci_and_cancels_pending_runs(self):
+        cases = (
+            ('pending', [{'__typename': 'CheckRun', 'name': 'ios-plan', 'status': 'QUEUED'}]),
+            ('failing', [{'__typename': 'CheckRun', 'name': 'ios-plan', 'status': 'COMPLETED', 'conclusion': 'FAILURE'}]),
+            ('absent', []),
+        )
+        for label, checks in cases:
+            with self.subTest(case=label):
+                self.pull['merged'] = False
+                self.calls = []
+                self.checks = checks
+                result = self.merge(['text'])
+                self.assertEqual(result['status'], 'merged')
+                self.assertEqual(result['exemption'], 'text')
+                self.assertTrue(result['merged_without_waiting_for_ci'])
+                self.assertIn('纯文本/文档改动', result['message'])
+                self.assertEqual(result['cancel_requested_run_ids'], [11])
+                self.assertEqual(result['cancel_errors'], [])
+                merge_commands = [cmd for cmd in self.calls if 'merge' in cmd]
+                self.assertEqual(len(merge_commands), 1)
+                self.assertNotIn('--admin', merge_commands[0])
+
+    def test_pure_text_still_enforces_ready_head_mergeability_and_push_permission(self):
+        self.pull['draft'] = True
+        with self.assertRaisesRegex(ValueError, 'expected ready head'):
+            self.merge(['text'])
+        self.pull['draft'] = False
+        self.pull['mergeable_state'] = 'blocked'
+        with self.assertRaisesRegex(ValueError, 'mergeability or required GitHub protection'):
+            self.merge(['text'])
+        self.pull['mergeable_state'] = 'clean'
+        self.permission = False
+        with self.assertRaises(PermissionError):
+            self.merge(['text'])
+        self.assertFalse(any('merge' in cmd for cmd in self.calls))
+
+    def test_pin_and_mixed_pin_text_still_require_passing_ci(self):
+        for kinds in (['pin'], ['pin', 'text']):
+            for checks in (
+                [{'__typename': 'CheckRun', 'name': 'ios-plan', 'status': 'QUEUED'}],
+                [{'__typename': 'CheckRun', 'name': 'ios-plan', 'status': 'COMPLETED', 'conclusion': 'FAILURE'}],
+                [],
+            ):
+                with self.subTest(kinds=kinds, checks=checks):
+                    self.calls = []
+                    self.checks = checks
+                    with self.assertRaisesRegex(ValueError, 'checks are not passing'):
+                        self.merge(kinds)
+                    self.assertFalse(any('merge' in cmd for cmd in self.calls))
+
 
 if __name__ == '__main__':
     unittest.main()

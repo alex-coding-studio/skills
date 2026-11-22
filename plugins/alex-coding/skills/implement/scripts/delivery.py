@@ -175,12 +175,15 @@ def start_monitor(args, exemption):
                     raise RuntimeError(f'monitor startup is unverified; inspect {root / "startup.log"}')
                 time.sleep(0.1)
         if exemption['status'] == 'review-exempt':
+            pure_text = exemption.get('kinds') == ['text']
+            next_step = ('Merge directly with pin-merge at this head (CI waiting waived for pure text).'
+                         if pure_text else 'Merge with pin-merge at this head once checks pass.')
             receipt = {**exemption, 'monitor_active': True, 'reviewer_active': False,
-                       'next': 'Merge with pin-merge at this head once checks pass.'}
+                       'next': next_step}
             if args.runtime == 'antigravity':
                 receipt['wait_command'] = standalone_wait_command(args, root)
                 receipt['next'] = ('Run wait_command as a background command (WaitMsBeforeAsync=500) '
-                                   'and end your turn, or merge with pin-merge at this head once checks pass.')
+                                   f'and end your turn, or {next_step[0].lower()}{next_step[1:]}')
             return receipt
         result = invoke(review_command(args))
         receipt = {'status': 'started' if result['active'] else 'reviewer-inactive', 'pr': args.pr,
@@ -342,16 +345,18 @@ def pin_merge(args):
         raise ValueError('coordinator-approved source changes require --allow-pending-ci and the approval label')
     if pull['state'] != 'open' or pull['draft'] or {pull['head']['sha'], result['head']} != {args.expected_head}:
         raise ValueError('PR does not match the expected ready head')
+    pure_text = result.get('kinds') == ['text'] and result.get('exemption') != 'coordinator-approved-mechanical'
     detail = invoke([*review.remote.shared.gh_command('admin'), 'pr', 'view', str(github.number), '--repo',
                      github.repository, '--json', 'headRefOid,statusCheckRollup'])
     if detail['headRefOid'] != args.expected_head:
         raise ValueError('head changed while reading checks')
-    required = review.remote.shared.ci_required(github.repository, args.expected_head, 'admin')
-    ci = review.remote.check_summary(detail['statusCheckRollup'], required)['ci']
-    mechanical_ci = mechanical_ci_state(detail['statusCheckRollup'])
-    skip_ci = ci == 'pending' and coordinator and mechanical_ci == 'pending'
-    if (coordinator and mechanical_ci == 'fail') or (ci not in {'pass', 'none'} and not skip_ci):
-        raise ValueError('checks are not passing')
+    if not pure_text:
+        required = review.remote.shared.ci_required(github.repository, args.expected_head, 'admin')
+        ci = review.remote.check_summary(detail['statusCheckRollup'], required)['ci']
+        mechanical_ci = mechanical_ci_state(detail['statusCheckRollup'])
+        skip_ci = ci == 'pending' and coordinator and mechanical_ci == 'pending'
+        if (coordinator and mechanical_ci == 'fail') or (ci not in {'pass', 'none'} and not skip_ci):
+            raise ValueError('checks are not passing')
     if pull.get('mergeable') is not True or pull.get('mergeable_state') in {'blocked', 'dirty', 'unknown'}:
         raise ValueError('mergeability or required GitHub protection is unresolved')
     if not github.json(github.base).get('permissions', {}).get('push'):
@@ -365,6 +370,11 @@ def pin_merge(args):
             '--' + args.merge_method, '--match-head-commit', args.expected_head])
     if not github.pull().get('merged'):
         raise RuntimeError('merge is not confirmed')
+    if pure_text:
+        return {**result, 'status': 'merged', 'exemption': 'text',
+                'merged_without_waiting_for_ci': True,
+                'message': '纯文本/文档改动：免独立审查、免等待 CI 直接合并',
+                **cancel_pending_runs(github, pull, args.expected_head)}
     if coordinator:
         return {**result, 'status': 'merged', 'exemption': 'coordinator-approved-mechanical',
                 'approval_label': PENDING_CI_LABEL, 'merged_without_waiting_for_ci': True,
