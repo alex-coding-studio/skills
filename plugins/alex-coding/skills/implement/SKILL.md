@@ -28,7 +28,7 @@ A feature, fix or removal PR may add, remove, replace or update the direct depen
 
 With a task card, record every user-approved direction change on the task card as soon as it is approved, not at the end.
 
-Send every Semina card or task link as a Markdown link whose text names the card title and its module or task, such as `[卡片模型 · 六类资料卡的挂载与写入校验](url)`, never a bare URL; use the web `url` from the MCP receipt when present.
+Send every Semina card or task link as a Markdown link whose text names the module or task and the card title, such as the link text `卡片模型 · 六类资料卡的挂载与写入校验`, never a bare URL; use the web `url` from the MCP receipt when present.
 
 ## Implement and deliver
 

@@ -28,7 +28,7 @@ When the user settles something ("就这么定", "开工", an approved direction
 1. Decision: turn the pending card into a decision card (rewrite it into its conclusion with a settled type, parent and state), or update the existing decision card in place. Read before writing and pass the current revision.
 2. Superseded cards: set `state: superseded` with `supersededBy` pointing at the replacing card.
 3. Task: create or update the task card with `semina_create_task` / `semina_update_task`, referencing the decision cards it implements. Put the acceptance criteria a reviewer will check in the task body, or in the paired GitHub Issue body when the work is Issue-backed.
-4. Send the user the link of every card written. Send every Semina card or task link as a Markdown link whose text names the card title and its module or task, such as `[卡片模型 · 六类资料卡的挂载与写入校验](url)`, never a bare URL; use the web `url` from the MCP receipt when present.
+4. Send the user the link of every card written. Send every Semina card or task link as a Markdown link whose text names the module or task and the card title, such as the link text `卡片模型 · 六类资料卡的挂载与写入校验`, never a bare URL; use the web `url` from the MCP receipt when present.
 
 Unresolved questions stay or become pending cards; do not write them as decisions. Follow the card template and Library writing rules returned by Semina.
 
