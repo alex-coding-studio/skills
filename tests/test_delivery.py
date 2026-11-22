@@ -790,6 +790,39 @@ class PureTextMergeTests(unittest.TestCase):
                         self.merge(kinds)
                     self.assertFalse(any('merge' in cmd for cmd in self.calls))
 
+    def test_text_with_coordinator_mechanical_exemption_is_not_treated_as_pure_text(self):
+        exemption = {'status': 'review-exempt', 'pr': 'o/r#7', 'head': self.head,
+                     'kinds': ['text'], 'exemption': 'coordinator-approved-mechanical',
+                     'approval_label': delivery.PENDING_CI_LABEL}
+        self.assertFalse(delivery.is_pure_text_exemption(exemption))
+        self.pull['labels'] = [{'name': delivery.PENDING_CI_LABEL}]
+        self.args.allow_pending_ci = False
+        github = SimpleNamespace(number=7, repository='o/r', base='repos/o/r', pull=lambda: self.pull.copy(),
+                                 json=lambda endpoint, paginate=False: {'permissions': {'push': True}})
+        with patch.object(delivery, 'pin_check', return_value=exemption), \
+                patch.object(delivery.review.remote, 'GitHub', return_value=github):
+            with self.assertRaisesRegex(ValueError, '--allow-pending-ci'):
+                delivery.pin_merge(self.args)
+
+        self.args.allow_pending_ci = True
+        self.checks = [{'__typename': 'CheckRun', 'name': 'ios-plan', 'status': 'COMPLETED', 'conclusion': 'FAILURE'}]
+        with patch.object(delivery, 'pin_check', return_value=exemption), \
+                patch.object(delivery.review.remote, 'GitHub', return_value=github), \
+                patch.object(delivery.review.remote.shared, 'gh_command', return_value=['gh_as', 'admin']), \
+                patch.object(delivery.review.remote.shared, 'ci_required', return_value=self.required_checks), \
+                patch.object(delivery, 'invoke', return_value={'headRefOid': self.head, 'statusCheckRollup': self.checks}):
+            with self.assertRaisesRegex(ValueError, 'checks are not passing'):
+                delivery.pin_merge(self.args)
+
+        with tempfile.TemporaryDirectory() as directory:
+            args = delivery.parser().parse_args(['start', '--runtime', 'codex', '--session', '00000000-0000-0000-0000-000000000001',
+                                                 '--pr', 'o/r#7', '--checkout', directory, '--reviewer', 'reviewer'])
+            with patch.object(delivery, 'monitor_root', return_value=Path(directory)), \
+                    patch.object(delivery, 'invoke'), \
+                    patch.object(delivery, 'monitor_live', return_value=True):
+                receipt = delivery.start_monitor(args, exemption)
+            self.assertEqual(receipt['next'], 'Merge with pin-merge at this head once checks pass.')
+
 
 if __name__ == '__main__':
     unittest.main()

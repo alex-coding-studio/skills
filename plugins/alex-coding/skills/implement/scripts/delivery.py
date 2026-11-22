@@ -175,7 +175,7 @@ def start_monitor(args, exemption):
                     raise RuntimeError(f'monitor startup is unverified; inspect {root / "startup.log"}')
                 time.sleep(0.1)
         if exemption['status'] == 'review-exempt':
-            pure_text = exemption.get('kinds') == ['text']
+            pure_text = is_pure_text_exemption(exemption)
             next_step = ('Merge directly with pin-merge at this head (CI waiting waived for pure text).'
                          if pure_text else 'Merge with pin-merge at this head once checks pass.')
             receipt = {**exemption, 'monitor_active': True, 'reviewer_active': False,
@@ -308,6 +308,10 @@ def pending_ci_approved(pull):
     return any(label['name'].casefold() == PENDING_CI_LABEL for label in pull.get('labels', []))
 
 
+def is_pure_text_exemption(result):
+    return result.get('kinds') == ['text'] and result.get('exemption') != 'coordinator-approved-mechanical'
+
+
 def cancel_pending_runs(github, pull, head):
     cancelled, errors = [], []
     query = urlencode({'branch': pull['head']['ref'], 'head_sha': head, 'per_page': 100})
@@ -345,7 +349,7 @@ def pin_merge(args):
         raise ValueError('coordinator-approved source changes require --allow-pending-ci and the approval label')
     if pull['state'] != 'open' or pull['draft'] or {pull['head']['sha'], result['head']} != {args.expected_head}:
         raise ValueError('PR does not match the expected ready head')
-    pure_text = result.get('kinds') == ['text'] and result.get('exemption') != 'coordinator-approved-mechanical'
+    pure_text = is_pure_text_exemption(result)
     detail = invoke([*review.remote.shared.gh_command('admin'), 'pr', 'view', str(github.number), '--repo',
                      github.repository, '--json', 'headRefOid,statusCheckRollup'])
     if detail['headRefOid'] != args.expected_head:
