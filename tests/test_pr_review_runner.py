@@ -895,11 +895,18 @@ class RuntimeTests(unittest.TestCase):
             settings = json.loads((root / 'agy-settings.json').read_text())
             self.assertEqual(settings['agentMode'], '')
             self.assertEqual(settings['toolPermission'], 'request-review')
-            self.assertEqual(settings['permissions']['allow'], [f'read_file({root.resolve()})'])
+            allow = settings['permissions']['allow']
+            self.assertEqual(allow[0], f'read_file({root.resolve()})')
+            self.assertIn('mcp(semina/semina_read_task)', allow)
+            self.assertFalse([rule for rule in allow if 'update' in rule or 'create' in rule or '*' in rule])
             self.assertFalse(settings['allowNonWorkspaceAccess'])
             self.assertTrue(settings['disableSlashCommands'])
-            self.assertEqual(set(settings['permissions']['deny']),
-                             {'write_file(*)', 'command(*)', 'unsandboxed(*)', 'mcp(*)', 'read_url(*)', 'execute_url(*)'})
+            deny = set(settings['permissions']['deny'])
+            self.assertLessEqual({'write_file(*)', 'command(*)', 'unsandboxed(*)', 'read_url(*)', 'execute_url(*)'}, deny)
+            self.assertNotIn('mcp(*)', deny)
+            self.assertIn('mcp(semina/semina_update_task)', deny)
+            self.assertIn('mcp(migrated-settings_semina/semina_update_task)', deny)
+            self.assertIn('mcp(agy-dart_fast/*)', deny)
             # Checkout file shadowing the reserved agent name is refused before spawning agy
             shadow = root / 'checkout' / '.agents' / 'agents'
             shadow.mkdir(parents=True)

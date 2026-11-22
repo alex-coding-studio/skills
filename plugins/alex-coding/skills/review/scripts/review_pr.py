@@ -691,6 +691,7 @@ def stop_runner(root, pr):
 
 def continue_review(args, root, pr):
     decision = args.decision_file.read_text()
+    acceptance = args.acceptance_file.read_text() if args.acceptance_file else None
     previous = read(root, pr)
     github = remote.GitHub(pr, previous['reviewer'])
     pull = github.pull()
@@ -734,6 +735,8 @@ def continue_review(args, root, pr):
                      head=None, base=None, review_phase=None, last_review_url=None,
                      previous_review=archive, round_limit=limit, runtime=selected_runtime,
                      executable=executable, complexity=selected_complexity)
+        if acceptance is not None:
+            state['acceptance'] = acceptance
         state['model'] = resolved_model
         for key in ('last_error', 'last_transport_error', 'worker_pid', 'pid', 'started_at', 'next_session', 'antigravity_agent'):
             state.pop(key, None)
