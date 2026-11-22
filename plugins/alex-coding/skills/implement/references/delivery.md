@@ -5,11 +5,11 @@ Use `scripts/delivery.py` from the installed Implement skill to start the PR's s
 Keep the acceptance checklist and shareable evidence in the PR description. Use the review runtime’s [local input](../../review/references/runtime.md#launch-after-pr-creation) for evidence that cannot be published. Use this short template, written in the language the project's human-facing records require:
 
 1. What changed.
-2. Why: the request, Issue or Contract it fulfils.
+2. Why: the request, Issue or Semina task card it fulfils, with the card link.
 3. Checks: which gates and tests ran, with the exact head they ran on.
 4. Limits and human acceptance: what remains unverified, and the status of any required human or UI acceptance.
 
-A Contract delivery keeps its clause → case → test mapping table in the description. Add one sentence giving the reason for the chosen [review complexity](../../review/references/runtime.md#model-and-effort-policy). Do not include private reasoning or a suggested verdict. When later commits change the evidence, edit the description; the reviewer rereads it on every invocation.
+Add one sentence giving the reason for the chosen [review complexity](../../review/references/runtime.md#model-and-effort-policy). Do not include private reasoning or a suggested verdict. When later commits change the evidence, edit the description; the reviewer rereads it on every invocation.
 
 After committed, pushed changes, passing unchanged repository gates (in a CI project, CI runs them after the PR opens: do not run local tests or polish the description first, and add results to the description afterwards) and, for UI work, either the user's UI acceptance or their batch authorization to accept after delivery (opening the PR needs no separate approval):
 

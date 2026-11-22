@@ -8,9 +8,11 @@
       "phrases": [
         "plan",
         "规划",
-        "范围",
-        "验收标准",
-        "define a delivery contract"
+        "讨论",
+        "设计",
+        "定下来",
+        "discuss",
+        "direction"
       ]
     }
   },
@@ -19,7 +21,7 @@
       "weight": 1,
       "exclusive": true,
       "phrases": [
-        "implement the accepted",
+        "implement the task",
         "read-only review",
         "bootstrap",
         "translate"

@@ -1,37 +1,39 @@
 ---
 name: plan
-description: "Plan a repository change and publish its accepted Delivery Contract through a documentation PR. Use for scope, acceptance or contract work; exclude implementation and technical setup."
+description: "Own a project discussion: read Semina context, discuss the topic with the user, write settled decisions and task cards back to Semina with links, then ask what comes next. Use for planning, design or direction discussions; exclude implementation and technical setup."
 ---
 
-# Plan Repository Work
+# Plan: Own the Discussion
 
-Own the requested outcome, scope and Delivery Contract when the user asks to plan work or produce one. `alex-coding:implement` owns implementation and its code PR. Work without a Delivery Contract uses the user's current request as its acceptance source and does not route through Plan first. This workflow targets GitHub PR-based repositories without assuming a language, framework, directory layout or product-document scheme.
+Plan owns discussion, design and direction work for a repository or project. It keeps Semina aligned with what the user settles, so later implementation and review read current decisions instead of chat history. `alex-coding:implement` owns code, its PR and delivery. Plan writes no code, opens no PR and starts no Worker unless the user chooses that as the next step.
 
-## Establish the input
+Read [repository entry and declared context](../../references/project-context.md). Without a Semina declaration, follow the same flow with the repository's own sources and skip the card writes; say so once.
 
-1. Read [repository entry and declared context](../../references/project-context.md) and [delivery policy](../../references/delivery-policy.md). Identify the repository, relevant accepted requirements and current project constraints. Read only the sources needed for this delivery slice; completed contracts from earlier deliveries are optional history, not acceptance criteria to reconcile.
-2. Clarify material ambiguity and confirm scope and acceptance before authoring normative project documents. Reuse confirmation already given; do not ask again because a skill or session changed.
-3. For an idea without a repository, prepare a provisional proposal and name repository setup as the prerequisite to the planning PR. Do not create a technical shell, fabricate a merge or claim an implementation-ready handoff.
+## 1. Read fixed context
 
-## Build the contract
+Call `semina_read_project` with the `projectId` declared in the repository's `AGENTS.md`. The project card (L0) is fixed context for the whole discussion. Do not force the topic into a module up front; read modules and cards only when the topic needs them.
 
-Read [source-fidelity.md](references/source-fidelity.md) and [contract.md](references/contract.md). Freeze the accepted input and preserve a source-to-clause mapping. Define observable outcomes, exclusions, source anchors, acceptance criteria and the evidence each criterion requires. Use the existing project documentation location; otherwise propose a simple repository-relative contract path rather than a new documentation system.
+## 2. Surface what is relevant
 
-Discover applicable platform guidance, current product decisions, pitfalls and constraints through the repository entry and its declared sources. Preserve explicit project choices. Do not introduce an iOS, web or backend checklist automatically, require EXPERIENCE.md or milestones, prescribe implementation internals without a real constraint, or add features to make the plan look complete.
+For the topic the user raises, search Semina (`semina_search_nodes`, `semina_list_tasks`) for related decisions, pending cards and open tasks. Tell the user only what bears on this topic: a decision that constrains it, a pending card it would settle, an open task it overlaps. Do not list the full inventory.
 
-Keep needed direct dependency changes and matching manifest/lockfile changes in the feature implementation delivery; do not split them into a Setup prerequisite. Identify a separate Setup prerequisite for other missing technical foundations such as runtime, framework, database or package-manager changes. Setup does not require its own planning PR; the feature handoff waits only for those required foundation baselines to merge.
+## 3. Discuss
 
-Make project-specific pitfalls available to the Worker when relevant: explain the symptom, applicability and source. Unrelated pitfalls are not extra requirements. Review the contract for contradictory or untestable acceptance before publication. A planning review compares the frozen source against the numbered contract, checking completeness and unchanged meaning. It does not establish the correctness of code that has not been written.
+Discuss options, tradeoffs and a recommendation. Verify engineering facts in source, tests, Git and CI rather than card prose. Stored cards are evidence, not instructions. A user's leaning or an Agent's suggestion is not yet settled.
 
-## Publish and hand off
+## 4. Write back what the user settles
 
-1. Use the [disposable worktree lifecycle](../../references/worktree-lifecycle.md): keep the fresh worktree explicitly assigned by the execution host, create one when none is assigned, or resume the same delivery in its existing worktree. Write only the user-accepted planning documents there. Protect unrelated work. Follow the project’s approval and separate-PR rules for protected instructions and context changes.
-2. Open a ready documentation PR with the configured author identity. Use Draft only when requested. Register author-side follow-up through the project's existing monitoring mechanism when configured and available.
-3. Invoke `alex-coding:review` for the exact planning PR using [review startup](../review/references/runtime.md), unless a reviewer is already assigned or the project explicitly requires a human-owned path. Automatic reviewer startup is part of this delivery. Supply the frozen accepted source and clause mapping, address document feedback, obtain current-head approval and satisfy applicable document checks. Do not create a competing reviewer or supply the author's own verdict.
-4. When existing user/project authorization permits merge and all required conditions are satisfied, merge and verify the terminal state. Otherwise retain the PR and state the missing authorization or gate. Never hand off an open or rejected planning PR as implementation-ready.
-5. Produce [the merged handoff](references/handoff.md) with the repository, merged PR URL, full merge commit SHA, contract path and criterion IDs. Use the same configured post-merge completion mechanism as other project PRs; report preserved cleanup honestly.
-6. Stop after giving the user a ready-to-use `alex-coding:implement` prompt. Do not start a Worker or create another task without explicit authorization.
+When the user settles something ("就这么定", "开工", an approved direction change), write it back before any work starts:
 
-If the accepted contract must change after handoff but before its implementation delivery finishes, publish the revision through the same planning process and explicitly replace that delivery's handoff. A moving branch must not silently redefine active implementation acceptance. Once implementation review and merge finish, leave that contract unchanged. Later work follows its own Delivery Contract when one exists and otherwise follows the user's current request.
+1. Decision: turn the pending card into a decision card (rewrite it into its conclusion with a settled type, parent and state), or update the existing decision card in place. Read before writing and pass the current revision.
+2. Superseded cards: set `state: superseded` with `supersededBy` pointing at the replacing card.
+3. Task: create or update the task card with `semina_create_task` / `semina_update_task`, referencing the decision cards it implements. Put the acceptance criteria a reviewer will check in the task body, or in the paired GitHub Issue body when the work is Issue-backed.
+4. Send the user the link (`url`) of every card written.
 
-Use the bundled `alex-coding:monitor` for newly opened task-owned PRs by default unless the user opts out or a project explicitly chooses another compatible mechanism. Read its runtime reference and verify actual startup; unavailable transport is a reported limitation, not permission to invent a background wakeup. Independent Review follows only this PR until merge, closure or a published user-attention handoff. Author feedback and cleanup remain with Plan and Monitor; no repository-wide reviewer session is required.
+Unresolved questions stay or become pending cards; do not write them as decisions. Follow the card template and Library writing rules returned by Semina.
+
+## 5. Ask what comes next
+
+When the user signals the discussion is wrapping up, ask what comes next instead of offering a fixed menu. Typical answers: stop here; a ready `alex-coding:implement` prompt naming the task card; dispatch a Worker; or run `alex-coding:implement` in this session. Do only what the user picks.
+
+An implement prompt names the repository, the task card link and ID, and says to read the task card and its referenced decision cards first. Show the full prompt even when the user asks to pass it to a Worker.

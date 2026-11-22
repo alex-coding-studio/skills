@@ -35,34 +35,39 @@
     "expected": "Follow the declared legacy source for relevant context and preserve authored files and protected-edit rules."
   },
   {
-    "id": "open-plan",
-    "input": "The documentation PR is open and the user asks for the normal Plan handoff.",
-    "expected": "Do not label the contract implementation-ready; complete required review and merge first."
-  },
-  {
-    "id": "sha-mismatch",
-    "input": "The supplied handoff SHA exists but differs from the actual planning PR merge SHA.",
-    "expected": "Reject it as an unverified handoff and resolve the discrepancy before implementation."
-  },
-  {
-    "id": "merged-plan",
-    "input": "The plan is accepted, merged and the exact contract path at its merge SHA is verified.",
-    "expected": "Return an Implement prompt with the full SHA, path and criterion IDs; no automatic Worker task."
-  },
-  {
     "id": "settled-direct",
-    "input": "A small fix has settled acceptance and no Plan-owned task.",
-    "expected": "Allow Implement directly without requiring a planning PR or repeating acceptance."
+    "input": "A small fix has settled acceptance and no task card.",
+    "expected": "Implement directly: no task card, no required card reads; at wrap-up record only a reusable pitfall or changed decision, with its link."
   },
   {
-    "id": "unfinished-plan",
-    "input": "A Plan-owned contract is still unmerged; the same work is now called a small direct fix.",
-    "expected": "Do not use the direct-request exception to bypass the unfinished planning workflow."
+    "id": "plan-reads-l0",
+    "input": "The user starts a design discussion with Plan in a repository whose AGENTS.md declares a Semina projectId.",
+    "expected": "Read the project card first, search for related decisions, pending cards and open tasks, and mention only those relevant to the topic; do not force a module or list the inventory."
+  },
+  {
+    "id": "plan-settles",
+    "input": "During Plan the user says the direction is settled.",
+    "expected": "Before any work starts, turn the pending card into a decision (or update the decision), mark superseded cards with supersededBy, create or update the task card referencing those decisions with reviewer acceptance criteria, and send every card link."
+  },
+  {
+    "id": "plan-wrap-up",
+    "input": "The user signals the Plan discussion is wrapping up.",
+    "expected": "Ask what comes next without a fixed menu; do only what the user picks, such as stopping, a ready implement prompt, dispatching a Worker or implementing here."
+  },
+  {
+    "id": "implement-direction-change",
+    "input": "Mid-implementation a change needs several decisions across multiple PRs.",
+    "expected": "Suggest switching to Plan and let the user decide; keep the worktree and resume the same delivery afterwards."
+  },
+  {
+    "id": "implement-align-before-merge",
+    "input": "A task-card PR has independent approval and is about to merge.",
+    "expected": "Compare the final diff with the referenced decision cards and module card, update them in place with links before merge, then complete the task with knowledgeImpact after the last PR merges."
   },
   {
     "id": "review-scoped-context-snapshot",
     "input": "The exact-head entry declares Semina, but the independent read-only reviewer cannot use MCP from its runtime.",
-    "expected": "Use scoped private review evidence with the MCP read time, IDs, revisions and readable bodies. Compare it with exact-head instructions and frozen acceptance, escalate material gaps, and keep publication and provider writes outside the reviewer’s role."
+    "expected": "Use scoped private review evidence with the MCP read time, IDs, revisions and readable bodies. Compare it with exact-head instructions and the PR's acceptance, escalate material gaps, and keep publication and provider writes outside the reviewer’s role."
   },
   {
     "id": "existing-reviewer",
@@ -100,74 +105,29 @@
     "expected": "Both skills and shared references remain accessible; no private workspace path or iOS plugin is needed."
   },
   {
-    "id": "user-markdown-source",
-    "input": "The user supplies accepted Markdown without Semina.",
-    "expected": "Freeze that readable input and revision/hash, translate to numbered contract with source mapping; no Semina dependency or repeated wording approval."
-  },
-  {
-    "id": "accepted-chat-source",
-    "input": "Requirements are explicitly accepted in chat, with one unanswered question.",
-    "expected": "Capture attributed accepted statements/proposal excerpts faithfully; keep the unanswered question unresolved, not as acceptance."
-  },
-  {
-    "id": "source-fidelity",
-    "input": "The contract omits a refusal condition from the accepted source but is internally consistent.",
-    "expected": "Planning review blocks on changed meaning or omission by comparing source to clauses."
-  },
-  {
-    "id": "hash-without-content",
-    "input": "Only an input hash is supplied and the reviewer cannot access source content.",
-    "expected": "Report the evidence gap; do not approve translation fidelity or publish private content without authorization."
-  },
-  {
-    "id": "agent-contract-format",
-    "input": "User accepted product behavior and does not want another human prose review.",
-    "expected": "Plan writes compact unambiguous clauses and mapping, independently reviews fidelity, and asks only about materially unresolved product meaning."
-  },
-  {
-    "id": "worker-case-ids",
-    "input": "A merged rule MOVE-02 has three unit-testable outcomes.",
-    "expected": "Worker derives numbered cases before implementation, preserves MOVE-02/Txx IDs in test name/display form and mapping, and uses natural Red/Green for missing behavior."
-  },
-  {
     "id": "existing-green-case",
     "input": "An existing correct test already proves one accepted case.",
     "expected": "Reuse and label/map it rather than duplicate it or mutate correct behavior to force Red."
   },
   {
     "id": "ui-deferred",
-    "input": "A contract includes UI acceptance but no UI automation was requested.",
+    "input": "A task card includes UI acceptance but no UI automation was requested.",
     "expected": "Prioritize unit-testable cases, report UI evidence as pending/user-owned, and do not add CI UI jobs or claim UI acceptance from unit results."
   },
   {
-    "id": "visible-subagent-handoff",
-    "input": "User asks Plan to give the merged contract directly to a subagent.",
-    "expected": "Always output the full verified handoff prompt visibly and pass that same packet; do not replace it with a spawn acknowledgement."
-  },
-  {
-    "id": "completed-contract-drift",
-    "input": "A small newly accepted change intentionally differs from behavior recorded in a completed delivery contract.",
-    "expected": "Implement the new accepted scope without revising, reconciling or adding supersession markers to the completed contract; keep it as historical evidence."
-  },
-  {
-    "id": "review-old-contract-mismatch",
-    "input": "An implementation PR satisfies its current accepted scope but no longer matches clauses from several earlier completed contracts.",
+    "id": "review-old-pr-mismatch",
+    "input": "An implementation PR satisfies its current accepted scope but changes behavior shipped by several earlier PRs.",
     "expected": "Do not report the historical mismatch as a finding by itself; review against the acceptance bound to this PR, current repository rules and unintended behavior outside the accepted change."
   },
   {
-    "id": "active-contract-change",
-    "input": "During implementation, the requested outcome materially changes from the contract bound to this still-active delivery.",
-    "expected": "Return that delivery to Plan, publish the accepted revision and replace the active handoff before continuing; do not silently redefine acceptance."
-  },
-  {
     "id": "incremental-ui-direct",
-    "input": "The current work has no Delivery Contract. The user directly requests a visual or interaction adjustment that changes behavior delivered by an older completed contract.",
-    "expected": "Use the user's current request as acceptance and proceed through Implement with appropriate human UI acceptance; do not require Plan or update the older contract."
+    "input": "The current work has no task card. The user directly requests a visual or interaction adjustment that changes behavior delivered by an older PR.",
+    "expected": "Use the user's current request as acceptance and proceed through Implement with appropriate human UI acceptance; do not require Plan."
   },
   {
     "id": "direct-request-material-gap",
-    "input": "The current work has no Delivery Contract. The user requests offline sync but leaves a conflict outcome undefined, so implementation and verification cannot determine the expected result.",
-    "expected": "Ask only for the missing conflict outcome as a direct clarification, then use the request and answer as acceptance; do not require Plan or create a Delivery Contract."
+    "input": "The current work has no task card. The user requests offline sync but leaves a conflict outcome undefined, so implementation and verification cannot determine the expected result.",
+    "expected": "Ask only for the missing conflict outcome as a direct clarification, then use the request and answer as acceptance; do not require Plan or a task card."
   },
   {
     "id": "diagnosed-issue-current-code",
@@ -176,7 +136,7 @@
   },
   {
     "id": "direct-existing-test-name",
-    "input": "A direct small regression fix has adequate existing scenario tests with descriptive names and no Contract.",
+    "input": "A direct small regression fix has adequate existing scenario tests with descriptive names and no task card.",
     "expected": "Map outcomes to those names in one task/PR record; do not create synthetic clause IDs or rename tests solely for tracing."
   },
   {
