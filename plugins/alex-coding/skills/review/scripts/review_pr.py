@@ -734,6 +734,8 @@ def continue_review(args, root, pr):
                      head=None, base=None, review_phase=None, last_review_url=None,
                      previous_review=archive, round_limit=limit, runtime=selected_runtime,
                      executable=executable, complexity=selected_complexity)
+        if args.acceptance_file:
+            state['acceptance'] = args.acceptance_file.read_text()
         state['model'] = resolved_model
         for key in ('last_error', 'last_transport_error', 'worker_pid', 'pid', 'started_at', 'next_session', 'antigravity_agent'):
             state.pop(key, None)

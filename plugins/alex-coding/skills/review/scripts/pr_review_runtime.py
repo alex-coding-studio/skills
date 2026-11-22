@@ -29,6 +29,12 @@ ANTIGRAVITY_MODELS = frozenset({
 })
 
 
+SEMINA_READ_TOOLS = ('read_project', 'read_node', 'read_nodes', 'read_task', 'read_tasks', 'read_template',
+                     'search_nodes', 'list_nodes', 'list_projects', 'list_tasks', 'overview')
+SEMINA_WRITE_TOOLS = ('close_issue', 'create_node', 'create_project', 'create_task', 'delete_node', 'delete_task',
+                      'patch_node', 'patch_task', 'register_project', 'set_card_template', 'update_node', 'update_task')
+
+
 def antigravity_settings(root):
     return {
         'agentMode': '',
@@ -36,14 +42,14 @@ def antigravity_settings(root):
         'allowNonWorkspaceAccess': False,
         'disableSlashCommands': True,
         'permissions': {
-            'allow': [f'read_file({root.resolve()})'],
+            'allow': [f'read_file({root.resolve()})', *(f'mcp(semina/semina_{tool})' for tool in SEMINA_READ_TOOLS)],
             'deny': [
                 'write_file(*)',
                 'command(*)',
                 'unsandboxed(*)',
-                'mcp(*)',
                 'read_url(*)',
                 'execute_url(*)',
+                *(f'mcp(semina/semina_{tool})' for tool in SEMINA_WRITE_TOOLS),
             ],
         },
     }

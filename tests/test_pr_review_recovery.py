@@ -181,6 +181,11 @@ class FreshReviewTests(unittest.TestCase):
         self.assertNotEqual(state['pending']['token'], 'old-token')
         self.assertEqual(state['pending']['result']['outcome'], 'changes-requested')
 
+    def test_continuation_replaces_acceptance_input_when_a_file_is_given(self):
+        acceptance = self.root / 'acceptance-input.md'
+        acceptance.write_text('Semina snapshot')
+        self.assertEqual(self.continue_review('--acceptance-file', str(acceptance))['acceptance'], 'Semina snapshot')
+
     def test_explicit_continuation_moves_an_old_session_to_the_current_model(self):
         state = self.continue_review('--additional-rounds', '0')
         self.assertEqual(state['model'], 'gpt-6.2-sol')
