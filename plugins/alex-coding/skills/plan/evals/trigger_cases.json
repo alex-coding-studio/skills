@@ -2,21 +2,21 @@
   "should_trigger": [
     {
       "family": "should_trigger-0",
-      "text": "Use alex-coding:plan to plan a repository change and its acceptance contract."
+      "text": "Use alex-coding:plan to discuss how this feature should work before anyone builds it."
     },
     {
       "family": "should_trigger-1",
-      "text": "Plan the scope and acceptance criteria for this delivery first."
+      "text": "Let's plan the direction for sync conflicts and record what we decide."
     },
     {
       "family": "should_trigger-2",
-      "text": "Define a delivery contract before writing implementation code."
+      "text": "我想先讨论一下这个模块的设计，定下来再开工。"
     }
   ],
   "should_not_trigger": [
     {
       "family": "should_not_trigger-0",
-      "text": "Implement the accepted contract now."
+      "text": "Implement the task card we settled yesterday."
     },
     {
       "family": "should_not_trigger-1",
