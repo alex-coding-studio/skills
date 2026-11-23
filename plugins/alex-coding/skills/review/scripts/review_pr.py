@@ -280,13 +280,18 @@ def github_repository(url):
     return match.group(1).casefold() if match else None
 
 
+def matching_directories(base, name):
+    paths = [*base.glob('*/'), *base.glob('*/*/'), *base.glob('*/*/*/')]
+    return sorted(p for p in paths if p.is_dir() and p.name.casefold() == name.casefold())
+
+
 def local_object_store(repository, state=None):
     """Object directory of a local clone of `repository`, so a review fetch only downloads the PR delta."""
     author = (state or {}).get('author_delivery') or {}
     name = repository.split('/')[-1]
     candidates = [author.get('slot'), author.get('checkout')]
     for base in LOCAL_REPOSITORY_ROOTS:
-        candidates += [base / name, *sorted(base.glob(f'*/{name}')), *sorted(base.glob(f'*/*/{name}'))]
+        candidates += matching_directories(base, name)
     seen = set()
     for candidate in candidates:
         if not candidate or not Path(candidate).is_dir():

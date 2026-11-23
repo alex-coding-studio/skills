@@ -1455,10 +1455,6 @@ class StartFallbackTests(unittest.TestCase):
             configured.assert_not_called()
 
 
-if __name__ == '__main__':
-    unittest.main()
-
-
 class LocalObjectReferenceTests(unittest.TestCase):
     def test_review_checkout_borrows_objects_from_the_local_clone(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1471,7 +1467,7 @@ class LocalObjectReferenceTests(unittest.TestCase):
                 return subprocess.run(['git', '-C', str(where), *arguments], capture_output=True, text=True,
                                       check=True, env={**os.environ, **env}).stdout.strip()
 
-            local = temp / 'Mobile/repo'
+            local = temp / 'Mobile/Repo'
             local.mkdir(parents=True)
             git(local, 'init', '-q', '-b', 'main')
             (local / 'a.txt').write_text('base')
@@ -1492,3 +1488,11 @@ class LocalObjectReferenceTests(unittest.TestCase):
             self.assertEqual(alternates, str((local / '.git/objects').resolve()))
             self.assertEqual(git(root / 'checkout', 'rev-parse', 'HEAD'), head)
             self.assertIn('+head', (root / 'current.patch').read_text())
+
+    def test_no_local_clone_returns_none(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(runner, 'LOCAL_REPOSITORY_ROOTS', (Path(temp),)):
+            self.assertIsNone(runner.local_object_store('owner/repo'))
+
+
+if __name__ == '__main__':
+    unittest.main()
