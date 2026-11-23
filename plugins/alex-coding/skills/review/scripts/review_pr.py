@@ -26,6 +26,8 @@ PROJECT = Path(__file__).resolve().parents[2] / 'project-monitor/scripts/project
 CHECKOUT_RETENTION_DAYS = 7
 DEFAULT_RUNTIME = 'antigravity'
 DEFAULT_FALLBACK_MODEL = 'gemini-4-hydrogen-high'
+FETCH_TIMEOUT = 900
+LOCAL_REPOSITORY_ROOTS = (Path.home() / 'alex-coding-studio',)
 
 
 def configured_review(pr):
@@ -267,9 +269,40 @@ def running(root):
         return True
 
 
-def git(checkout, *arguments):
+def git(checkout, *arguments, timeout=120):
     return subprocess.run(['git', '-C', str(checkout), *arguments], capture_output=True,
-                          text=True, timeout=120, check=True).stdout
+                          text=True, timeout=timeout, check=True).stdout
+
+
+def github_repository(url):
+    match = re.fullmatch(r'(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+?)(?:\.git)?/?',
+                         url.strip())
+    return match.group(1).casefold() if match else None
+
+
+def local_object_store(repository, state=None):
+    """Object directory of a local clone of `repository`, so a review fetch only downloads the PR delta."""
+    author = (state or {}).get('author_delivery') or {}
+    name = repository.split('/')[-1]
+    candidates = [author.get('slot'), author.get('checkout')]
+    for base in LOCAL_REPOSITORY_ROOTS:
+        candidates += [base / name, *sorted(base.glob(f'*/{name}')), *sorted(base.glob(f'*/*/{name}'))]
+    seen = set()
+    for candidate in candidates:
+        if not candidate or not Path(candidate).is_dir():
+            continue
+        try:
+            common = Path(git(candidate, 'rev-parse', '--path-format=absolute', '--git-common-dir', timeout=10).strip())
+            origin = git(candidate, 'config', '--get', 'remote.origin.url', timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        objects = (common / 'objects').resolve()
+        if objects in seen:
+            continue
+        seen.add(objects)
+        if github_repository(origin) == repository.casefold() and objects.is_dir():
+            return objects
+    return None
 
 
 def safe_to_discard_checkout(root):
@@ -342,7 +375,7 @@ def prune_stale_checkouts(review_dir, active_root=None, max_age_s=CHECKOUT_RETEN
             continue
 
 
-def prepare_checkout(root, current, repository):
+def prepare_checkout(root, current, repository, state=None):
     checkout = root / 'checkout'
     expected = f'https://github.com/{repository}.git'
     if not checkout.exists():
@@ -351,11 +384,16 @@ def prepare_checkout(root, current, repository):
         git(checkout, 'remote', 'add', 'origin', expected)
     if checkout.is_symlink() or (checkout / '.git').is_symlink() or not (checkout / '.git').is_dir():
         raise ValueError('review checkout must be its own generated Git repository')
-    if git(checkout, 'remote', 'get-url', 'origin').strip() != expected:
+    if github_repository(git(checkout, 'config', '--get', 'remote.origin.url')) != repository.casefold():
         raise ValueError('review checkout remote differs from the bound PR')
     if git(checkout, 'status', '--porcelain', '--untracked-files=all', '--ignored').strip():
         raise ValueError('review checkout has local work; preserve it for inspection')
-    git(checkout, 'fetch', '--quiet', '--no-tags', 'origin', current['head'], current['base'])
+    objects = local_object_store(repository, state)
+    if objects:
+        alternates = checkout / '.git/objects/info/alternates'
+        alternates.parent.mkdir(parents=True, exist_ok=True)
+        alternates.write_text(f'{objects}\n')
+    git(checkout, 'fetch', '--quiet', '--no-tags', 'origin', current['head'], current['base'], timeout=FETCH_TIMEOUT)
     git(checkout, 'checkout', '--quiet', '--detach', current['head'])
     if git(checkout, 'rev-parse', 'HEAD').strip() != current['head']:
         raise ValueError('review checkout does not match the requested head')
@@ -460,7 +498,7 @@ def step(root, state, github, execute=None):
         if (result is None and not pending.get('resumed')
                 and (snapshot['head'], snapshot['base']) == (current['head'], current['base'])):
             pending['resumed'] = True
-            prepare_checkout(root, snapshot, github.repository)
+            prepare_checkout(root, snapshot, github.repository, state)
             return run_worker(root, state, github, snapshot, pending.get('reason', 'head'), pending['token'], execute)
         state['pending'] = make_pending(state, snapshot, result or attention_result(
             'the previous worker was interrupted twice before a validated result was saved. '
@@ -503,7 +541,7 @@ def step(root, state, github, execute=None):
     token = uuid.uuid4().hex
     if (reason == 'head' and state.get('approved_fingerprint') and state.get('review_phase') in {'approved', 'waiting-ci'}
             and all(event['key'] in state['seen'] for event in current['events'])):
-        prepare_checkout(root, current, github.repository)
+        prepare_checkout(root, current, github.repository, state)
         current['fingerprint'] = own_diff_fingerprint(root, current)
         if current['fingerprint'] == state['approved_fingerprint']:
             if current['head'] == state['head']:
@@ -520,7 +558,7 @@ def step(root, state, github, execute=None):
             'A user decision is required before extending the existing round budget.'), token)
         save(root, state)
         return True
-    prepare_checkout(root, current, github.repository)
+    prepare_checkout(root, current, github.repository, state)
     current['fingerprint'] = own_diff_fingerprint(root, current)
     if code_review:
         state['rounds'] += 1
