@@ -1455,5 +1455,44 @@ class StartFallbackTests(unittest.TestCase):
             configured.assert_not_called()
 
 
+class LocalObjectReferenceTests(unittest.TestCase):
+    def test_review_checkout_borrows_objects_from_the_local_clone(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            env = {'GIT_CONFIG_GLOBAL': str(temp / 'gitconfig'), 'GIT_CONFIG_NOSYSTEM': '1'}
+            (temp / 'gitconfig').write_text(f'[url "{temp / "remote.git"}"]\n\tinsteadOf = https://github.com/owner/repo.git\n'
+                                            '[user]\n\tname = t\n\temail = t@t\n')
+
+            def git(where, *arguments):
+                return subprocess.run(['git', '-C', str(where), *arguments], capture_output=True, text=True,
+                                      check=True, env={**os.environ, **env}).stdout.strip()
+
+            local = temp / 'Mobile/Repo'
+            local.mkdir(parents=True)
+            git(local, 'init', '-q', '-b', 'main')
+            (local / 'a.txt').write_text('base')
+            git(local, 'add', 'a.txt')
+            git(local, 'commit', '-qm', 'base')
+            base = git(local, 'rev-parse', 'HEAD')
+            (local / 'a.txt').write_text('head')
+            git(local, 'commit', '-qam', 'head')
+            head = git(local, 'rev-parse', 'HEAD')
+            git(temp, 'clone', '-q', '--bare', str(local), 'remote.git')
+            git(local, 'remote', 'add', 'origin', 'git@github.com:Owner/Repo.git')
+            root = temp / 'pr-1'
+            root.mkdir()
+            with patch.dict(os.environ, env), patch.object(runner, 'LOCAL_REPOSITORY_ROOTS', (temp,)):
+                self.assertEqual(runner.local_object_store('owner/repo'), (local / '.git/objects').resolve())
+                runner.prepare_checkout(root, {'head': head, 'base': base}, 'owner/repo', {})
+            alternates = (root / 'checkout/.git/objects/info/alternates').read_text().strip()
+            self.assertEqual(alternates, str((local / '.git/objects').resolve()))
+            self.assertEqual(git(root / 'checkout', 'rev-parse', 'HEAD'), head)
+            self.assertIn('+head', (root / 'current.patch').read_text())
+
+    def test_no_local_clone_returns_none(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(runner, 'LOCAL_REPOSITORY_ROOTS', (Path(temp),)):
+            self.assertIsNone(runner.local_object_store('owner/repo'))
+
+
 if __name__ == '__main__':
     unittest.main()
