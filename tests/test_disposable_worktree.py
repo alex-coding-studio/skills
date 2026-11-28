@@ -164,9 +164,17 @@ class DisposableWorktreeTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(script), '--repository', str(self.checkout),
                                  '--branch', 'fix/default-root'], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        destination = self.root.resolve() / '.worktrees/tasks/primary repo/fix%2Fdefault-root'
+        destination = self.root.resolve() / '.worktrees/tasks/primary repo/fix--default-root'
         self.assertEqual(json.loads(result.stdout)['path'], str(destination))
         self.assertEqual(self.git(destination, 'branch', '--show-current'), 'fix/default-root')
+
+    def test_default_refuses_a_branch_that_flattens_onto_an_existing_destination(self):
+        self.git(self.remote, 'symbolic-ref', 'HEAD', 'refs/heads/main')
+        (self.root / '.worktrees').mkdir()
+        cleanup.lifecycle.create_worktree(self.checkout, None, 'fix/clash')
+        with self.assertRaisesRegex(ValueError, 'already exists'):
+            cleanup.lifecycle.create_worktree(self.checkout, None, 'fix--clash')
+        self.assertNotIn('fix--clash', self.git(self.repo, 'branch', '--format=%(refname:short)').split())
 
     def test_default_rejects_a_symlinked_repository_container(self):
         root = self.root / '.worktrees' / 'tasks'
@@ -183,14 +191,14 @@ class DisposableWorktreeTests(unittest.TestCase):
         (self.root / '.worktrees').mkdir()
         (self.root / 'Shared/.worktrees').mkdir(parents=True)
         destination = cleanup.lifecycle.default_destination(nested.resolve(), 'fix/outer')
-        self.assertEqual(destination, self.root.resolve() / '.worktrees/tasks/repo/fix%2Fouter')
+        self.assertEqual(destination, self.root.resolve() / '.worktrees/tasks/repo/fix--outer')
 
     def test_default_uses_alex_worktree_root_override(self):
         override = self.root / 'custom-worktrees'
         override.mkdir()
         with patch.dict('os.environ', {'ALEX_WORKTREE_ROOT': str(override)}):
             destination = cleanup.lifecycle.default_destination(self.repo, 'fix/override')
-        self.assertEqual(destination, override.resolve() / 'tasks' / self.repo.name / 'fix%2Foverride')
+        self.assertEqual(destination, override.resolve() / 'tasks' / self.repo.name / 'fix--override')
 
     def test_two_successive_deliveries_create_merge_sync_and_dispose(self):
         self.git(self.remote, 'symbolic-ref', 'HEAD', 'refs/heads/main')
@@ -200,7 +208,7 @@ class DisposableWorktreeTests(unittest.TestCase):
         self.git(writer, 'config', 'user.email', 'test@example.invalid')
         for index in (1, 2):
             branch = f'delivery-{index}'
-            destination = self.root / branch
+            destination = self.root / (f'legacy%2F{branch}' if index == 1 else branch)
             previous = self.git(self.repo, 'rev-parse', 'HEAD')
             created = cleanup.lifecycle.create_worktree(self.repo, destination, branch)
             self.assertEqual(created['base_sha'], previous)
