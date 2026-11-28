@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from urllib.parse import quote
 import uuid
 
 
@@ -98,7 +97,7 @@ def default_destination(primary, branch):
                      if (parent / '.worktrees').is_dir() and not (parent / '.worktrees').is_symlink()), None)
     if root is None:
         raise ValueError('No ancestor workspace has a .worktrees directory; pass --destination')
-    destination = root / 'tasks' / primary.name / quote(branch, safe='')
+    destination = root / 'tasks' / primary.name / branch.replace('/', '--')
     if destination.resolve() != destination:
         raise ValueError('The default worktree destination must not traverse a symbolic link')
     return destination
